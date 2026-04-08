@@ -1,0 +1,943 @@
+#!/bin/bash
+# Autonomous multi-session grind — runs sequential Devin sessions until deadline.
+# Each session starts with full context. State lives in TASKS.md + git, so the
+# next session picks up seamlessly. Sessions should exit BEFORE context fills —
+# context exhaustion crashes the process and loses any uncommitted work.
+#
+# Usage: taskgrind                              → 8h grind (default), opus 4.6 thinking
+#        taskgrind 10                          → 10h grind, current dir
+#        taskgrind ~/apps/myrepo 10            → 10h grind in specific repo
+#        taskgrind --skill fleet-grind 10      → 10h fleet-grind
+#        taskgrind ~/apps/bosun --skill fleet-grind 10
+#        taskgrind --prompt "focus on test coverage" 8
+#        taskgrind --dry-run 8 ~/apps/myrepo  → print config without running
+#        taskgrind --preflight ~/apps/myrepo  → run health checks only
+#        DVB_MODEL=sonnet taskgrind 8          → 8h grind, sonnet model
+#
+#        Args can appear in any order. Hours is any bare integer (1-24).
+#
+# Env:   DVB_MODEL      — Devin model (default: claude-opus-4-6-thinking)
+#        DVB_COOL       — seconds between sessions (default: 5)
+#        DVB_SKILL      — skill to run (default: next-task)
+#        DVB_PROMPT     — extra focus prompt prepended to every session
+#        DVB_LOG        — override log file path
+#        DVB_NOTIFY     — macOS notification on completion (default: 1, set 0 to disable)
+#        DVB_MAX_SESSION — max seconds per session before timeout (default: 3600)
+#        DVB_MAX_FAST   — max consecutive fast failures before bail out (default: 5)
+#        DVB_MAX_ZERO_SHIP — max consecutive zero-ship sessions before bail (default: 3)
+#        DVB_BACKOFF_BASE — base seconds for fast-failure backoff (default: 15)
+#        DVB_BACKOFF_MAX — cap for fast-failure backoff (default: 120)
+#        DVB_NET_WAIT   — network polling interval in seconds (default: 30)
+#        DVB_NET_MAX_WAIT — max time to wait for network in seconds (default: 14400)
+#        DVB_MIN_SESSION — fast-failure threshold in seconds (default: 30)
+#        DVB_DEVIN_PATH — override devin binary path (default: auto-detect from PATH)
+#        DVB_GIT_SYNC_TIMEOUT — max seconds for between-session git sync (default: 30)
+#        DVB_SYNC_INTERVAL — git sync every N sessions (default: 5, 0=every session)
+#        DVB_EARLY_EXIT_ON_STALL — exit early on low throughput (default: 0)
+#        DVB_GRIND_CMD  — override the devin command (for testing)
+#        DVB_DEADLINE   — override deadline epoch (for testing)
+#
+# Network resilience: survives wifi drops for hours. When a session crashes
+# in < 30s, taskgrind checks connectivity. If the network is down, it pauses
+# the marathon timer and polls every 30s until connectivity returns, then
+# extends the deadline by the wait duration. No sessions are wasted.
+set -euo pipefail
+[[ "${1:-}" == "--help" || "${1:-}" == "-h" ]] && { sed -n '/^#!/d; /^$/q; /^[^#]/q; /^# shellcheck/d; s/^# \{0,1\}//p' "$0"; exit 0; }
+
+# Respect TMPDIR for all temp files (macOS default: /tmp)
+_dvb_tmp="${TMPDIR:-/tmp}"
+_dvb_tmp="${_dvb_tmp%/}"
+
+# Self-copy protection: bash reads scripts lazily by byte offset. If a grind
+# session modifies this script (e.g., grinding the dotfiles repo), the running
+# process reads from shifted offsets and crashes. Copy to a temp file and
+# re-exec from there so the running copy is never modified.
+# Must run BEFORE sourcing relative paths — the copy lives in $TMPDIR so $0-based
+# paths would resolve to / instead of the real dotfiles dir.
+if [[ -z "${_DVB_SELF_COPY:-}" ]]; then
+  _dvb_copy=$(mktemp "$_dvb_tmp/taskgrind-exec.XXXXXX")
+  cp "$0" "$_dvb_copy"
+  chmod +x "$_dvb_copy"
+  export _DVB_SELF_COPY="$_dvb_copy"
+  # Preserve TASKGRIND_DIR if already set (e.g. by tests); otherwise derive from $0
+  TASKGRIND_DIR="${TASKGRIND_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+  export TASKGRIND_DIR
+  exec "$_dvb_copy" "$@"
+fi
+
+# Ensure self-copy temp file is cleaned up even on early exits (validation, --dry-run).
+# The full cleanup() trap replaces this later once all variables are initialized.
+trap '[[ -n "${_DVB_SELF_COPY:-}" && -f "${_DVB_SELF_COPY}" ]] && rm -f "$_DVB_SELF_COPY"' EXIT
+
+# Shared constants (model, devin path, caffeinate flags, format_duration)
+TASKGRIND_DIR="${TASKGRIND_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+# shellcheck source=../lib/constants.sh
+source "$TASKGRIND_DIR/lib/constants.sh"
+
+# Save original args before parsing — caffeinate re-exec needs them intact
+_orig_args=("$@")
+
+# Parse all args in any order: hours (integer), --skill NAME, --prompt TEXT, --dry-run, --preflight, repo path
+hours="8"
+repo="."
+skill="${DVB_SKILL:-next-task}"
+extra_prompt="${DVB_PROMPT:-}"
+dry_run=0
+preflight_only=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) dry_run=1; shift ;;
+    --preflight) preflight_only=1; shift ;;
+    --skill=*) skill="${1#--skill=}"; shift ;;
+    --skill)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --skill requires a name" >&2; exit 1
+      fi
+      skill="$2"; shift 2
+      ;;
+    --prompt=*) extra_prompt="${1#--prompt=}"; shift ;;
+    --prompt)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --prompt requires a value" >&2; exit 1
+      fi
+      extra_prompt="$2"; shift 2
+      ;;
+    *)
+      if [[ "$1" =~ ^[0-9]+$ ]] && [[ ! -d "$1" ]]; then
+        hours="$1"
+      else
+        repo="$1"
+      fi
+      shift
+      ;;
+  esac
+done
+model="${DVB_MODEL:-$DVB_DEFAULT_MODEL}"
+cooldown="${DVB_COOL:-5}"
+max_hours=24
+max_fast="${DVB_MAX_FAST:-5}"
+max_session="${DVB_MAX_SESSION:-3600}"
+max_zero_ship="${DVB_MAX_ZERO_SHIP:-3}"
+sync_interval="${DVB_SYNC_INTERVAL:-5}"
+
+# Validate numeric env vars
+if ! [[ "$cooldown" =~ ^[0-9]+$ ]]; then
+  echo "Error: DVB_COOL must be numeric, got '$cooldown'" >&2; exit 1
+fi
+if ! [[ "$max_fast" =~ ^[0-9]+$ ]]; then
+  echo "Error: DVB_MAX_FAST must be numeric, got '$max_fast'" >&2; exit 1
+fi
+if ! [[ "$max_session" =~ ^[0-9]+$ ]]; then
+  echo "Error: DVB_MAX_SESSION must be numeric, got '$max_session'" >&2; exit 1
+fi
+if ! [[ "$max_zero_ship" =~ ^[0-9]+$ ]]; then
+  echo "Error: DVB_MAX_ZERO_SHIP must be numeric, got '$max_zero_ship'" >&2; exit 1
+fi
+if ! [[ "$sync_interval" =~ ^[0-9]+$ ]]; then
+  echo "Error: DVB_SYNC_INTERVAL must be numeric, got '$sync_interval'" >&2; exit 1
+fi
+
+# Validate hours is a positive integer within range
+if ! [[ "$hours" =~ ^[0-9]+$ ]] || [[ "$hours" -eq 0 ]]; then
+  echo "Error: HOURS must be a positive integer" >&2; exit 1
+fi
+if [[ "$hours" -gt "$max_hours" ]]; then
+  echo "Error: max $max_hours hours" >&2; exit 1
+fi
+
+# Validate repo exists
+if [[ ! -d "$repo" ]]; then
+  echo "Error: repo path does not exist: $repo" >&2; exit 1
+fi
+
+repo="$(cd "$repo" && pwd)"
+
+# ── Preflight health checks ──────────────────────────────────────────
+# Validates the runtime environment before entering the main loop.
+# Returns 0 if all checks pass (or only warns), 1 if any check fails.
+# Output follows the dotfiles-doctor pattern: ✓ pass / ⚠ warn / ✗ fail.
+_pf_pass=0
+_pf_warn=0
+_pf_fail=0
+
+preflight_pass()  { echo "  ✓ $1"; _pf_pass=$((_pf_pass + 1)); }
+preflight_warn()  { echo "  ⚠ $1"; _pf_warn=$((_pf_warn + 1)); }
+preflight_fail()  { echo "  ✗ $1"; _pf_fail=$((_pf_fail + 1)); }
+
+preflight_check() {
+  echo "Preflight checks for: $repo"
+  echo ""
+
+  # 1. Devin binary — required to run sessions
+  if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+    # Test mode — skip devin binary check
+    preflight_pass "Devin binary (test mode: DVB_GRIND_CMD set)"
+  elif [[ -x "$DVB_DEVIN_PATH" ]]; then
+    preflight_pass "Devin binary: $DVB_DEVIN_PATH"
+  else
+    preflight_fail "Devin binary not found: $DVB_DEVIN_PATH"
+  fi
+
+  # 2. Network connectivity — required for API calls
+  if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+    # Test mode — use sentinel file
+    if [[ -n "${DVB_NET_FILE:-}" ]] && [[ -f "$DVB_NET_FILE" ]]; then
+      preflight_pass "Network connectivity (test mode)"
+    elif [[ -z "${DVB_NET_FILE:-}" ]]; then
+      preflight_pass "Network connectivity (test mode: no DVB_NET_FILE)"
+    else
+      preflight_warn "Network down (test mode: DVB_NET_FILE missing)"
+    fi
+  elif curl -sf --max-time 5 https://api.anthropic.com >/dev/null 2>&1; then
+    preflight_pass "Network connectivity"
+  else
+    preflight_fail "Network unreachable (api.anthropic.com)"
+  fi
+
+  # 3. Git state clean — not mid-rebase, not detached HEAD, not mid-merge
+  local git_dir
+  git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)" || git_dir=""
+  if [[ -z "$git_dir" ]]; then
+    preflight_warn "Not a git repository: $repo"
+  else
+    local git_clean=1
+    if [[ -d "$git_dir/rebase-merge" ]] || [[ -d "$git_dir/rebase-apply" ]]; then
+      preflight_fail "Git rebase in progress — run 'git rebase --abort' or resolve"
+      git_clean=0
+    fi
+    if [[ -f "$git_dir/MERGE_HEAD" ]]; then
+      preflight_fail "Git merge in progress — resolve or abort"
+      git_clean=0
+    fi
+    if [[ "$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)" == "HEAD" ]]; then
+      preflight_warn "Detached HEAD — sessions may not sync properly"
+      git_clean=0
+    fi
+    if [[ $git_clean -eq 1 ]]; then
+      preflight_pass "Git state clean"
+    fi
+  fi
+
+  # 4. Git remote reachable — required for between-session sync
+  if [[ -n "$git_dir" ]] && [[ -n "$(git -C "$repo" remote 2>/dev/null)" ]]; then
+    # Use background + sleep pattern since timeout/gtimeout may not exist on macOS
+    if (git -C "$repo" ls-remote origin HEAD >/dev/null 2>&1 &
+        _ls_pid=$!
+        (sleep 10; kill "$_ls_pid" 2>/dev/null) &
+        _timer=$!
+        wait "$_ls_pid" 2>/dev/null
+        _rc=$?
+        kill "$_timer" 2>/dev/null; wait "$_timer" 2>/dev/null
+        exit "$_rc"); then
+      preflight_pass "Git remote reachable"
+    else
+      preflight_warn "Git remote unreachable (may affect between-session sync)"
+    fi
+  else
+    preflight_warn "No git remote configured"
+  fi
+
+  # 5. Disk space — at least 1GB free on the repo partition
+  local free_kb
+  free_kb=$(df -k "$repo" | awk 'NR==2 { print $4 }' 2>/dev/null) || free_kb=0
+  if [[ "$free_kb" -gt 1048576 ]]; then
+    preflight_pass "Disk space: $(( free_kb / 1048576 ))GB free"
+  elif [[ "$free_kb" -gt 524288 ]]; then
+    preflight_warn "Disk space low: $(( free_kb / 1024 ))MB free (< 1GB)"
+  else
+    preflight_fail "Disk space critical: $(( free_kb / 1024 ))MB free"
+  fi
+
+  # 6. TASKS.md exists — signal for work discovery
+  if [[ -f "$repo/TASKS.md" ]]; then
+    local task_count
+    task_count=$(grep -c '^[[:space:]]*- \[ \]' "$repo/TASKS.md" 2>/dev/null) || true
+    preflight_pass "TASKS.md found (${task_count:-0} open tasks)"
+  else
+    preflight_warn "TASKS.md not found — empty queue sweep will find work"
+  fi
+
+  # 7. network-watchdog available — network resilience during marathon
+  if command -v network-watchdog >/dev/null 2>&1; then
+    preflight_pass "network-watchdog available"
+  else
+    preflight_warn "network-watchdog not found — using curl fallback for network checks"
+  fi
+
+  # Summary
+  echo ""
+  echo "  Results: ${_pf_pass} passed, ${_pf_warn} warnings, ${_pf_fail} failed"
+
+  if [[ $_pf_fail -gt 0 ]]; then
+    echo "  ✗ Preflight FAILED — fix the above errors before starting."
+    return 1
+  elif [[ $_pf_warn -gt 0 ]]; then
+    echo "  ⚠ Preflight passed with warnings."
+    return 0
+  else
+    echo "  ✓ Preflight passed — ready to grind."
+    return 0
+  fi
+}
+
+# --preflight: run health checks and exit without launching
+if [[ "$preflight_only" -eq 1 ]]; then
+  echo "taskgrind --preflight"
+  echo "  repo:     $repo"
+  echo "  skill:    $skill"
+  echo "  model:    $model"
+  if [[ -n "$extra_prompt" ]]; then
+    echo "  prompt:   $extra_prompt"
+  fi
+  echo ""
+  preflight_check
+  exit $?
+fi
+
+# ── Per-repo lock ─────────────────────────────────────────────────────
+# One grind per repo directory. Multiple grinds across different repos are OK.
+# Uses lockf(1) on an fd — lock auto-releases when the process exits/crashes.
+# Skip locking in test mode (DVB_GRIND_CMD set) to avoid fd conflicts with bats.
+if [[ -z "${DVB_GRIND_CMD:-}" ]]; then
+  _lock_hash=$(echo "$repo" | shasum | cut -d' ' -f1)
+  _lock_file="$_dvb_tmp/taskgrind-lock-${_lock_hash}"
+  # Open fd 9 on the lockfile (creates if needed)
+  exec 9>"$_lock_file"
+  if ! lockf -t 0 9 2>/dev/null; then
+    _lock_info=$(cat "$_lock_file" 2>/dev/null)
+    echo "Error: another taskgrind is already running for this repo" >&2
+    echo "  repo: $repo" >&2
+    echo "  lock: $_lock_file" >&2
+    if [[ -n "$_lock_info" ]]; then
+      echo "  held: $_lock_info" >&2
+    fi
+    exit 1
+  fi
+  # Write diagnostic info to the lockfile (visible to competing instances)
+  echo "repo=$repo pid=$$ started=$(date '+%Y-%m-%d %H:%M')" >&9
+
+  # Clean up orphaned temp files from previous runs (older than 1 day).
+  # Only runs in production mode (test mode skips locking entirely).
+  fd --no-ignore --changed-before 1d \
+    'taskgrind-(exec\.|.*\.(session\.out|git-sync))' "$_dvb_tmp" \
+    --exec rm -f {} 2>/dev/null || true
+fi
+
+# --dry-run: print config and exit without running sessions
+if [[ "$dry_run" -eq 1 ]]; then
+  echo "taskgrind --dry-run"
+  echo "  hours:    $hours"
+  echo "  repo:     $repo"
+  echo "  skill:    $skill"
+  echo "  model:    $model"
+  echo "  cooldown: ${cooldown}s"
+  echo "  log:      ${DVB_LOG:-$_dvb_tmp/taskgrind-\$(date)-\$\$.log}"
+  echo "  notify:   ${DVB_NOTIFY:-1}"
+  echo "  max_ses: ${max_session}s"
+  if [[ -n "$extra_prompt" ]]; then
+    echo "  prompt:   $extra_prompt"
+  fi
+  echo ""
+  echo "Prompt:"
+  echo "  Run the $skill skill. Session 1, $((hours * 60)) minutes remaining, timeout ${max_session}s."
+  if [[ -n "$extra_prompt" ]]; then
+    echo "  FOCUS: $extra_prompt"
+    echo "  Pick tasks from TASKS.md that relate to this focus first."
+  fi
+  echo "  [Previous session context passed automatically]"
+  echo "  Commit before timeout. Do not exhaust context."
+  exit 0
+fi
+
+start_epoch=$(date +%s)
+deadline="${DVB_DEADLINE:-$(( start_epoch + hours * 3600 ))}"
+end_time=$(date -v+"${hours}"H +%H:%M 2>/dev/null || date -d "+${hours} hours" +%H:%M 2>/dev/null || echo "??:??")
+_repo_basename=$(basename "$repo")
+log_file="${DVB_LOG:-$_dvb_tmp/taskgrind-$(date '+%Y-%m-%d-%H%M')-${_repo_basename}-$$.log}"
+
+# Ensure log directory exists and set secure permissions
+log_dir="$(dirname "$log_file")"
+if [[ ! -d "$log_dir" ]]; then
+  mkdir -p "$log_dir" 2>/dev/null || { echo "Error: cannot create log directory: $log_dir" >&2; exit 1; }
+fi
+if [[ -d "$log_file" ]]; then
+  echo "Error: DVB_LOG points to a directory: $log_file" >&2; exit 1
+fi
+
+session=0
+tasks_shipped=0
+tasks_starting=0
+tasks_remaining=0
+sessions_zero_ship=0
+_recent_shipped=()  # rolling window of per-session shipped counts
+_dvb_finalizing=0
+session_output="$_dvb_tmp/taskgrind-$$.session.out"
+_task_attempts_file="$_dvb_tmp/taskgrind-$$.task-attempts"
+: > "$_task_attempts_file" 2>/dev/null || true
+last_session_summary=""
+
+# format_duration provided by lib/constants.sh as dvb_format_duration
+format_duration() { dvb_format_duration "$@"; }
+
+# Safe log append — never crash the loop on disk-full or deleted log.
+# Every line is PID-prefixed for defense-in-depth against interleaving.
+log_write() { echo "[pid=$$] $*" >> "$log_file" 2>/dev/null || true; }
+
+# Resolve the devin command — injectable for testing
+if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+  devin_cmd=("$DVB_GRIND_CMD")
+else
+  real_devin="$DVB_DEVIN_PATH"
+  if [[ ! -x "$real_devin" ]]; then
+    echo "Error: devin binary not found: $real_devin" >&2
+    exit 1
+  fi
+  devin_cmd=("$real_devin")
+fi
+
+# Prevent sleep for the entire grind loop, not just individual sessions.
+# Re-exec under caffeinate if not already caffeinated (skip in test mode).
+if [[ -z "${DVB_GRIND_CMD:-}" && -z "${DVB_CAFFEINATED:-}" ]]; then
+  export DVB_CAFFEINATED=1
+  # shellcheck disable=SC2086  # intentionally unquoted — flags must word-split for caffeinate
+  exec caffeinate $DVB_CAFFEINATE_FLAGS "$0" ${_orig_args[@]+"${_orig_args[@]}"}
+fi
+
+# Boost to interactive scheduling tier — max CPU/IO priority for the grind
+# and all child devin sessions. Uses shared lib (same flags as cursor-priority).
+# shellcheck source=../lib/fullpower.sh
+source "$TASKGRIND_DIR/lib/fullpower.sh"
+boost_priority
+
+# Clean up on exit — always shows duration, even on Ctrl+C
+_dvb_cleaned=0
+cleanup() {
+  [[ $_dvb_cleaned -eq 1 ]] && return
+  _dvb_cleaned=1
+  _dvb_finalizing=1
+  local elapsed=$(( $(date +%s) - start_epoch ))
+  local duration
+  duration=$(format_duration "$elapsed")
+
+  # Efficiency metrics
+  local rate="0.0" avg_session="0s" ship_rate="0%"
+  if [[ $session -gt 0 ]]; then
+    avg_session=$(format_duration $(( elapsed / session )))
+  fi
+  if [[ $elapsed -gt 0 && $tasks_shipped -gt 0 ]]; then
+    # rate = tasks_shipped / hours — use bc for decimal, fall back to integer
+    rate=$(echo "scale=1; $tasks_shipped * 3600 / $elapsed" | bc 2>/dev/null || echo "$((tasks_shipped * 3600 / elapsed))")
+  fi
+  if [[ $tasks_starting -gt 0 ]]; then
+    ship_rate=$(echo "scale=0; $tasks_shipped * 100 / $tasks_starting" | bc 2>/dev/null || echo "$((tasks_shipped * 100 / tasks_starting))")
+    ship_rate="${ship_rate}%"
+  fi
+
+  echo ""
+  echo "──────────────────────────────────────────"
+  echo "  Grind complete: $session sessions, ${tasks_shipped}+ tasks, ${duration}"
+  echo "  Rate: ${rate}/h  Avg session: ${avg_session}  Zero-ship: ${sessions_zero_ship}"
+  echo "  Ship rate: ${ship_rate} (${tasks_shipped}/${tasks_starting})  Remaining: ${tasks_remaining}"
+  echo "  Log: $log_file"
+  echo "──────────────────────────────────────────"
+  local _done_line
+  _done_line="[pid=$$] [$(date '+%H:%M')] grind_done sessions=$session shipped=$tasks_shipped remaining=$tasks_remaining ship_rate=$ship_rate avg_session=$avg_session elapsed=${elapsed}s duration=$duration rate=${rate}/h sessions_zero_ship=$sessions_zero_ship"
+  if [[ -n "${extra_prompt:-}" ]]; then
+    _done_line+=" prompt=$extra_prompt"
+  fi
+  echo "$_done_line" >> "$log_file" 2>/dev/null || true
+  # macOS notification — on by default, DVB_NOTIFY=0 to disable
+  if [[ "${DVB_NOTIFY:-1}" != "0" ]]; then
+    osascript -e "display notification \"$session sessions, ${tasks_shipped}+ tasks shipped in $duration\" with title \"taskgrind complete\"" 2>/dev/null || true
+  fi
+  # Remove temp files
+  [[ -n "${_DVB_SELF_COPY:-}" && -f "${_DVB_SELF_COPY}" ]] && rm -f "$_DVB_SELF_COPY"
+  [[ -n "${_lock_file:-}" && -f "${_lock_file}" ]] && rm -f "$_lock_file"
+  rm -f "$session_output"
+  rm -f "$_task_attempts_file"
+  rm -f "$_dvb_tmp/taskgrind-$$.git-sync"
+}
+# INT/TERM must exit after cleanup — otherwise the while loop continues
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+trap cleanup EXIT
+
+echo "☕ taskgrind: ${hours}h (until ${end_time}) — skill=$skill, model=$model, repo=$repo"
+echo "   Each session runs $skill. Git sync every ${sync_interval} sessions."
+if [[ -n "$extra_prompt" ]]; then
+  echo "   Focus: $extra_prompt"
+fi
+echo "   Log: $log_file"
+echo ""
+
+# Create log file with secure permissions before writing any content
+: > "$log_file"
+chmod 600 "$log_file"
+
+{
+  echo "# taskgrind started $(date '+%Y-%m-%d %H:%M')"
+  echo -n "# hours=$hours skill=$skill model=$model repo=$repo"
+  if [[ -n "$extra_prompt" ]]; then
+    echo -n " prompt=$extra_prompt"
+  fi
+  echo ""
+  echo ""
+} >> "$log_file"
+
+# Run preflight checks before entering the main loop
+if ! preflight_check; then
+  log_write "[$(date '+%H:%M')] preflight_failed"
+  exit 1
+fi
+echo ""
+
+count_tasks() {
+  local tasks_file="$1"
+  if [[ -f "$tasks_file" ]]; then
+    local count
+    # grep -c exits 1 when no matches (printing "0"), so || echo "0" would
+    # produce "0\n0". Use || true to swallow the exit code cleanly.
+    count=$(grep -c '^[[:space:]]*- \[ \]' "$tasks_file" 2>/dev/null) || true
+    echo "${count:-0}"
+  else
+    echo "0"
+  fi
+}
+
+# Extract task IDs from TASKS.md — one ID per line, sorted for diffing.
+extract_task_ids() {
+  local tasks_file="$1"
+  if [[ -f "$tasks_file" ]]; then
+    grep '^\s*\*\*ID\*\*:' "$tasks_file" 2>/dev/null \
+      | sed 's/.*\*\*ID\*\*:[[:space:]]*//' | awk '{print $1}' | sort || true
+  fi
+}
+
+# ── Network resilience ─────────────────────────────────────────────
+# Fast-failure threshold: sessions shorter than this trigger a network check.
+# Defaults to 0 in test mode (disabled) so existing tests aren't affected.
+if [[ -n "${DVB_MIN_SESSION:-}" ]]; then
+  min_session_secs="$DVB_MIN_SESSION"
+elif [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+  min_session_secs=0
+else
+  min_session_secs=30
+fi
+consecutive_fast=0
+consecutive_zero_ship=0
+
+_check_network_once() {
+  if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+    # Test mode: network state controlled by sentinel file
+    [[ -f "${DVB_NET_FILE:-/dev/null}" ]]
+  elif command -v network-watchdog >/dev/null 2>&1; then
+    network-watchdog --check-only >/dev/null 2>&1
+  else
+    # Fallback: lightweight connectivity test when network-watchdog is missing
+    curl -sf --max-time 5 https://api.anthropic.com >/dev/null 2>&1
+  fi
+}
+
+# Retry wrapper — a single transient DNS hiccup should not pause the marathon.
+# Checks up to 3 times with 2s delays before declaring network down.
+# Test mode skips retries (instant pass/fail from sentinel file).
+check_network() {
+  local retries="${DVB_NET_RETRIES:-3}"
+  local delay="${DVB_NET_RETRY_DELAY:-2}"
+  if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+    _check_network_once; return $?
+  fi
+  local attempt
+  for (( attempt=1; attempt<=retries; attempt++ )); do
+    _check_network_once && return 0
+    [[ $attempt -lt $retries ]] && sleep "$delay"
+  done
+  return 1
+}
+
+wait_for_network() {
+  local wait_start waited
+  local interval="${DVB_NET_WAIT:-30}"
+  local max_wait="${DVB_NET_MAX_WAIT:-14400}"
+  wait_start=$(date +%s)
+
+  echo "📡 Network down — pausing marathon. Deadline will extend."
+  log_write "[$(date '+%H:%M')] network_down"
+
+  while ! check_network; do
+    waited=$(( $(date +%s) - wait_start ))
+    if [[ $waited -gt $max_wait ]]; then
+      echo "   Network down $(format_duration "$max_wait")+. Exiting."
+      log_write "[$(date '+%H:%M')] network_timeout waited=${waited}s"
+      return 1
+    fi
+    echo "   Waiting for network... $(format_duration "$waited") elapsed"
+    sleep "$interval"
+  done
+
+  waited=$(( $(date +%s) - wait_start ))
+  echo "📡 Network back after $(format_duration "$waited"). Resuming."
+  log_write "[$(date '+%H:%M')] network_restored waited=${waited}s"
+
+  # Extend deadline by the time spent waiting — no minutes lost to outage
+  deadline=$((deadline + waited))
+  return 0
+}
+
+while [[ $(date +%s) -lt $deadline ]]; do
+  session=$((session + 1))
+  now=$(date +%s)
+  remaining_min=$(( (deadline - now) / 60 ))
+  [[ $remaining_min -lt 0 ]] && remaining_min=0
+  remaining_h=$(( remaining_min / 60 ))
+  remaining_m=$(( remaining_min % 60 ))
+
+  tasks_before=$(count_tasks "$repo/TASKS.md")
+
+  # Capture starting task count on first iteration (for ship rate)
+  [[ $tasks_starting -eq 0 && $tasks_before -gt 0 ]] && tasks_starting=$tasks_before
+
+  # Guard cd — repo dir could be deleted during a long marathon
+  if ! cd "$repo" 2>/dev/null; then
+    echo "   ❌ Repo directory missing: $repo — aborting."
+    log_write "[$(date '+%H:%M')] repo_missing path=$repo"
+    break
+  fi
+
+  # Exit early when queue is empty — don't waste sessions on nothing
+  if [[ "$tasks_before" -eq 0 ]]; then
+    echo "   ✓ Queue empty — exiting."
+    log_write "[$(date '+%H:%M')] queue_empty tasks=0 — exiting"
+    break
+  fi
+
+  echo "🔄 Session $session — ${remaining_h}h${remaining_m}m remaining — $tasks_before tasks queued"
+  log_write "[$(date '+%H:%M')] session=$session remaining=${remaining_min}m tasks=$tasks_before"
+
+  # ── Build the session prompt ──────────────────────────────────────
+  # Thin prompt — the skill handles task selection and execution.
+  prompt="Run the $skill skill."
+  prompt+=" Session $session, ${remaining_min} minutes remaining, timeout ${max_session}s."
+
+  # Extra focus prompt — user-provided priority for every session
+  if [[ -n "$extra_prompt" ]]; then
+    prompt+=" FOCUS: $extra_prompt"
+    prompt+=" Pick tasks from TASKS.md that relate to this focus first. Only work on unrelated tasks if no matching tasks remain."
+  fi
+
+  # Prior session context — tell the agent what just happened
+  if [[ -n "$last_session_summary" ]]; then
+    prompt+=" Previous session: $last_session_summary."
+  fi
+
+  # Stall warning — nudge the agent to try different approaches
+  if [[ $consecutive_zero_ship -ge 3 ]]; then
+    prompt+=" WARNING: Previous $consecutive_zero_ship sessions shipped nothing. decompose the next unclaimed unblocked task into 2-4 sub-tasks and implement the first one."
+  fi
+
+  # Skip list — tasks attempted 3+ times without shipping
+  _skip_ids=""
+  if [[ -s "$_task_attempts_file" ]]; then
+    _skip_ids=$(awk '$2 >= 3 { printf "%s ", $1 }' "$_task_attempts_file" 2>/dev/null)
+    if [[ -n "$_skip_ids" ]]; then
+      prompt+=" SKIP these stuck tasks (attempted 3+ times): ${_skip_ids% }. Work on other tasks instead."
+    fi
+  fi
+
+  prompt+=" Commit before timeout. Do not exhaust context."
+
+  session_start=$(date +%s)
+  session_exit=0
+  if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+    # Test mode: foreground with script(1) for output capture
+    script -q "$session_output" \
+      "${devin_cmd[@]}" \
+      --model "$model" \
+      --permission-mode dangerous \
+      -p "$prompt" \
+      || session_exit=$?
+  else
+    # Production: background with timeout watchdog as safety valve.
+    # Devin -p exits on its own, but the timeout catches infinite tool
+    # loops or API outages. Uses sleep &; wait so SIGTERM interrupts
+    # the watchdog immediately (no orphaned sleep processes).
+    # Capture stdout to session_output for post-mortem diagnostics.
+    "${devin_cmd[@]}" \
+      --model "$model" \
+      --permission-mode dangerous \
+      -p "$prompt" \
+      > >(tee -a "$session_output") \
+      2>> "$log_file" &
+    _dvb_pid=$!
+    (
+      trap 'exit 0' TERM
+      remaining=$max_session
+      while (( remaining > 0 )); do
+        s=$(( remaining > 10 ? 10 : remaining ))
+        sleep "$s" &
+        wait $! 2>/dev/null || exit 0
+        remaining=$((remaining - s))
+        kill -0 "$_dvb_pid" 2>/dev/null || exit 0
+      done
+      echo "   ⏰ Session $session hit ${max_session}s timeout — sending SIGINT for graceful shutdown"
+      log_write "[$(date '+%H:%M')] session_timeout session=$session max=${max_session}s"
+      kill -INT "$_dvb_pid" 2>/dev/null || true
+      # Grace period: let devin commit before force-killing
+      _grace=15
+      sleep "$_grace" &
+      wait $! 2>/dev/null || exit 0
+      if kill -0 "$_dvb_pid" 2>/dev/null; then
+        echo "   ⏰ Session $session still alive after ${_grace}s grace — sending SIGTERM"
+        kill "$_dvb_pid" 2>/dev/null || true
+      fi
+    ) &
+    _dvb_timeout=$!
+    wait "$_dvb_pid" 2>/dev/null || session_exit=$?
+    kill "$_dvb_timeout" 2>/dev/null || true
+    wait "$_dvb_timeout" 2>/dev/null || true
+  fi
+  session_elapsed=$(( $(date +%s) - session_start ))
+
+  # ── Fast-failure detection ────────────────────────────────────────
+  # If session lasted less than min_session_secs, something is wrong.
+  # Check network first; if down, pause and extend deadline.
+  # If network is up but sessions keep failing, back off then bail out.
+  if [[ $min_session_secs -gt 0 && $session_elapsed -lt $min_session_secs ]]; then
+    consecutive_fast=$((consecutive_fast + 1))
+
+    # Capture session output tail to log for post-mortem
+    if [[ -s "$session_output" ]]; then
+      {
+        echo "--- session $session output (last 20 lines) ---"
+        tail -20 "$session_output"
+        echo "--- end session output ---"
+      } >> "$log_file" 2>/dev/null || true
+    fi
+
+    if ! check_network; then
+      wait_for_network || break
+      session=$((session - 1))
+      continue
+    fi
+
+    # Max consecutive fast failures — bail out with diagnostics
+    if [[ $consecutive_fast -ge $max_fast ]]; then
+      echo "   ❌ ${consecutive_fast} consecutive fast failures (exit=$session_exit, network OK). Giving up."
+      if [[ -s "$session_output" ]]; then
+        echo "   Last session output (tail):"
+        tail -5 "$session_output" | sed 's/^/      /'
+      fi
+      log_write "[$(date '+%H:%M')] bail_out consecutive=$consecutive_fast exit=$session_exit"
+      break
+    fi
+
+    # Network is up but session still crashed fast — back off
+    if [[ $consecutive_fast -ge 3 ]]; then
+      backoff_base="${DVB_BACKOFF_BASE:-15}"
+      backoff=$(( consecutive_fast * backoff_base ))
+      backoff_max="${DVB_BACKOFF_MAX:-120}"
+      [[ $backoff -gt $backoff_max ]] && backoff=$backoff_max
+      echo "   ⚠ ${consecutive_fast} fast failures (exit=$session_exit, network OK). Backing off ${backoff}s..."
+      log_write "[$(date '+%H:%M')] fast_fail consecutive=$consecutive_fast backoff=${backoff}s exit=$session_exit"
+      sleep "$backoff"
+      # Extend deadline by backoff duration — dead time should not count
+      # against the marathon, same pattern as wait_for_network()
+      deadline=$((deadline + backoff))
+    fi
+  else
+    consecutive_fast=0
+  fi
+
+  tasks_after=$(count_tasks "$repo/TASKS.md")
+  tasks_remaining=$tasks_after
+
+  # Tasks shipped ≈ tasks that disappeared (completed = removed from TASKS.md)
+  session_shipped=0
+  if [[ "$tasks_before" -gt "$tasks_after" ]]; then
+    session_shipped=$((tasks_before - tasks_after))
+    tasks_shipped=$((tasks_shipped + session_shipped))
+  elif [[ "$tasks_after" -gt "$tasks_before" ]]; then
+    # External processes added tasks during this session
+    _tasks_added=$(( tasks_after - tasks_before ))
+    log_write "[$(date '+%H:%M')] tasks_added=$_tasks_added (external injection: $tasks_before→$tasks_after)"
+  fi
+
+  # Warn if timeout killed a productive session — suggest increasing DVB_MAX_SESSION
+  if [[ "$session_elapsed" -ge "$max_session" && "$session_shipped" -gt 0 ]]; then
+    echo "   ⚠ Productive session hit timeout (shipped $session_shipped, timeout ${max_session}s). Consider DVB_MAX_SESSION=$((max_session + 1800))."
+    log_write "[$(date '+%H:%M')] productive_timeout session=$session shipped=$session_shipped timeout=${max_session}s"
+  fi
+
+  # ── Per-task attempt tracking ──────────────────────────────────────
+  # Track how many sessions each task ID has survived without being shipped.
+  # Tasks with 3+ attempts get added to the skip list in the next prompt.
+  _ids_after=$(extract_task_ids "$repo/TASKS.md")
+  if [[ -n "$_ids_after" ]]; then
+    _new_attempts="$_dvb_tmp/taskgrind-$$.task-attempts.new"
+    while IFS= read -r _tid; do
+      _prev_count=$(awk -v id="$_tid" '$1 == id { print $2 }' "$_task_attempts_file" 2>/dev/null)
+      _prev_count="${_prev_count:-0}"
+      echo "$_tid $((_prev_count + 1))" >> "$_new_attempts"
+    done <<< "$_ids_after"
+    mv "$_new_attempts" "$_task_attempts_file" 2>/dev/null || true
+    # Log any newly skipped tasks (just crossed the threshold)
+    _newly_skipped=$(awk '$2 == 3 { printf "%s ", $1 }' "$_task_attempts_file" 2>/dev/null)
+    if [[ -n "$_newly_skipped" ]]; then
+      log_write "[$(date '+%H:%M')] task_skip_threshold ids=${_newly_skipped% }"
+    fi
+  else
+    : > "$_task_attempts_file" 2>/dev/null || true
+  fi
+
+  # Build per-session summary for the next session's prompt
+  last_session_summary="session $session shipped $session_shipped tasks (exit=$session_exit, $(format_duration "$session_elapsed")), queue now $tasks_after"
+
+  # ── Zero-ship stall detection ──────────────────────────────────────
+  # Detect sessions that run full duration but accomplish nothing.
+  # Separate from consecutive_fast which catches crashes.
+  if [[ "$session_shipped" -eq 0 ]]; then
+    consecutive_zero_ship=$((consecutive_zero_ship + 1))
+    sessions_zero_ship=$((sessions_zero_ship + 1))
+
+    # Capture session output tail for diagnostics — helps the user (and the
+    # next session's stall warning) understand what happened.
+    if [[ -s "$session_output" ]]; then
+      {
+        echo "--- session $session output (zero-ship, last 20 lines) ---"
+        tail -20 "$session_output"
+        echo "--- end session output ---"
+      } >> "$log_file" 2>/dev/null || true
+    fi
+
+    if [[ $consecutive_zero_ship -ge $max_zero_ship ]]; then
+      echo "   ❌ ${consecutive_zero_ship} consecutive zero-ship sessions. Marathon is stalled — exiting."
+      log_write "[$(date '+%H:%M')] stall_bail consecutive_zero_ship=$consecutive_zero_ship"
+      break
+    elif [[ $consecutive_zero_ship -ge 3 ]]; then
+      echo "   ⚠ ${consecutive_zero_ship} consecutive zero-ship sessions — adding stall warning to next prompt."
+      log_write "[$(date '+%H:%M')] stall_warning consecutive_zero_ship=$consecutive_zero_ship"
+    fi
+  else
+    consecutive_zero_ship=0
+  fi
+
+  # ── Diminishing returns detection ──────────────────────────────────
+  # Track shipped counts in a rolling window. If throughput drops below
+  # threshold, warn (and optionally exit if DVB_EARLY_EXIT_ON_STALL=1).
+  _recent_shipped+=("$session_shipped")
+  _window=5
+  if [[ ${#_recent_shipped[@]} -ge $_window ]]; then
+    _window_total=0
+    for _ws in "${_recent_shipped[@]: -$_window}"; do
+      _window_total=$((_window_total + _ws))
+    done
+    if [[ $_window_total -lt 2 && $session -ge $_window ]]; then
+      echo "   ⚠ Low throughput: ${_window_total} tasks shipped in last ${_window} sessions."
+      log_write "[$(date '+%H:%M')] diminishing_returns window=$_window shipped=$_window_total"
+      if [[ "${DVB_EARLY_EXIT_ON_STALL:-0}" == "1" ]]; then
+        echo "   ⚠ DVB_EARLY_EXIT_ON_STALL=1 — exiting early to save time budget."
+        log_write "[$(date '+%H:%M')] early_exit_stall"
+        break
+      fi
+    fi
+  fi
+
+  # Guard: skip session-end log if cleanup already ran (Ctrl-C race)
+  if [[ $_dvb_finalizing -eq 0 ]]; then
+    log_write "[$(date '+%H:%M')] session=$session ended exit=$session_exit duration=${session_elapsed}s tasks_after=$tasks_after shipped=$session_shipped"
+  fi
+
+  # Truncate session output to prevent unbounded growth across sessions
+  : > "$session_output" 2>/dev/null || true
+
+  # Check deadline before cooldown
+  if [[ $(date +%s) -ge $deadline ]]; then
+    break
+  fi
+
+  echo "   Session $session ended (exit=$session_exit, $(format_duration "$session_elapsed")). Cooling down ${cooldown}s..."
+  sleep "$cooldown"
+
+  # Sync to default branch between sessions — but only every N sessions to reduce overhead.
+  # sync_interval=0 means every session (backward compat). Default: every 5 sessions.
+  if [[ "$sync_interval" -eq 0 ]] || [[ $((session % sync_interval)) -eq 0 ]]; then
+  if git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 \
+     && [[ -n "$(git -C "$repo" remote 2>/dev/null)" ]]; then
+    _git_out="$_dvb_tmp/taskgrind-$$.git-sync"
+    _git_sync_timeout="${DVB_GIT_SYNC_TIMEOUT:-30}"
+    # Detect default branch — don't hardcode "main"; repos may use master/develop/etc.
+    _default_branch=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@.*/@@') || true
+    _default_branch="${_default_branch:-main}"
+    (
+      # Handle dirty working tree — stash uncommitted changes before switching
+      _dirty=0
+      if ! git -C "$repo" diff --quiet 2>/dev/null || ! git -C "$repo" diff --cached --quiet 2>/dev/null; then
+        git -C "$repo" stash --include-untracked -m "taskgrind: auto-stash before sync" 2>/dev/null || true
+        _dirty=1
+        echo "git_sync stashed"
+      fi
+      git -C "$repo" checkout "$_default_branch" 2>/dev/null || true
+      git -C "$repo" fetch origin --prune 2>/dev/null || true
+      git -C "$repo" rebase "origin/$_default_branch" 2>/dev/null || true
+      # Abort broken rebase — a conflicted rebase leaves the repo in a
+      # "rebase in progress" state that breaks every subsequent session.
+      _git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)"
+      if [[ -n "$_git_dir" && ( -d "$_git_dir/rebase-merge" || -d "$_git_dir/rebase-apply" ) ]]; then
+        git -C "$repo" rebase --abort 2>/dev/null || true
+        echo "git_sync rebase_aborted"
+      fi
+      # Restore stashed changes after sync
+      if [[ $_dirty -eq 1 ]]; then
+        if ! git -C "$repo" stash pop 2>/dev/null; then
+          echo "git_sync stash_pop_failed"
+        fi
+      fi
+    ) > "$_git_out" 2>&1 &
+    _git_pid=$!
+    (
+      trap 'exit 0' TERM
+      sleep "$_git_sync_timeout" &
+      wait $! 2>/dev/null || exit 0
+      kill "$_git_pid" 2>/dev/null || true
+    ) &
+    _git_timer=$!
+    if wait "$_git_pid" 2>/dev/null; then
+      if grep -q 'stash_pop_failed' "$_git_out" 2>/dev/null; then
+        echo "   ⚠ git stash pop failed — stash preserved for manual recovery"
+        log_write "[$(date '+%H:%M')] git_sync stash_pop_failed (stash preserved)"
+      elif grep -q 'rebase_aborted' "$_git_out" 2>/dev/null; then
+        log_write "[$(date '+%H:%M')] git_sync rebase_aborted"
+      elif grep -q 'git_sync stashed' "$_git_out" 2>/dev/null; then
+        log_write "[$(date '+%H:%M')] git_sync ok (stashed dirty tree)"
+      else
+        log_write "[$(date '+%H:%M')] git_sync ok"
+      fi
+    else
+      # Timeout or failure — repo may be in unknown state (mid-rebase, mid-stash).
+      # Recover: abort any in-progress rebase/merge so the next session starts clean.
+      _git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)" || _git_dir=""
+      if [[ -n "$_git_dir" && ( -d "$_git_dir/rebase-merge" || -d "$_git_dir/rebase-apply" ) ]]; then
+        git -C "$repo" rebase --abort 2>/dev/null || true
+        log_write "[$(date '+%H:%M')] git_sync timeout_rebase_aborted"
+      fi
+      if [[ -n "$_git_dir" && -f "$_git_dir/MERGE_HEAD" ]]; then
+        git -C "$repo" merge --abort 2>/dev/null || true
+        log_write "[$(date '+%H:%M')] git_sync timeout_merge_aborted"
+      fi
+      sync_output=$(tail -10 "$_git_out" 2>/dev/null)
+      echo "   ⚠ git sync failed: $sync_output"
+      log_write "[$(date '+%H:%M')] git_sync failed: $sync_output"
+    fi
+    kill "$_git_timer" 2>/dev/null; wait "$_git_timer" 2>/dev/null || true
+    rm -f "$_git_out"
+
+    # Clean up merged branches — safe, only deletes branches already in default branch
+    git -C "$repo" branch --merged "$_default_branch" 2>/dev/null \
+      | grep -v '^\*' | grep -vx "[[:space:]]*$_default_branch" \
+      | xargs -I{} git -C "$repo" branch -d {} 2>/dev/null || true
+    log_write "[$(date '+%H:%M')] branch_cleanup done"
+  fi
+  else
+    log_write "[$(date '+%H:%M')] git_sync skipped (interval=$sync_interval, session=$session)"
+  fi # sync_interval
+done
