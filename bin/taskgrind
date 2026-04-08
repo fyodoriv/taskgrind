@@ -152,6 +152,38 @@ fi
 
 repo="$(cd "$repo" && pwd)"
 
+# ── Network check functions ──────────────────────────────────────────
+# Defined early so preflight_check() can reuse them (instead of a bare curl).
+
+_check_network_once() {
+  if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+    # Test mode: network state controlled by sentinel file
+    [[ -f "${DVB_NET_FILE:-/dev/null}" ]]
+  elif command -v network-watchdog >/dev/null 2>&1; then
+    network-watchdog --check-only >/dev/null 2>&1
+  else
+    # Fallback: lightweight connectivity test when network-watchdog is missing
+    curl -sf --max-time 5 https://api.anthropic.com >/dev/null 2>&1
+  fi
+}
+
+# Retry wrapper — a single transient DNS hiccup should not pause the marathon.
+# Checks up to 3 times with 2s delays before declaring network down.
+# Test mode skips retries (instant pass/fail from sentinel file).
+check_network() {
+  local retries="${DVB_NET_RETRIES:-3}"
+  local delay="${DVB_NET_RETRY_DELAY:-2}"
+  if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+    _check_network_once; return $?
+  fi
+  local attempt
+  for (( attempt=1; attempt<=retries; attempt++ )); do
+    _check_network_once && return 0
+    [[ $attempt -lt $retries ]] && sleep "$delay"
+  done
+  return 1
+}
+
 # ── Preflight health checks ──────────────────────────────────────────
 # Validates the runtime environment before entering the main loop.
 # Returns 0 if all checks pass (or only warns), 1 if any check fails.
@@ -188,7 +220,7 @@ preflight_check() {
     else
       preflight_warn "Network down (test mode: DVB_NET_FILE missing)"
     fi
-  elif curl -sf --max-time 5 https://api.anthropic.com >/dev/null 2>&1; then
+  elif check_network; then
     preflight_pass "Network connectivity"
   else
     preflight_fail "Network unreachable (api.anthropic.com)"
@@ -525,35 +557,6 @@ else
 fi
 consecutive_fast=0
 consecutive_zero_ship=0
-
-_check_network_once() {
-  if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
-    # Test mode: network state controlled by sentinel file
-    [[ -f "${DVB_NET_FILE:-/dev/null}" ]]
-  elif command -v network-watchdog >/dev/null 2>&1; then
-    network-watchdog --check-only >/dev/null 2>&1
-  else
-    # Fallback: lightweight connectivity test when network-watchdog is missing
-    curl -sf --max-time 5 https://api.anthropic.com >/dev/null 2>&1
-  fi
-}
-
-# Retry wrapper — a single transient DNS hiccup should not pause the marathon.
-# Checks up to 3 times with 2s delays before declaring network down.
-# Test mode skips retries (instant pass/fail from sentinel file).
-check_network() {
-  local retries="${DVB_NET_RETRIES:-3}"
-  local delay="${DVB_NET_RETRY_DELAY:-2}"
-  if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
-    _check_network_once; return $?
-  fi
-  local attempt
-  for (( attempt=1; attempt<=retries; attempt++ )); do
-    _check_network_once && return 0
-    [[ $attempt -lt $retries ]] && sleep "$delay"
-  done
-  return 1
-}
 
 wait_for_network() {
   local wait_start waited

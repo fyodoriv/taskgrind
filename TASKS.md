@@ -2,6 +2,13 @@
 
 ## P0
 
+- [ ] Show progress/loading feedback during slow operations
+  **ID**: show-loading-feedback
+  **Tags**: ux, cli
+  **Details**: When you run taskgrind, several operations block for seconds with zero terminal output — the user stares at a frozen terminal wondering if anything is happening. The worst offenders: (1) preflight checks — each check (network curl, git remote, disk space) can take 5+ seconds with no indication it started; (2) session launch — after printing "Session N" there's silence until devin finishes; (3) cooldown sleep between sessions; (4) git sync (fetch/rebase/push); (5) wait_for_network polling. Add inline progress: spinner or `...` dots for blocking checks, a running elapsed timer during active sessions (e.g. `⏳ Session 3 — 4m12s`), and a countdown for cooldown/backoff sleeps (e.g. `Cooldown: 28s`). Keep it minimal — single-line overwrite with `\r` or a background spinner function, not a TUI. Must degrade gracefully when stdout is not a TTY (e.g. piped to a log file — just skip the spinners).
+  **Files**: bin/taskgrind
+  **Acceptance**: Running `taskgrind 1` shows visible feedback within 1s of launch; no silent gaps longer than 2s during normal operation; piping to a file (`taskgrind 1 2>&1 | tee log`) still works without garbled output; `make check` passes
+
 ## P1
 
 ## P2
