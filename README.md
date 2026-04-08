@@ -6,7 +6,7 @@ Autonomous multi-session grind — runs sequential AI coding sessions until a de
 
 ```bash
 # Clone to ~/apps (or anywhere)
-git clone https://github.com/fivanishche/taskgrind.git ~/apps/taskgrind
+git clone https://github.com/cbrwizard/taskgrind.git ~/apps/taskgrind
 
 # Add to PATH (add to your shell rc)
 export PATH="$HOME/apps/taskgrind/bin:$PATH"
