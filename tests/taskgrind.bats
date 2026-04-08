@@ -1227,8 +1227,10 @@ SCRIPT
 }
 
 @test "network restored message shows in terminal output" {
-  # Schedule network recovery from the test (not fake devin) so pipe subshell can't kill it
-  (sleep 1; touch "$TEST_DIR/net-up") &
+  # Schedule network recovery after a delay — must be long enough that the
+  # first fast-failure check sees network down before the file appears.
+  (sleep 3; touch "$TEST_DIR/net-up") &
+  local _touch_pid=$!
 
   local restore_devin="$TEST_DIR/restore-devin"
   cat > "$restore_devin" <<'SCRIPT'
@@ -1244,8 +1246,10 @@ SCRIPT
   export DVB_MAX_ZERO_SHIP=10
   export DVB_NET_WAIT=0
   export DVB_NET_MAX_WAIT=30
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
+  kill "$_touch_pid" 2>/dev/null || true
+  wait "$_touch_pid" 2>/dev/null || true
   [[ "$output" == *"Network back"* ]]
 }
 
@@ -1519,7 +1523,7 @@ SCRIPT
 }
 
 @test "timeout watchdog is killable via SIGTERM (trap + sleep &; wait)" {
-  grep -q "trap 'exit 0' TERM" "$DVB_GRIND"
+  grep -q "trap 'kill \$! 2>/dev/null; exit 0' TERM" "$DVB_GRIND"
   grep -q 'sleep "$s" &' "$DVB_GRIND"
   grep -q 'wait $!' "$DVB_GRIND"
 }
@@ -1683,6 +1687,61 @@ SCRIPT
   kill -INT "$grind_pid" 2>/dev/null || true
   wait "$grind_pid" 2>/dev/null || true
   grep -q "Grind complete\|sessions" "$TEST_DIR/signal-output.txt"
+}
+
+# ── Graceful shutdown ────────────────────────────────────────────────
+
+@test "INT signal waits for running session before exiting" {
+  # Slow devin that takes 5s but records when it starts and finishes
+  local slow_devin="$TEST_DIR/slow-devin"
+  cat > "$slow_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+echo "session_started" >> "$TEST_DIR/session-lifecycle.log"
+sleep 3
+echo "session_finished" >> "$TEST_DIR/session-lifecycle.log"
+SCRIPT
+  chmod +x "$slow_devin"
+  export DVB_GRIND_CMD="$slow_devin"
+  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_SHUTDOWN_GRACE=10
+
+  "$DVB_GRIND" 1 "$TEST_REPO" > "$TEST_DIR/graceful-output.txt" 2>&1 &
+  local grind_pid=$!
+  sleep 1
+  # Send INT while session is running
+  kill -INT "$grind_pid" 2>/dev/null || true
+  wait "$grind_pid" 2>/dev/null || true
+  # Session should have finished (session_finished written)
+  grep -q 'session_finished' "$TEST_DIR/session-lifecycle.log"
+}
+
+@test "graceful shutdown function is called on INT" {
+  # Structural: INT trap calls graceful_shutdown, not just cleanup
+  grep -q "trap 'graceful_shutdown 130' INT" "$DVB_GRIND"
+}
+
+@test "graceful shutdown sends SIGINT then waits before SIGTERM" {
+  # Structural: graceful_shutdown sends INT first, sleeps in a loop, then SIGTERM
+  grep -q 'kill -INT.*_dvb_pid' "$DVB_GRIND"
+  grep -q 'DVB_SHUTDOWN_GRACE' "$DVB_GRIND"
+  # Verify SIGTERM escalation exists after grace period
+  grep -A5 'waited -lt.*_shutdown_grace' "$DVB_GRIND" | grep -q 'kill.*_dvb_pid'
+}
+
+@test "structural: graceful_shutdown waits for _dvb_pid" {
+  grep -q 'graceful_shutdown' "$DVB_GRIND"
+  grep -q 'kill -INT.*_dvb_pid' "$DVB_GRIND"
+  grep -q 'DVB_SHUTDOWN_GRACE' "$DVB_GRIND"
+}
+
+@test "structural: final_sync pushes local commits" {
+  grep -q 'final_sync' "$DVB_GRIND"
+  grep -q 'git.*push.*origin' "$DVB_GRIND"
+}
+
+@test "structural: EXIT trap calls final_sync before cleanup" {
+  grep -q "trap 'final_sync; cleanup' EXIT" "$DVB_GRIND"
 }
 
 # ── Tasks unchanged scenario ─────────────────────────────────────────
@@ -2417,14 +2476,12 @@ SCRIPT
 
 @test "git sync timer uses trap+wait pattern to avoid orphaned sleeps" {
   # The git sync timer subshell should have the same pattern as the session
-  # timeout watchdog: trap 'exit 0' TERM + sleep N &; wait $!
-  # Extract the git sync section (after "git_sync" comment near end of file)
-  # and verify the timer subshell uses the clean pattern.
-  # Count occurrences of the trap pattern — should appear twice:
-  # once in timeout watchdog, once in git sync timer.
+  # timeout watchdog: trap 'kill $! ...; exit 0' TERM + sleep N &; wait $!
+  # Count occurrences of the trap pattern — should appear 3+ times:
+  # sweep watchdog, session watchdog, git sync timer.
   local count
-  count=$(grep -c "trap 'exit 0' TERM" "$DVB_GRIND")
-  [ "$count" -ge 2 ]
+  count=$(grep -c "trap 'kill \$! 2>/dev/null; exit 0' TERM" "$DVB_GRIND")
+  [ "$count" -ge 3 ]
 }
 
 # ── Preflight health checks ───────────────────────────────────────────
@@ -2595,15 +2652,17 @@ EOF
 }
 
 @test "main loop preflight blocks launch on failure" {
-  # Simulate: unset DVB_GRIND_CMD so devin binary check fails, triggering preflight failure
+  # Force preflight failure by pointing DVB_DEVIN_PATH to nonexistent binary.
+  # Must unset DVB_GRIND_CMD so the binary check runs (not skipped in test mode).
+  # Can't rely on HOME alone — command -v devin finds the real binary in PATH.
   unset DVB_GRIND_CMD
-  export HOME="/nonexistent/home"
+  export DVB_DEVIN_PATH="/nonexistent/bin/devin"
   export DVB_CAFFEINATED=1
   export _DVB_SELF_COPY="/dev/null"
   export DVB_DEADLINE=$(($(date +%s) + 60))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"Preflight FAILED"* ]] || [[ "$output" == *"devin binary not found"* ]]
+  [[ "$output" == *"Preflight FAILED"* ]] || [[ "$output" == *"not found"* ]]
 }
 
 # ── Prompt hardening ───────────────────────────────────────────────────

@@ -33,6 +33,7 @@
 #        DVB_DEVIN_PATH — override devin binary path (default: auto-detect from PATH)
 #        DVB_GIT_SYNC_TIMEOUT — max seconds for between-session git sync (default: 30)
 #        DVB_SYNC_INTERVAL — git sync every N sessions (default: 5, 0=every session)
+#        DVB_SHUTDOWN_GRACE — seconds to wait for current session on exit (default: 120)
 #        DVB_EARLY_EXIT_ON_STALL — exit early on low throughput (default: 0)
 #        DVB_GRIND_CMD  — override the devin command (for testing)
 #        DVB_DEADLINE   — override deadline epoch (for testing)
@@ -255,11 +256,13 @@ preflight_check() {
     # Use background + sleep pattern since timeout/gtimeout may not exist on macOS
     if (git -C "$repo" ls-remote origin HEAD >/dev/null 2>&1 &
         _ls_pid=$!
-        (sleep 10; kill "$_ls_pid" 2>/dev/null) &
+        sleep 10 &
+        _sleep_pid=$!
+        (wait "$_sleep_pid" 2>/dev/null; kill "$_ls_pid" 2>/dev/null) &
         _timer=$!
         wait "$_ls_pid" 2>/dev/null
         _rc=$?
-        kill "$_timer" 2>/dev/null; wait "$_timer" 2>/dev/null
+        kill "$_timer" "$_sleep_pid" 2>/dev/null; wait "$_timer" 2>/dev/null
         exit "$_rc"); then
       preflight_pass "Git remote reachable"
     else
@@ -407,6 +410,8 @@ session_output="$_dvb_tmp/taskgrind-$$.session.out"
 _task_attempts_file="$_dvb_tmp/taskgrind-$$.task-attempts"
 : > "$_task_attempts_file" 2>/dev/null || true
 last_session_summary=""
+_dvb_pid=0
+_dvb_timeout_pid=0
 
 # format_duration provided by lib/constants.sh as dvb_format_duration
 format_duration() { dvb_format_duration "$@"; }
@@ -440,6 +445,78 @@ fi
 # shellcheck source=../lib/fullpower.sh
 source "$TASKGRIND_DIR/lib/fullpower.sh"
 boost_priority
+
+# ── Final sync — push local commits to origin before exiting ──────────
+# Called on every exit path so committed work is never left unpublished.
+final_sync() {
+  if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+    return 0  # Test mode — skip real git operations
+  fi
+  if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
+    return 0  # Not a git repo
+  fi
+  if [[ -z "$(git -C "$repo" remote 2>/dev/null)" ]]; then
+    return 0  # No remote configured
+  fi
+  # Only push if there are local commits ahead of origin
+  local _default_branch
+  _default_branch=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@.*/@@') || true
+  _default_branch="${_default_branch:-main}"
+  local ahead
+  ahead=$(git -C "$repo" rev-list --count "origin/$_default_branch..HEAD" 2>/dev/null) || ahead=0
+  if [[ "$ahead" -eq 0 ]]; then
+    log_write "[$(date '+%H:%M')] final_sync nothing_to_push"
+    return 0
+  fi
+  echo "   📤 Pushing $ahead local commit(s) to origin..."
+  log_write "[$(date '+%H:%M')] final_sync pushing commits=$ahead"
+  if git -C "$repo" push origin HEAD 2>/dev/null; then
+    log_write "[$(date '+%H:%M')] final_sync push_ok"
+  else
+    echo "   ⚠ Push failed — local commits preserved for manual push"
+    log_write "[$(date '+%H:%M')] final_sync push_failed"
+  fi
+}
+
+# ── Graceful shutdown — let the current session finish before exiting ─
+# On INT/TERM during a session, sends SIGINT (commit & exit), waits up to
+# DVB_SHUTDOWN_GRACE (default 120s), then SIGTERM if still alive.
+_shutdown_grace="${DVB_SHUTDOWN_GRACE:-120}"
+
+graceful_shutdown() {
+  local sig_exit="$1"
+  # If a session is running, give it time to commit and exit
+  if [[ $_dvb_pid -gt 0 ]] && kill -0 "$_dvb_pid" 2>/dev/null; then
+    echo ""
+    echo "   ⏳ Waiting for session $session to finish (up to ${_shutdown_grace}s)..."
+    log_write "[$(date '+%H:%M')] graceful_shutdown waiting pid=$_dvb_pid grace=${_shutdown_grace}s"
+    # Send SIGINT — tells devin to wrap up and commit
+    kill -INT "$_dvb_pid" 2>/dev/null || true
+    # Wait with timeout
+    local waited=0
+    while [[ $waited -lt $_shutdown_grace ]] && kill -0 "$_dvb_pid" 2>/dev/null; do
+      sleep 1 2>/dev/null || true
+      waited=$((waited + 1))
+    done
+    if kill -0 "$_dvb_pid" 2>/dev/null; then
+      echo "   ⏰ Session still running after ${_shutdown_grace}s — sending SIGTERM"
+      log_write "[$(date '+%H:%M')] graceful_shutdown timeout — killing pid=$_dvb_pid"
+      kill "$_dvb_pid" 2>/dev/null || true
+      wait "$_dvb_pid" 2>/dev/null || true
+    else
+      echo "   ✓ Session finished gracefully."
+      log_write "[$(date '+%H:%M')] graceful_shutdown session_finished after=${waited}s"
+    fi
+    # Kill the timeout watchdog if it's still running
+    if [[ $_dvb_timeout_pid -gt 0 ]] && kill -0 "$_dvb_timeout_pid" 2>/dev/null; then
+      kill "$_dvb_timeout_pid" 2>/dev/null || true
+      wait "$_dvb_timeout_pid" 2>/dev/null || true
+    fi
+  fi
+  final_sync
+  cleanup
+  exit "$sig_exit"
+}
 
 # Clean up on exit — always shows duration, even on Ctrl+C
 _dvb_cleaned=0
@@ -489,10 +566,10 @@ cleanup() {
   rm -f "$_task_attempts_file"
   rm -f "$_dvb_tmp/taskgrind-$$.git-sync"
 }
-# INT/TERM must exit after cleanup — otherwise the while loop continues
-trap 'cleanup; exit 130' INT
-trap 'cleanup; exit 143' TERM
-trap cleanup EXIT
+# INT/TERM → graceful shutdown (wait for session, push, then exit)
+trap 'graceful_shutdown 130' INT
+trap 'graceful_shutdown 143' TERM
+trap 'final_sync; cleanup' EXIT
 
 echo "☕ taskgrind: ${hours}h (until ${end_time}) — skill=$skill, model=$model, repo=$repo"
 echo "   Each session runs $skill. Git sync every ${sync_interval} sessions."
@@ -648,7 +725,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
         2>> "$log_file" &
       _dvb_pid=$!
       (
-        trap 'exit 0' TERM
+        trap 'kill $! 2>/dev/null; exit 0' TERM
         remaining=$max_session
         while (( remaining > 0 )); do
           s=$(( remaining > 10 ? 10 : remaining ))
@@ -662,11 +739,13 @@ while [[ $(date +%s) -lt $deadline ]]; do
         wait $! 2>/dev/null || exit 0
         kill -0 "$_dvb_pid" 2>/dev/null && kill "$_dvb_pid" 2>/dev/null || true
       ) &
-      _dvb_timeout=$!
+      _dvb_timeout_pid=$!
       wait "$_dvb_pid" 2>/dev/null || session_exit=$?
-      kill "$_dvb_timeout" 2>/dev/null || true
-      wait "$_dvb_timeout" 2>/dev/null || true
+      kill "$_dvb_timeout_pid" 2>/dev/null || true
+      wait "$_dvb_timeout_pid" 2>/dev/null || true
+      _dvb_timeout_pid=0
     fi
+    _dvb_pid=0
     session_elapsed=$(( $(date +%s) - session_start ))
     log_write "[$(date '+%H:%M')] sweep_done exit=$session_exit elapsed=${session_elapsed}s"
 
@@ -743,7 +822,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
       2>> "$log_file" &
     _dvb_pid=$!
     (
-      trap 'exit 0' TERM
+      trap 'kill $! 2>/dev/null; exit 0' TERM
       remaining=$max_session
       while (( remaining > 0 )); do
         s=$(( remaining > 10 ? 10 : remaining ))
@@ -764,11 +843,13 @@ while [[ $(date +%s) -lt $deadline ]]; do
         kill "$_dvb_pid" 2>/dev/null || true
       fi
     ) &
-    _dvb_timeout=$!
+    _dvb_timeout_pid=$!
     wait "$_dvb_pid" 2>/dev/null || session_exit=$?
-    kill "$_dvb_timeout" 2>/dev/null || true
-    wait "$_dvb_timeout" 2>/dev/null || true
+    kill "$_dvb_timeout_pid" 2>/dev/null || true
+    wait "$_dvb_timeout_pid" 2>/dev/null || true
+    _dvb_timeout_pid=0
   fi
+  _dvb_pid=0
   session_elapsed=$(( $(date +%s) - session_start ))
 
   # ── Fast-failure detection ────────────────────────────────────────
@@ -968,7 +1049,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
     ) > "$_git_out" 2>&1 &
     _git_pid=$!
     (
-      trap 'exit 0' TERM
+      trap 'kill $! 2>/dev/null; exit 0' TERM
       sleep "$_git_sync_timeout" &
       wait $! 2>/dev/null || exit 0
       kill "$_git_pid" 2>/dev/null || true
