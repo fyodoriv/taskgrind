@@ -4,6 +4,20 @@
 
 ## P1
 
+- [ ] Harden osascript notification against special characters
+  **ID**: harden-osascript
+  **Tags**: security
+  **Details**: The osascript notification (line 619) interpolates variables into an AppleScript string. If any variable contains quotes or backslashes, the AppleScript breaks or could inject commands. Use printf-based escaping to safely construct the notification string.
+  **Files**: bin/taskgrind
+  **Acceptance**: Notification still works; shellcheck passes; tests pass
+
+- [ ] Sanitize git sync output before logging and display
+  **ID**: sanitize-git-output
+  **Tags**: security
+  **Details**: Git sync failure output (line 1165-1167) is logged and displayed without stripping control characters. Malicious or corrupted git output could inject escape sequences into the log file or terminal. Strip non-printable characters before logging.
+  **Files**: bin/taskgrind
+  **Acceptance**: Control characters stripped from git output in logs; shellcheck passes; tests pass
+
 ## P2
 
 - [ ] Add docs/user-stories.md — real usage patterns
