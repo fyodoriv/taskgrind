@@ -1,0 +1,101 @@
+.TH TASKGRIND 1 "2026-04-09" "taskgrind" "User Commands"
+.SH NAME
+taskgrind \- autonomous multi-session grind tool
+.SH SYNOPSIS
+.B taskgrind
+[\fIhours\fR] [\fIrepo\fR] [\fB\-\-skill\fR \fIname\fR] [\fB\-\-backend\fR \fIname\fR] [\fB\-\-prompt\fR \fItext\fR] [\fB\-\-dry\-run\fR] [\fB\-\-preflight\fR]
+.SH DESCRIPTION
+Runs sequential AI coding sessions against a TASKS.md repo until a deadline.
+Each session starts with fresh context, picks a task from TASKS.md, implements
+it, commits, removes it from TASKS.md, and exits. Between sessions: cooldown,
+optional git sync. Exits when the queue empties, the deadline is reached, or
+stall is detected.
+.PP
+Arguments can appear in any order. Hours is any bare integer (1\-24, default: 8).
+.SH OPTIONS
+.TP
+.BR \-\-skill " " \fIname\fR
+Skill to run each session (default: next\-task).
+.TP
+.BR \-\-backend " " \fIname\fR
+AI backend: devin, claude\-code, codex (default: devin).
+.TP
+.BR \-\-prompt " " \fItext\fR
+Focus prompt prepended to every session.
+.TP
+.BR \-\-dry\-run
+Print configuration and exit without running sessions.
+.TP
+.BR \-\-preflight
+Run health checks and exit.
+.TP
+.BR \-\-help
+Show usage and environment variables.
+.TP
+.BR \-\-version ", " \-V
+Print version (commit hash + date) and exit.
+.SH ENVIRONMENT
+TG_ is the canonical prefix. DVB_ is supported as a backward\-compatible alias.
+.TP
+.B TG_BACKEND
+AI backend (default: devin).
+.TP
+.B TG_MODEL
+AI model (default: claude\-opus\-4\-6\-thinking).
+.TP
+.B TG_SKILL
+Skill to run (default: next\-task).
+.TP
+.B TG_PROMPT
+Extra focus prompt for every session.
+.TP
+.B TG_COOL
+Seconds between sessions (default: 5).
+.TP
+.B TG_MAX_SESSION
+Max seconds per session before timeout (default: 3600).
+.TP
+.B TG_MAX_FAST
+Max consecutive fast failures before bail (default: 5).
+.TP
+.B TG_MAX_ZERO_SHIP
+Max consecutive zero\-ship sessions before bail (default: 8).
+.TP
+.B TG_SYNC_INTERVAL
+Git sync every N sessions (default: 5, 0=every).
+.TP
+.B TG_LOG
+Override log file path.
+.TP
+.B TG_NOTIFY
+Desktop notification on completion (default: 1, 0 to disable).
+.SH FILES
+.TP
+.I TASKS.md
+Task queue file in the target repo. Uses the tasks.md spec.
+.TP
+.I /tmp/taskgrind\-*.log
+Session logs (one per grind invocation).
+.SH EXAMPLES
+.nf
+taskgrind                           # 8h grind, current dir
+taskgrind 10 ~/apps/myrepo         # 10h grind in specific repo
+taskgrind \-\-skill fleet\-grind 10  # custom skill
+taskgrind \-\-prompt "test coverage" 8
+taskgrind \-\-dry\-run 8             # print config only
+taskgrind \-\-preflight             # health checks only
+TG_MODEL=sonnet taskgrind 8        # override model
+.fi
+.SH EXIT STATUS
+.TP
+.B 0
+Normal completion (deadline reached or queue empty).
+.TP
+.B 1
+Error (invalid args, missing binary, stall bail).
+.SH SEE ALSO
+.BR devin (1),
+.BR bats (1),
+.BR shellcheck (1)
+.SH AUTHORS
+Created by cbrwizard. Extracted from dotfiles where it lived as dvb\-grind.
