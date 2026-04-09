@@ -27,13 +27,6 @@
   **Files**: bin/taskgrind, lib/constants.sh, README.md, AGENTS.md
   **Acceptance**: `TG_MODEL=sonnet taskgrind --dry-run` works; `DVB_MODEL=sonnet taskgrind --dry-run` still works; --help shows TG_ as primary
 
-- [ ] Add CONTRIBUTING.md
-  **ID**: add-contributing
-  **Tags**: docs
-  **Details**: Short contributing guide: how to run tests, how to add a feature (test first), commit format, env var naming convention (DVB_ compat), and the one-flaky-test caveat.
-  **Files**: CONTRIBUTING.md
-  **Acceptance**: New contributor can run tests and submit a PR by following CONTRIBUTING.md
-
 ## P3
 
 - [ ] Add GitHub Actions CI
