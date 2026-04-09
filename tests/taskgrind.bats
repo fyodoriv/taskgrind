@@ -285,6 +285,26 @@ teardown() {
   grep -q 'Commit before timeout' "$DVB_GRIND_INVOKE_LOG"
 }
 
+@test "prompt includes completion protocol with merge and remove instructions" {
+  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'COMPLETION PROTOCOL' "$DVB_GRIND_INVOKE_LOG"
+  grep -q 'merge.*PR' "$DVB_GRIND_INVOKE_LOG"
+  grep -q 'remove.*completed.*task.*TASKS.md' "$DVB_GRIND_INVOKE_LOG"
+}
+
+@test "zero-ship session summary tells next session about the problem" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Persistent task
+TASKS
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  # Session 2 prompt should mention the zero-ship from session 1
+  grep -q 'task count did not decrease' "$DVB_GRIND_INVOKE_LOG"
+}
+
 @test "--skill flag changes the skill in the prompt" {
   export DVB_DEADLINE=$(( $(date +%s) + 2 ))
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill fleet-grind

@@ -771,6 +771,9 @@ while [[ $(date +%s) -lt $deadline ]]; do
   prompt="Run the $skill skill."
   prompt+=" Session $session, ${remaining_min} minutes remaining, timeout ${max_session}s."
 
+  # Task completion protocol — the agent MUST close the loop
+  prompt+=" COMPLETION PROTOCOL: After finishing a task: (1) merge the PR (use 'gh pr merge --auto --squash' or merge directly if CI passes), (2) remove the completed task block from TASKS.md (completed tasks are removed entirely per spec, never marked [x]), (3) commit the TASKS.md change. A task is NOT done until its line is gone from TASKS.md. If CI is broken, fix it before merging. If a PR needs review, merge it anyway — this is autonomous mode."
+
   # Extra focus prompt — user-provided priority for every session
   if [[ -n "$extra_prompt" ]]; then
     prompt+=" FOCUS: $extra_prompt"
@@ -784,7 +787,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
 
   # Stall warning — nudge the agent to try different approaches
   if [[ $consecutive_zero_ship -ge 3 ]]; then
-    prompt+=" WARNING: Previous $consecutive_zero_ship sessions shipped nothing. decompose the next unclaimed unblocked task into 2-4 sub-tasks and implement the first one."
+    prompt+=" WARNING: Previous $consecutive_zero_ship sessions shipped nothing — tasks count in TASKS.md did not decrease. You MUST remove completed task blocks from TASKS.md for work to count. If previous sessions created PRs, merge them and remove those tasks first. Then decompose the next unclaimed unblocked task into 2-4 sub-tasks and implement the first one."
   fi
 
   # Skip list — tasks attempted 3+ times without shipping
@@ -945,6 +948,9 @@ while [[ $(date +%s) -lt $deadline ]]; do
 
   # Build per-session summary for the next session's prompt
   last_session_summary="session $session shipped $session_shipped tasks (exit=$session_exit, $(format_duration "$session_elapsed")), queue now $tasks_after"
+  if [[ "$session_shipped" -eq 0 ]]; then
+    last_session_summary+=". NOTE: task count did not decrease — did previous session forget to remove the completed task from TASKS.md or merge the PR?"
+  fi
 
   # ── Zero-ship stall detection ──────────────────────────────────────
   # Detect sessions that run full duration but accomplish nothing.
