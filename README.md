@@ -9,7 +9,10 @@ Taskgrind works with any AI coding agent that accepts a prompt (Devin, Claude Co
 ## Install
 
 ```bash
-# Clone to ~/apps (or anywhere)
+# One-liner
+curl -fsSL https://raw.githubusercontent.com/cbrwizard/taskgrind/main/install.sh | sh
+
+# Or clone manually
 git clone https://github.com/cbrwizard/taskgrind.git ~/apps/taskgrind
 
 # Add to PATH (add to your shell rc)
