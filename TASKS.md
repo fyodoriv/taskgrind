@@ -6,13 +6,6 @@
 
 ## P2
 
-- [ ] Rename DVB_ env vars to TG_ with backward compat aliases
-  **ID**: rename-env-vars
-  **Tags**: api, breaking-change
-  **Details**: All env vars use the `DVB_` prefix (from the original `dvb-grind` name). Now that the tool is `taskgrind`, the canonical prefix should be `TG_` (e.g. `TG_MODEL`, `TG_SKILL`). Keep `DVB_` as fallback aliases: `model="${TG_MODEL:-${DVB_MODEL:-$DEFAULT_MODEL}}"`. Update --help, README, AGENTS.md. This is a low-priority cosmetic change — DVB_ works fine.
-  **Files**: bin/taskgrind, lib/constants.sh, README.md, AGENTS.md
-  **Acceptance**: `TG_MODEL=sonnet taskgrind --dry-run` works; `DVB_MODEL=sonnet taskgrind --dry-run` still works; --help shows TG_ as primary
-
 ## P3
 
 - [ ] Add man page
