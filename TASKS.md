@@ -29,13 +29,6 @@
 
 ## P3
 
-- [ ] Add GitHub Actions CI
-  **ID**: add-ci
-  **Tags**: ci, infra
-  **Details**: Add `.github/workflows/check.yml` that runs `make check` on push/PR. Matrix: macOS (primary, for caffeinate/lockf tests) + Linux (for portability). Use `bats-core` and `shellcheck` GitHub Actions.
-  **Files**: .github/workflows/check.yml
-  **Acceptance**: CI badge in README; PRs get lint + test checks
-
 - [ ] Add install script (curl | sh)
   **ID**: add-install-script
   **Tags**: distribution, ux
