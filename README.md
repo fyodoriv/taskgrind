@@ -25,6 +25,8 @@ taskgrind --prompt "focus on tests" 8  # focus prompt
 taskgrind --backend claude-code 8       # use Claude Code backend
 taskgrind --dry-run 8 ~/apps/myrepo    # print config without running
 taskgrind --preflight ~/apps/myrepo    # run health checks only
+taskgrind --help                       # show usage and environment variables
+taskgrind --version                    # print version (commit hash + date)
 ```
 
 Arguments can appear in any order. Hours is any bare integer 1-24.
@@ -58,7 +60,7 @@ Completed tasks are removed (not checked off). History lives in git log. See the
 ## Features
 
 - **Multi-backend support** — works with Devin, Claude Code, and Codex via `--backend`
-- **Preflight checks** — 7 health checks (binary, network, git state, remote, disk, TASKS.md, permissions) before launch
+- **Preflight checks** — 7 health checks (binary, network, git state, remote, disk, TASKS.md, network-watchdog) before launch
 - **Self-copy protection** — copies itself to `$TMPDIR` before running, survives script edits mid-grind
 - **Per-repo locking** — `lockf` prevents duplicate grinds on the same repo
 - **Caffeinate integration** — prevents system sleep for the duration of the grind
@@ -86,7 +88,7 @@ Completed tasks are removed (not checked off). History lives in git log. See the
 | `DVB_MAX_SESSION` | `3600` | Max seconds per session |
 | `DVB_MIN_SESSION` | `30` | Fast-failure threshold in seconds |
 | `DVB_MAX_FAST` | `5` | Max consecutive fast failures before bail |
-| `DVB_MAX_ZERO_SHIP` | `3` | Consecutive zero-ship sessions before bail |
+| `DVB_MAX_ZERO_SHIP` | `8` | Consecutive zero-ship sessions before bail |
 | `DVB_BACKOFF_BASE` | `15` | Base seconds for fast-failure backoff |
 | `DVB_BACKOFF_MAX` | `120` | Cap for fast-failure backoff in seconds |
 | `DVB_NET_WAIT` | `30` | Network polling interval in seconds |
@@ -97,6 +99,7 @@ Completed tasks are removed (not checked off). History lives in git log. See the
 | `DVB_DEVIN_PATH` | auto | Override devin binary path |
 | `DVB_LOG` | auto | Override log file path |
 | `DVB_NOTIFY` | `1` | macOS notification on completion |
+| `DVB_SHUTDOWN_GRACE` | `120` | Seconds to wait for current session on exit |
 
 ## Monitoring
 
@@ -111,11 +114,16 @@ Each session logs: start time, remaining minutes, task count, exit code, duratio
 
 ```bash
 make lint       # shellcheck
-make test       # bats test suite (291 tests)
+make test       # bats test suite (294 tests)
 make check      # lint + test
 ```
 
 Requires: [bats-core](https://github.com/bats-core/bats-core), [shellcheck](https://www.shellcheck.net/)
+
+```bash
+# macOS
+brew install bats-core shellcheck
+```
 
 ## History
 

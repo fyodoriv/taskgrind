@@ -8,7 +8,12 @@ cd taskgrind
 make check   # runs shellcheck + bats test suite
 ```
 
-Requires [bats-core](https://github.com/bats-core/bats-core) and [shellcheck](https://www.shellcheck.net/).
+Requires [bats-core](https://github.com/bats-core/bats-core) and [shellcheck](https://www.shellcheck.net/):
+
+```bash
+# macOS
+brew install bats-core shellcheck
+```
 
 ## Adding a Feature
 
