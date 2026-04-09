@@ -1918,8 +1918,8 @@ TASKS
 
 # ── Stall detection (zero-ship sessions) ─────────────────────────────
 
-@test "DVB_MAX_ZERO_SHIP defaults to 3" {
-  grep -q 'DVB_MAX_ZERO_SHIP:-3' "$DVB_GRIND"
+@test "DVB_MAX_ZERO_SHIP defaults to 8" {
+  grep -q 'DVB_MAX_ZERO_SHIP:-8' "$DVB_GRIND"
 }
 
 @test "5 consecutive zero-ship sessions exits the marathon" {

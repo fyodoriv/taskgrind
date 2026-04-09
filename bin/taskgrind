@@ -24,7 +24,7 @@
 #        DVB_NOTIFY     — macOS notification on completion (default: 1, set 0 to disable)
 #        DVB_MAX_SESSION — max seconds per session before timeout (default: 3600)
 #        DVB_MAX_FAST   — max consecutive fast failures before bail out (default: 5)
-#        DVB_MAX_ZERO_SHIP — max consecutive zero-ship sessions before bail (default: 3)
+#        DVB_MAX_ZERO_SHIP — max consecutive zero-ship sessions before bail (default: 8)
 #        DVB_BACKOFF_BASE — base seconds for fast-failure backoff (default: 15)
 #        DVB_BACKOFF_MAX — cap for fast-failure backoff (default: 120)
 #        DVB_NET_WAIT   — network polling interval in seconds (default: 30)
@@ -118,7 +118,7 @@ cooldown="${DVB_COOL:-5}"
 max_hours=24
 max_fast="${DVB_MAX_FAST:-5}"
 max_session="${DVB_MAX_SESSION:-3600}"
-max_zero_ship="${DVB_MAX_ZERO_SHIP:-3}"
+max_zero_ship="${DVB_MAX_ZERO_SHIP:-8}"
 sync_interval="${DVB_SYNC_INTERVAL:-5}"
 
 # Validate numeric env vars
@@ -772,7 +772,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
   prompt+=" Session $session, ${remaining_min} minutes remaining, timeout ${max_session}s."
 
   # Task completion protocol — the agent MUST close the loop
-  prompt+=" COMPLETION PROTOCOL: After finishing a task: (1) merge the PR (use 'gh pr merge --auto --squash' or merge directly if CI passes), (2) remove the completed task block from TASKS.md (completed tasks are removed entirely per spec, never marked [x]), (3) commit the TASKS.md change. A task is NOT done until its line is gone from TASKS.md. If CI is broken, fix it before merging. If a PR needs review, merge it anyway — this is autonomous mode."
+  prompt+=" COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. If you created a PR, merge it first (use 'gh pr merge --squash' or merge directly). If you committed directly to main, just remove the task. A session that commits code but doesn't remove the task from TASKS.md is a failed session."
 
   # Extra focus prompt — user-provided priority for every session
   if [[ -n "$extra_prompt" ]]; then
