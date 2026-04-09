@@ -1292,6 +1292,18 @@ while [[ $(date +%s) -lt $deadline ]]; do
       git -C "$repo" branch --merged "$_default_branch" 2>/dev/null \
         | grep -v '^\*' | grep -vx "[[:space:]]*$_default_branch" \
         | xargs -I{} git -C "$repo" branch -d {} 2>/dev/null || true
+
+      # Clean up stale local branches whose remote tracking branch is gone.
+      # After `fetch --prune`, these show as [origin/xxx: gone] in `git branch -vv`.
+      _stale_count=0
+      while IFS= read -r _branch; do
+        [[ -z "$_branch" ]] && continue
+        _branch="$(echo "$_branch" | xargs)"  # trim whitespace
+        git -C "$repo" branch -D "$_branch" 2>/dev/null && (( _stale_count++ )) || true
+      done < <(git -C "$repo" branch -vv 2>/dev/null | grep ': gone]' | awk '{print $1}' | grep -v '^\*')
+      if [[ "$_stale_count" -gt 0 ]]; then
+        log_write "[$(date '+%H:%M')] branch_cleanup pruned=$_stale_count stale branches"
+      fi
       log_write "[$(date '+%H:%M')] branch_cleanup done"
     fi  # end: if git remote exists
   else

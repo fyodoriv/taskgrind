@@ -2595,6 +2595,103 @@ SCRIPT
   ! git -C "$TEST_REPO" branch | grep -q 'maintain-docs'
 }
 
+@test "stale branches with gone upstream are pruned" {
+  # When a remote branch is deleted (e.g., merged on GitHub), the local branch
+  # tracking it becomes stale. After fetch --prune, it shows [gone] upstream.
+  git -C "$TEST_REPO" init -q -b main
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+  echo "init" > "$TEST_REPO/README.md"
+  git -C "$TEST_REPO" add README.md
+  git -C "$TEST_REPO" commit -q --no-verify -m "init"
+  local bare="$TEST_DIR/bare.git"
+  git init -q --bare "$bare"
+  git -C "$TEST_REPO" remote add origin "$bare"
+  git -C "$TEST_REPO" push -q origin main 2>/dev/null
+  # Create a feature branch, push it, then delete it on the remote
+  git -C "$TEST_REPO" checkout -q -b stale-feature
+  echo "feature" > "$TEST_REPO/feature.txt"
+  git -C "$TEST_REPO" add feature.txt
+  git -C "$TEST_REPO" commit -q --no-verify -m "feature work"
+  git -C "$TEST_REPO" push -q origin stale-feature 2>/dev/null
+  # Set upstream tracking
+  git -C "$TEST_REPO" branch --set-upstream-to=origin/stale-feature stale-feature 2>/dev/null
+  git -C "$TEST_REPO" checkout -q main
+  # Delete the remote branch (simulates GitHub merge+delete)
+  git -C "$bare" branch -D stale-feature 2>/dev/null
+
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_SYNC_INTERVAL=0
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  # The stale branch should be pruned
+  ! git -C "$TEST_REPO" branch | grep -q 'stale-feature'
+  grep -q 'branch_cleanup pruned=1' "$TEST_LOG"
+}
+
+@test "stale branch cleanup logs count when multiple branches pruned" {
+  git -C "$TEST_REPO" init -q -b main
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+  echo "init" > "$TEST_REPO/README.md"
+  git -C "$TEST_REPO" add README.md
+  git -C "$TEST_REPO" commit -q --no-verify -m "init"
+  local bare="$TEST_DIR/bare.git"
+  git init -q --bare "$bare"
+  git -C "$TEST_REPO" remote add origin "$bare"
+  git -C "$TEST_REPO" push -q origin main 2>/dev/null
+  # Create two feature branches, push them, delete on remote
+  for branch_name in stale-one stale-two; do
+    git -C "$TEST_REPO" checkout -q -b "$branch_name"
+    echo "$branch_name" > "$TEST_REPO/${branch_name}.txt"
+    git -C "$TEST_REPO" add "${branch_name}.txt"
+    git -C "$TEST_REPO" commit -q --no-verify -m "$branch_name"
+    git -C "$TEST_REPO" push -q origin "$branch_name" 2>/dev/null
+    git -C "$TEST_REPO" branch --set-upstream-to="origin/$branch_name" "$branch_name" 2>/dev/null
+    git -C "$TEST_REPO" checkout -q main
+    git -C "$bare" branch -D "$branch_name" 2>/dev/null
+  done
+
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_SYNC_INTERVAL=0
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  ! git -C "$TEST_REPO" branch | grep -q 'stale-one'
+  ! git -C "$TEST_REPO" branch | grep -q 'stale-two'
+  grep -q 'branch_cleanup pruned=2' "$TEST_LOG"
+}
+
+@test "non-stale tracking branches are not pruned" {
+  # Branches with a live upstream should survive cleanup
+  git -C "$TEST_REPO" init -q -b main
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+  echo "init" > "$TEST_REPO/README.md"
+  git -C "$TEST_REPO" add README.md
+  git -C "$TEST_REPO" commit -q --no-verify -m "init"
+  local bare="$TEST_DIR/bare.git"
+  git init -q --bare "$bare"
+  git -C "$TEST_REPO" remote add origin "$bare"
+  git -C "$TEST_REPO" push -q origin main 2>/dev/null
+  # Create a branch that still exists on remote
+  git -C "$TEST_REPO" checkout -q -b active-feature
+  echo "active" > "$TEST_REPO/active.txt"
+  git -C "$TEST_REPO" add active.txt
+  git -C "$TEST_REPO" commit -q --no-verify -m "active"
+  git -C "$TEST_REPO" push -q origin active-feature 2>/dev/null
+  git -C "$TEST_REPO" branch --set-upstream-to=origin/active-feature active-feature 2>/dev/null
+  git -C "$TEST_REPO" checkout -q main
+
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_SYNC_INTERVAL=0
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  # Active branch should still exist
+  git -C "$TEST_REPO" branch | grep -q 'active-feature'
+  # No stale branches pruned
+  ! grep -q 'branch_cleanup pruned=' "$TEST_LOG"
+}
+
 # ── PID in log file and log lines ─────────────────────────────────────
 
 @test "default log file name includes repo and PID for uniqueness" {
