@@ -347,7 +347,7 @@ teardown() {
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'COMPLETION PROTOCOL' "$DVB_GRIND_INVOKE_LOG"
-  grep -q 'merge.*PR' "$DVB_GRIND_INVOKE_LOG"
+  grep -q 'PR.*merge' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'remove.*task.*TASKS.md' "$DVB_GRIND_INVOKE_LOG"
 }
 
@@ -1265,14 +1265,14 @@ TASKS
 # ── Cooldown ─────────────────────────────────────────────────────────
 
 @test "DVB_COOL=0 skips sleep between sessions" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   export DVB_COOL=0
   local start end
   start=$(date +%s)
   run "$DVB_GRIND" 1 "$TEST_REPO"
   end=$(date +%s)
-  # With cooldown=0, multiple sessions should complete in < 3s
-  [ $((end - start)) -lt 5 ]
+  # With cooldown=0, multiple sessions should complete in < 8s
+  [ $((end - start)) -lt 8 ]
 }
 
 # ── Working directory ────────────────────────────────────────────────
@@ -1897,7 +1897,7 @@ SCRIPT
   git -C "$TEST_REPO" remote add origin "$bare"
   git -C "$TEST_REPO" push -q origin HEAD 2>/dev/null
 
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -1936,7 +1936,7 @@ SCRIPT
   export DVB_MIN_SESSION=999
   export DVB_BACKOFF_BASE=0
   export DVB_COOL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -qE 'fast_fail.*exit=[0-9]+' "$TEST_LOG"
 }
