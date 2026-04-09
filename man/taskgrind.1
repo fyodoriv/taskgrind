@@ -3,7 +3,7 @@
 taskgrind \- autonomous multi-session grind tool
 .SH SYNOPSIS
 .B taskgrind
-[\fIhours\fR] [\fIrepo\fR] [\fB\-\-skill\fR \fIname\fR] [\fB\-\-backend\fR \fIname\fR] [\fB\-\-prompt\fR \fItext\fR] [\fB\-\-dry\-run\fR] [\fB\-\-preflight\fR]
+[\fIhours\fR] [\fIrepo\fR] [\fB\-\-skill\fR \fIname\fR] [\fB\-\-backend\fR \fIname\fR] [\fB\-\-prompt\fR \fItext\fR] [\fB\-\-dry\-run\fR] [\fB\-\-preflight\fR] [\fB\-\-help\fR] [\fB\-\-version\fR]
 .SH DESCRIPTION
 Runs sequential AI coding sessions against a TASKS.md repo until a deadline.
 Each session starts with fresh context, picks a task from TASKS.md, implements
@@ -29,7 +29,7 @@ Print configuration and exit without running sessions.
 .BR \-\-preflight
 Run health checks and exit.
 .TP
-.BR \-\-help
+.BR \-\-help ", " \-h
 Show usage and environment variables.
 .TP
 .BR \-\-version ", " \-V
@@ -55,20 +55,53 @@ Seconds between sessions (default: 5).
 .B TG_MAX_SESSION
 Max seconds per session before timeout (default: 3600).
 .TP
+.B TG_MIN_SESSION
+Fast\-failure threshold in seconds (default: 30).
+.TP
 .B TG_MAX_FAST
 Max consecutive fast failures before bail (default: 5).
 .TP
 .B TG_MAX_ZERO_SHIP
 Max consecutive zero\-ship sessions before bail (default: 8).
 .TP
+.B TG_BACKOFF_BASE
+Base seconds for fast\-failure backoff (default: 15).
+.TP
+.B TG_BACKOFF_MAX
+Cap for fast\-failure backoff in seconds (default: 120).
+.TP
+.B TG_NET_WAIT
+Network polling interval in seconds (default: 30).
+.TP
+.B TG_NET_MAX_WAIT
+Max time to wait for network recovery in seconds (default: 14400).
+.TP
+.B TG_NET_RETRIES
+Network check retry attempts before declaring down (default: 3).
+.TP
+.B TG_NET_RETRY_DELAY
+Seconds between network check retries (default: 2).
+.TP
 .B TG_SYNC_INTERVAL
 Git sync every N sessions (default: 5, 0=every).
+.TP
+.B TG_GIT_SYNC_TIMEOUT
+Max seconds for between\-session git sync (default: 30).
 .TP
 .B TG_LOG
 Override log file path.
 .TP
 .B TG_NOTIFY
 Desktop notification on completion (default: 1, 0 to disable).
+.TP
+.B TG_DEVIN_PATH
+Override devin binary path (default: auto\-detect from PATH).
+.TP
+.B TG_SHUTDOWN_GRACE
+Seconds to wait for current session on exit (default: 120).
+.TP
+.B TG_EARLY_EXIT_ON_STALL
+Exit early on low throughput (default: 1, 0 to disable).
 .SH FILES
 .TP
 .I TASKS.md
@@ -81,9 +114,11 @@ Session logs (one per grind invocation).
 taskgrind                           # 8h grind, current dir
 taskgrind 10 ~/apps/myrepo         # 10h grind in specific repo
 taskgrind \-\-skill fleet\-grind 10  # custom skill
+taskgrind \-\-backend claude\-code 8  # use Claude Code backend
 taskgrind \-\-prompt "test coverage" 8
 taskgrind \-\-dry\-run 8             # print config only
 taskgrind \-\-preflight             # health checks only
+taskgrind \-\-version               # print version
 TG_MODEL=sonnet taskgrind 8        # override model
 .fi
 .SH EXIT STATUS
