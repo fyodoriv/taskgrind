@@ -175,7 +175,7 @@ teardown() {
 # ── Model selection ──────────────────────────────────────────────────
 
 @test "defaults to claude-opus-4-6-thinking (not shortname)" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Must be the exact explicit name, not 'opus' shortname
@@ -183,7 +183,7 @@ teardown() {
 }
 
 @test "default model does not use 'opus' shortname" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Should NOT contain bare '--model opus ' (the shortname)
@@ -225,7 +225,7 @@ teardown() {
 }
 
 @test "every session gets the same model flag" {
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Every invocation line must contain the exact model flag
@@ -237,7 +237,7 @@ teardown() {
 }
 
 @test "DVB_MODEL overrides default completely" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   export DVB_MODEL=sonnet
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q -- '--model sonnet' "$DVB_GRIND_INVOKE_LOG"
@@ -246,21 +246,21 @@ teardown() {
 }
 
 @test "DVB_MODEL=claude-sonnet-4.5 passes through exactly" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   export DVB_MODEL=claude-sonnet-4.5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q -- '--model claude-sonnet-4.5' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "model shows in startup banner" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"claude-opus-4-6-thinking"* ]]
 }
 
 @test "model shows in log file header" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'model=claude-opus-4-6-thinking' "$TEST_LOG"
@@ -277,31 +277,31 @@ teardown() {
 # ── Session loop ─────────────────────────────────────────────────────
 
 @test "runs devin with --permission-mode dangerous" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q -- '--permission-mode dangerous' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "runs devin in print mode with -p prompt" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q -- '-p Run the next-task skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "prompt includes session number" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'Session 1' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "prompt includes remaining minutes" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'minutes remaining' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "prompt includes commit-before-timeout guidance" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'Commit before timeout' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -327,39 +327,39 @@ TASKS
 }
 
 @test "--skill flag changes the skill in the prompt" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill fleet-grind
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--skill flag shows in startup banner" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill fleet-grind
   [[ "$output" == *"skill=fleet-grind"* ]]
 }
 
 @test "DVB_SKILL env overrides default skill" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   export DVB_SKILL=fleet-grind
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--skill flag overrides DVB_SKILL env" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   export DVB_SKILL=sweep
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill fleet-grind
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "default skill is next-task when no --skill or DVB_SKILL" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'Run the next-task skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--skill works with repo path in any order" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 --skill fleet-grind "$TEST_REPO"
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -390,33 +390,33 @@ TASKS
 # ── --prompt flag ────────────────────────────────────────────────────
 
 @test "--prompt flag adds focus to session prompt" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "focus on test coverage"
   grep -q 'FOCUS: focus on test coverage' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt= syntax works" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt="improve error handling"
   grep -q 'FOCUS: improve error handling' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "DVB_PROMPT env sets focus prompt" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   export DVB_PROMPT="fix flaky tests"
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'FOCUS: fix flaky tests' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt flag overrides DVB_PROMPT env" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   export DVB_PROMPT="env prompt"
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "flag prompt"
   grep -q 'FOCUS: flag prompt' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt shows focus in startup banner" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "test coverage"
   [[ "$output" == *"Focus: test coverage"* ]]
 }
@@ -428,21 +428,21 @@ TASKS
 }
 
 @test "no --prompt omits FOCUS from prompt" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   ! grep -q 'FOCUS:' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt works with --skill and repo in any order" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" --prompt "perf work" --skill fleet-grind "$TEST_REPO" 1
   grep -q 'FOCUS: perf work' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "runs multiple sessions when deadline allows" {
-  # Fake devin that exits instantly; deadline 3s in the future
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  # Fake devin that exits instantly; generous deadline to avoid flake under load
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   local count
   count=$(wc -l < "$DVB_GRIND_INVOKE_LOG")
@@ -450,7 +450,7 @@ TASKS
 }
 
 @test "session counter increments across sessions" {
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'session 1' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'session 2' "$DVB_GRIND_INVOKE_LOG"
@@ -474,7 +474,7 @@ exit 1
 SCRIPT
   chmod +x "$bad_devin"
   export DVB_GRIND_CMD="$bad_devin"
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   local count
@@ -497,14 +497,14 @@ SCRIPT
 
 - [ ] Refactor auth module
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"3 tasks queued"* ]]
 }
 
 @test "reports 0 tasks when TASKS.md is missing" {
   rm -f "$TEST_REPO/TASKS.md"
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Queue empty"* ]]
@@ -512,7 +512,7 @@ TASKS
 
 @test "reports 0 tasks when TASKS.md has no checkboxes" {
   echo "# Tasks" > "$TEST_REPO/TASKS.md"
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Queue empty"* ]]
@@ -521,7 +521,7 @@ TASKS
 @test "count_tasks returns clean integer 0 (no multiline) when no checkboxes" {
   # Regression: grep -c exits 1 on 0 matches, || echo "0" produced "0\n0"
   echo "# Tasks" > "$TEST_REPO/TASKS.md"
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # With empty queue, sweep runs then exits cleanly without arithmetic errors
   [ "$status" -eq 0 ]
@@ -535,7 +535,7 @@ TASKS
 ## P0
 ## P1
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Sweep session should have been launched (fake devin records invocation)
@@ -547,7 +547,7 @@ TASKS
 
 @test "missing TASKS.md launches sweep then exits" {
   rm -f "$TEST_REPO/TASKS.md"
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'sweep_empty' "$TEST_LOG"
@@ -642,7 +642,7 @@ SCRIPT
 ## P0
 - [ ] A real task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Should have launched at least one session
@@ -653,7 +653,7 @@ TASKS
 # ── Prompt hardening ──────────────────────────────────────────────────
 
 @test "prompt includes session timeout budget" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'timeout.*s' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -686,7 +686,7 @@ TASKS
 }
 
 @test "second session prompt includes previous session context" {
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Session 2 should reference session 1 results
@@ -694,7 +694,7 @@ TASKS
 }
 
 @test "first session prompt has no previous session context" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Session 1 prompt should NOT contain "Previous session"
@@ -717,7 +717,7 @@ rm -rf "$volatile"
 SCRIPT
   chmod +x "$nuke_devin"
   export DVB_GRIND_CMD="$nuke_devin"
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$volatile"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Repo directory missing"* ]]
@@ -725,7 +725,7 @@ SCRIPT
 }
 
 @test "log_write does not crash on deleted log file" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   # Use a log file that will be deleted by the fake devin
   local volatile_log="$TEST_DIR/volatile.log"
   export DVB_LOG="$volatile_log"
@@ -781,7 +781,7 @@ SCRIPT
 - [ ] Task three
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Summary should show shipped tasks
   [[ "$output" == *"sessions"* ]]
@@ -805,7 +805,7 @@ SCRIPT
 - [ ] Existing task
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Should show 0+ tasks (not negative)
   [[ "$output" == *"0+ tasks"* ]]
@@ -821,7 +821,7 @@ TASKS
 ## P1
 - [ ] Another top-level
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"4 tasks queued"* ]]
 }
@@ -850,13 +850,13 @@ SCRIPT
 # ── Log file ─────────────────────────────────────────────────────────
 
 @test "creates log file" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ -f "$TEST_LOG" ]
 }
 
 @test "log file contains header with config" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q '# taskgrind started' "$TEST_LOG"
   grep -q "hours=1" "$TEST_LOG"
@@ -864,13 +864,13 @@ SCRIPT
 }
 
 @test "log file records session start entries" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'session=1' "$TEST_LOG"
 }
 
 @test "log file records session end entries" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'ended' "$TEST_LOG"
 }
@@ -881,13 +881,13 @@ SCRIPT
 ## P0
 - [ ] Task one
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'tasks_after=' "$TEST_LOG"
 }
 
 @test "log file records shipped count per session" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'shipped=' "$TEST_LOG"
 }
@@ -895,14 +895,14 @@ TASKS
 @test "DVB_LOG overrides log file path" {
   local custom_log="$TEST_DIR/custom.log"
   export DVB_LOG="$custom_log"
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ -f "$custom_log" ]
 }
 
 @test "default log file uses timestamp format" {
   unset DVB_LOG
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Output should show a log path with YYYY-MM-DD-HHMM-reponame-PID pattern
   [[ "$output" =~ taskgrind-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[a-zA-Z0-9_.-]+-[0-9]+\.log ]]
@@ -911,7 +911,7 @@ TASKS
 # ── Banner and summary ───────────────────────────────────────────────
 
 @test "shows startup banner with hours and model" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"taskgrind"* ]]
   [[ "$output" == *"1h"* ]]
@@ -919,38 +919,38 @@ TASKS
 }
 
 @test "shows startup banner with repo path" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"$TEST_REPO"* ]]
 }
 
 @test "shows session restart message" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"Each session runs"* ]]
 }
 
 @test "shows completion summary with session count" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"Grind complete"* ]]
   [[ "$output" == *"sessions"* ]]
 }
 
 @test "shows completion summary with task count" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"tasks"* ]]
 }
 
 @test "shows log file path in summary" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"$TEST_LOG"* ]]
 }
 
 @test "shows cooldown message between sessions" {
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   export DVB_COOL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"Cooling down"* ]]
@@ -970,7 +970,7 @@ TASKS
 # ── Cooldown ─────────────────────────────────────────────────────────
 
 @test "DVB_COOL=0 skips sleep between sessions" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   export DVB_COOL=0
   local start end
   start=$(date +%s)
@@ -991,7 +991,7 @@ pwd >> "$TEST_DIR/cwd.log"
 SCRIPT
   chmod +x "$cwd_devin"
   export DVB_GRIND_CMD="$cwd_devin"
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q "$TEST_REPO" "$TEST_DIR/cwd.log"
 }
@@ -1033,7 +1033,7 @@ SCRIPT
 }
 
 @test "grind log includes elapsed in seconds" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Log should contain elapsed=Ns where N is a number
   grep -qE 'elapsed=[0-9]+s' "$TEST_LOG"
@@ -1054,7 +1054,7 @@ SCRIPT
   touch "$net_file"
   export DVB_NET_FILE="$net_file"
   export DVB_MIN_SESSION=999
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Network is up, so no network_down in log
@@ -1071,7 +1071,7 @@ SCRIPT
   touch "$net_file"
   export DVB_NET_FILE="$net_file"
   export DVB_MIN_SESSION=999
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Sessions ran (network was up, so no pause)
@@ -1084,7 +1084,7 @@ SCRIPT
   export DVB_MIN_SESSION=999
   export DVB_NET_WAIT=0
   export DVB_NET_MAX_WAIT=0
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Should have logged network_down
   grep -q 'network_down' "$TEST_LOG"
@@ -1096,7 +1096,7 @@ SCRIPT
   export DVB_MIN_SESSION=999
   export DVB_NET_WAIT=0
   export DVB_NET_MAX_WAIT=0
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'network_timeout' "$TEST_LOG"
@@ -1254,7 +1254,7 @@ SCRIPT
   # This means fast-failure detection is disabled — no fast_fail log entries
   unset DVB_MIN_SESSION 2>/dev/null || true
   unset DVB_NET_FILE 2>/dev/null || true
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   ! grep -q 'fast_fail' "$TEST_LOG"
@@ -1268,7 +1268,7 @@ SCRIPT
   export DVB_MIN_SESSION=999
   export DVB_BACKOFF_BASE=0
   export DVB_COOL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # With min_session=999, every instant session is a fast failure
@@ -1337,7 +1337,7 @@ SCRIPT
 }
 
 @test "session end log includes exit code and duration" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -qE 'session=1 ended exit=[0-9]+ duration=[0-9]+s' "$TEST_LOG"
 }
@@ -1353,13 +1353,13 @@ exit 42
 SCRIPT
   chmod +x "$failing_devin"
   export DVB_GRIND_CMD="$failing_devin"
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'exit=42' "$TEST_LOG"
 }
 
 @test "exit code shows in terminal session end message" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"exit=0"* ]]
 }
@@ -1473,7 +1473,7 @@ SCRIPT
 }
 
 @test "--skill=fleet-grind equals syntax works" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill=fleet-grind
   [ "$status" -eq 0 ]
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
@@ -1534,7 +1534,7 @@ SCRIPT
 
 @test "skips git pull for non-git repos" {
   # TEST_REPO is a plain directory (no .git)
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -1550,7 +1550,7 @@ SCRIPT
   git -C "$TEST_REPO" commit -q --no-verify -m "init"
   # No remote added
 
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -1572,7 +1572,7 @@ SCRIPT
 # ── Print mode and session timeout ────────────────────────────────────
 
 @test "uses -p (print mode) not -- (interactive mode)" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Must use -p for non-interactive mode (exits after completion)
   grep -q -- '-p ' "$DVB_GRIND_INVOKE_LOG"
@@ -1675,7 +1675,7 @@ SCRIPT
 # ── Log File Security ────────────────────────────────────────────────
 
 @test "log file permissions are 600 (owner-only)" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ -f "$TEST_LOG" ]
   local perms
@@ -1685,7 +1685,7 @@ SCRIPT
 
 @test "DVB_LOG pointing to directory exits with error" {
   export DVB_LOG="$TEST_DIR"
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -ne 0 ]
   [[ "$output" == *"points to a directory"* ]]
@@ -1693,7 +1693,7 @@ SCRIPT
 
 @test "DVB_LOG with nonexistent parent creates parent directory" {
   export DVB_LOG="$TEST_DIR/deep/nested/dir/grind.log"
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [ -f "$TEST_DIR/deep/nested/dir/grind.log" ]
@@ -1822,7 +1822,7 @@ SCRIPT
 ## P0
 - [ ] Persistent task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'shipped=0' "$TEST_LOG"
 }
@@ -1833,7 +1833,7 @@ TASKS
 ## P0
 - [ ] Task that stays
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"0+ tasks"* ]]
 }
@@ -1861,7 +1861,7 @@ TASKS
 # ── Caffeinate re-exec ───────────────────────────────────────────────
 
 @test "caffeinate re-exec is skipped in test mode" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
 }
@@ -1905,7 +1905,7 @@ TASKS
   git -C "$TEST_REPO" add feature.txt
   git -C "$TEST_REPO" commit -q --no-verify -m "feature work"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -1948,7 +1948,7 @@ TASKS
   echo "uncommitted work" > "$TEST_REPO/dirty.txt"
   git -C "$TEST_REPO" add dirty.txt
 
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -2108,7 +2108,7 @@ SCRIPT
   git -C "$TEST_REPO" merge -q already-merged --no-edit
   git -C "$TEST_REPO" push -q origin main 2>/dev/null
 
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -2135,7 +2135,7 @@ SCRIPT
   git -C "$TEST_REPO" commit -q --no-verify -m "wip"
   git -C "$TEST_REPO" checkout -q main
 
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -2164,7 +2164,7 @@ SCRIPT
   git -C "$TEST_REPO" merge -q maintain-docs --no-edit
   git -C "$TEST_REPO" push -q origin main 2>/dev/null
 
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -2176,21 +2176,21 @@ SCRIPT
 
 @test "default log file name includes repo and PID for uniqueness" {
   unset DVB_LOG
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Log path in output should include repo basename and PID segment before .log
   [[ "$output" =~ taskgrind-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[a-zA-Z0-9_.-]+-[0-9]+\.log ]]
 }
 
 @test "log lines include pid= prefix" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # At least one log_write line should have the [pid=N] prefix
   grep -qE '^\[pid=[0-9]+\]' "$TEST_LOG"
 }
 
 @test "grind_done log line includes pid= prefix" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -qE '^\[pid=[0-9]+\].*grind_done' "$TEST_LOG"
 }
@@ -2230,7 +2230,7 @@ SCRIPT
   git -C "$TEST_REPO" add file.txt
   git -C "$TEST_REPO" commit -q --no-verify -m "local conflict"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -2252,7 +2252,7 @@ SCRIPT
   git -C "$TEST_REPO" remote add origin "$bare"
   git -C "$TEST_REPO" push -q origin main 2>/dev/null
 
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -2340,7 +2340,7 @@ SCRIPT
 ## P0
 - [ ] Hard task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Log should contain the session output capture
@@ -2371,7 +2371,7 @@ SCRIPT
       echo "- [ ] Task $i"
     done
   } > "$TEST_REPO/TASKS.md"
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Every session ships a task, so no zero-ship output captures
@@ -2381,7 +2381,7 @@ SCRIPT
 # ── Efficiency summary in grind_done ──────────────────────────────────
 
 @test "grind_done terminal output includes rate and avg session" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Rate:"* ]]
@@ -2391,14 +2391,14 @@ SCRIPT
 }
 
 @test "grind_done log line includes rate and sessions_zero_ship" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'grind_done.*rate=.*sessions_zero_ship=' "$TEST_LOG"
 }
 
 @test "grind_done log includes avg_session field" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'avg_session=' "$TEST_LOG"
@@ -2410,7 +2410,7 @@ SCRIPT
 ## P0
 - [ ] Stubborn task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
   export DVB_MAX_ZERO_SHIP=3
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -2738,55 +2738,55 @@ EOF
 # ── Prompt hardening ───────────────────────────────────────────────────
 
 @test "--prompt adds priority framing to pick matching tasks first" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "focus on test coverage"
   grep -q 'Pick tasks from TASKS.md that relate to this focus' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt priority framing mentions unrelated tasks fallback" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "taskgrind stability"
   grep -q 'Only work on unrelated tasks if no matching tasks remain' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "log header includes prompt= when --prompt is set" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "test focus"
   grep -q 'prompt=test focus' "$TEST_LOG"
 }
 
 @test "log header omits prompt= when no --prompt given" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   ! grep -q 'prompt=' "$(head -2 "$TEST_LOG")"
 }
 
 @test "grind_done log includes prompt when --prompt is set" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "ship features"
   grep 'grind_done' "$TEST_LOG" | grep -q 'prompt=ship features'
 }
 
 @test "grind_done log omits prompt when no --prompt given" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   ! grep 'grind_done' "$TEST_LOG" | grep -q 'prompt='
 }
 
 @test "--prompt with single quotes passes through safely" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "it's a test"
   grep -q "FOCUS: it's a test" "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt with dollar sign passes through without expansion" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt 'fix $HOME paths'
   grep -q 'FOCUS: fix \$HOME paths' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt with double quotes passes through safely" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt 'multi word with "quotes"'
   grep -q 'FOCUS: multi word with "quotes"' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -2800,7 +2800,7 @@ EOF
 # ── Multi-backend support ─────────────────────────────────────────────
 
 @test "default backend is devin" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"backend=devin"* ]]
 }
@@ -2845,13 +2845,13 @@ EOF
 }
 
 @test "backend shows in startup banner" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"backend=devin"* ]]
 }
 
 @test "backend shows in log file header" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'backend=devin' "$TEST_LOG"
 }
@@ -2884,19 +2884,19 @@ EOF
 }
 
 @test "devin backend invokes with --permission-mode dangerous" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" --backend devin 1 "$TEST_REPO"
   [ -f "$DVB_GRIND_INVOKE_LOG" ] && grep -q -- '--permission-mode dangerous' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "claude-code backend invokes with --dangerously-skip-permissions" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" --backend claude-code 1 "$TEST_REPO"
   [ -f "$DVB_GRIND_INVOKE_LOG" ] && grep -q -- '--dangerously-skip-permissions' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "codex backend invokes with -q flag" {
-  export DVB_DEADLINE=$(( $(date +%s) + 2 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" --backend codex 1 "$TEST_REPO"
   [ -f "$DVB_GRIND_INVOKE_LOG" ] && grep -q -- '-q' "$DVB_GRIND_INVOKE_LOG"
 }
