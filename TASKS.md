@@ -8,13 +8,6 @@
 
 ## P3
 
-- [ ] Add man page
-  **ID**: add-man-page
-  **Tags**: docs, distribution
-  **Details**: Generate a man page from --help output or write `taskgrind.1` manually. Install to standard man path. Low priority — --help is sufficient for most users.
-  **Files**: man/taskgrind.1
-  **Acceptance**: `man taskgrind` works after install
-
 - [ ] Homebrew tap for easy install
   **ID**: homebrew-tap
   **Tags**: distribution
