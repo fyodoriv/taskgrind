@@ -1556,6 +1556,13 @@ SCRIPT
   [[ "$output" == *"DVB_BACKOFF_MAX must be numeric"* ]]
 }
 
+@test "DVB_SYNC_INTERVAL=abc exits with must be numeric error" {
+  export DVB_SYNC_INTERVAL=abc
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"DVB_SYNC_INTERVAL must be numeric"* ]]
+}
+
 @test "DVB_GIT_SYNC_TIMEOUT=abc exits with must be numeric error" {
   export DVB_GIT_SYNC_TIMEOUT=abc
   run "$DVB_GRIND" 1 "$TEST_REPO"

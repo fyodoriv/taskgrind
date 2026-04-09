@@ -11,7 +11,7 @@ taskgrind/
 ├── bin/taskgrind           Main script (runs AI sessions in a loop)
 ├── lib/constants.sh        Shared constants (model, backend path, caffeinate flags)
 ├── lib/fullpower.sh        Priority boosting (taskpolicy for macOS)
-├── tests/taskgrind.bats    Test suite (306 tests)
+├── tests/taskgrind.bats    Test suite (307 tests)
 ├── tests/test_helper.bash  Shared test helpers
 ├── Makefile                lint + test targets
 ├── README.md               Usage, install, env vars
@@ -23,7 +23,7 @@ taskgrind/
 
 ```bash
 make lint       # shellcheck (run from bin/ with -x for source resolution)
-make test       # bats test suite (306 tests)
+make test       # bats test suite (307 tests)
 make check      # lint + test (run before committing)
 ```
 
@@ -58,6 +58,7 @@ Key subsystems:
 | `DVB_GRIND_CMD` | Override devin binary (for testing) |
 | `DVB_DEADLINE` | Override deadline epoch (for testing) |
 | `DVB_NET_FILE` | Sentinel file for network state in tests |
+| `DVB_CAFFEINATED` | Re-exec guard to prevent double caffeinate |
 | `TASKGRIND_DIR` | Repo root (auto-detected from `$0`) |
 
 See `taskgrind --help` for user-facing env vars.

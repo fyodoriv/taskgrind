@@ -1139,82 +1139,82 @@ while [[ $(date +%s) -lt $deadline ]]; do
   if [[ "$sync_interval" -eq 0 ]] || [[ $((session % sync_interval)) -eq 0 ]]; then
     if git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 \
        && [[ -n "$(git -C "$repo" remote 2>/dev/null)" ]]; then
-    dvb_spinner_start "Syncing git..."
-    _git_out="$_dvb_tmp/taskgrind-$$.git-sync"
-    _git_sync_timeout="${DVB_GIT_SYNC_TIMEOUT:-30}"
-    # Detect default branch — don't hardcode "main"; repos may use master/develop/etc.
-    _default_branch=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@.*/@@') || true
-    _default_branch="${_default_branch:-main}"
-    (
-      # Handle dirty working tree — stash uncommitted changes before switching
-      _dirty=0
-      if ! git -C "$repo" diff --quiet 2>/dev/null || ! git -C "$repo" diff --cached --quiet 2>/dev/null; then
-        git -C "$repo" stash --include-untracked -m "taskgrind: auto-stash before sync" 2>/dev/null || true
-        _dirty=1
-        echo "git_sync stashed"
-      fi
-      git -C "$repo" checkout "$_default_branch" 2>/dev/null || true
-      git -C "$repo" fetch origin --prune 2>/dev/null || true
-      git -C "$repo" rebase "origin/$_default_branch" 2>/dev/null || true
-      # Abort broken rebase — a conflicted rebase leaves the repo in a
-      # "rebase in progress" state that breaks every subsequent session.
-      _git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)"
-      if [[ -n "$_git_dir" && ( -d "$_git_dir/rebase-merge" || -d "$_git_dir/rebase-apply" ) ]]; then
-        git -C "$repo" rebase --abort 2>/dev/null || true
-        echo "git_sync rebase_aborted"
-      fi
-      # Restore stashed changes after sync
-      if [[ $_dirty -eq 1 ]]; then
-        if ! git -C "$repo" stash pop 2>/dev/null; then
-          echo "git_sync stash_pop_failed"
+      dvb_spinner_start "Syncing git..."
+      _git_out="$_dvb_tmp/taskgrind-$$.git-sync"
+      _git_sync_timeout="${DVB_GIT_SYNC_TIMEOUT:-30}"
+      # Detect default branch — don't hardcode "main"; repos may use master/develop/etc.
+      _default_branch=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@.*/@@') || true
+      _default_branch="${_default_branch:-main}"
+      (
+        # Handle dirty working tree — stash uncommitted changes before switching
+        _dirty=0
+        if ! git -C "$repo" diff --quiet 2>/dev/null || ! git -C "$repo" diff --cached --quiet 2>/dev/null; then
+          git -C "$repo" stash --include-untracked -m "taskgrind: auto-stash before sync" 2>/dev/null || true
+          _dirty=1
+          echo "git_sync stashed"
         fi
-      fi
-    ) > "$_git_out" 2>&1 &
-    _git_pid=$!
-    (
-      trap 'kill $! 2>/dev/null; exit 0' TERM
-      sleep "$_git_sync_timeout" &
-      wait $! 2>/dev/null || exit 0
-      kill "$_git_pid" 2>/dev/null || true
-    ) &
-    _git_timer=$!
-    if wait "$_git_pid" 2>/dev/null; then
-      dvb_spinner_stop
-      if grep -q 'stash_pop_failed' "$_git_out" 2>/dev/null; then
-        echo "   ⚠ git stash pop failed — stash preserved for manual recovery"
-        log_write "[$(date '+%H:%M')] git_sync stash_pop_failed (stash preserved)"
-      elif grep -q 'rebase_aborted' "$_git_out" 2>/dev/null; then
-        log_write "[$(date '+%H:%M')] git_sync rebase_aborted"
-      elif grep -q 'git_sync stashed' "$_git_out" 2>/dev/null; then
-        log_write "[$(date '+%H:%M')] git_sync ok (stashed dirty tree)"
+        git -C "$repo" checkout "$_default_branch" 2>/dev/null || true
+        git -C "$repo" fetch origin --prune 2>/dev/null || true
+        git -C "$repo" rebase "origin/$_default_branch" 2>/dev/null || true
+        # Abort broken rebase — a conflicted rebase leaves the repo in a
+        # "rebase in progress" state that breaks every subsequent session.
+        _git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)"
+        if [[ -n "$_git_dir" && ( -d "$_git_dir/rebase-merge" || -d "$_git_dir/rebase-apply" ) ]]; then
+          git -C "$repo" rebase --abort 2>/dev/null || true
+          echo "git_sync rebase_aborted"
+        fi
+        # Restore stashed changes after sync
+        if [[ $_dirty -eq 1 ]]; then
+          if ! git -C "$repo" stash pop 2>/dev/null; then
+            echo "git_sync stash_pop_failed"
+          fi
+        fi
+      ) > "$_git_out" 2>&1 &
+      _git_pid=$!
+      (
+        trap 'kill $! 2>/dev/null; exit 0' TERM
+        sleep "$_git_sync_timeout" &
+        wait $! 2>/dev/null || exit 0
+        kill "$_git_pid" 2>/dev/null || true
+      ) &
+      _git_timer=$!
+      if wait "$_git_pid" 2>/dev/null; then
+        dvb_spinner_stop
+        if grep -q 'stash_pop_failed' "$_git_out" 2>/dev/null; then
+          echo "   ⚠ git stash pop failed — stash preserved for manual recovery"
+          log_write "[$(date '+%H:%M')] git_sync stash_pop_failed (stash preserved)"
+        elif grep -q 'rebase_aborted' "$_git_out" 2>/dev/null; then
+          log_write "[$(date '+%H:%M')] git_sync rebase_aborted"
+        elif grep -q 'git_sync stashed' "$_git_out" 2>/dev/null; then
+          log_write "[$(date '+%H:%M')] git_sync ok (stashed dirty tree)"
+        else
+          log_write "[$(date '+%H:%M')] git_sync ok"
+        fi
       else
-        log_write "[$(date '+%H:%M')] git_sync ok"
+        dvb_spinner_stop
+        # Timeout or failure — repo may be in unknown state (mid-rebase, mid-stash).
+        # Recover: abort any in-progress rebase/merge so the next session starts clean.
+        _git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)" || _git_dir=""
+        if [[ -n "$_git_dir" && ( -d "$_git_dir/rebase-merge" || -d "$_git_dir/rebase-apply" ) ]]; then
+          git -C "$repo" rebase --abort 2>/dev/null || true
+          log_write "[$(date '+%H:%M')] git_sync timeout_rebase_aborted"
+        fi
+        if [[ -n "$_git_dir" && -f "$_git_dir/MERGE_HEAD" ]]; then
+          git -C "$repo" merge --abort 2>/dev/null || true
+          log_write "[$(date '+%H:%M')] git_sync timeout_merge_aborted"
+        fi
+        sync_output=$(tail -10 "$_git_out" 2>/dev/null | tr -cd '[:print:]\n' | head -c 500)
+        echo "   ⚠ git sync failed: $sync_output"
+        log_write "[$(date '+%H:%M')] git_sync failed: $sync_output"
       fi
-    else
-      dvb_spinner_stop
-      # Timeout or failure — repo may be in unknown state (mid-rebase, mid-stash).
-      # Recover: abort any in-progress rebase/merge so the next session starts clean.
-      _git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)" || _git_dir=""
-      if [[ -n "$_git_dir" && ( -d "$_git_dir/rebase-merge" || -d "$_git_dir/rebase-apply" ) ]]; then
-        git -C "$repo" rebase --abort 2>/dev/null || true
-        log_write "[$(date '+%H:%M')] git_sync timeout_rebase_aborted"
-      fi
-      if [[ -n "$_git_dir" && -f "$_git_dir/MERGE_HEAD" ]]; then
-        git -C "$repo" merge --abort 2>/dev/null || true
-        log_write "[$(date '+%H:%M')] git_sync timeout_merge_aborted"
-      fi
-      sync_output=$(tail -10 "$_git_out" 2>/dev/null | tr -cd '[:print:]\n' | head -c 500)
-      echo "   ⚠ git sync failed: $sync_output"
-      log_write "[$(date '+%H:%M')] git_sync failed: $sync_output"
-    fi
-    kill "$_git_timer" 2>/dev/null; wait "$_git_timer" 2>/dev/null || true
-    rm -f "$_git_out"
+      kill "$_git_timer" 2>/dev/null; wait "$_git_timer" 2>/dev/null || true
+      rm -f "$_git_out"
 
-    # Clean up merged branches — safe, only deletes branches already in default branch
-    git -C "$repo" branch --merged "$_default_branch" 2>/dev/null \
-      | grep -v '^\*' | grep -vx "[[:space:]]*$_default_branch" \
-      | xargs -I{} git -C "$repo" branch -d {} 2>/dev/null || true
-    log_write "[$(date '+%H:%M')] branch_cleanup done"
+      # Clean up merged branches — safe, only deletes branches already in default branch
+      git -C "$repo" branch --merged "$_default_branch" 2>/dev/null \
+        | grep -v '^\*' | grep -vx "[[:space:]]*$_default_branch" \
+        | xargs -I{} git -C "$repo" branch -d {} 2>/dev/null || true
+      log_write "[$(date '+%H:%M')] branch_cleanup done"
     fi  # end: if git remote exists
   else
     log_write "[$(date '+%H:%M')] git_sync skipped (interval=$sync_interval, session=$session)"

@@ -3,7 +3,7 @@
 help:
 	@echo "Available targets:"
 	@echo "  make lint    — run shellcheck on all scripts"
-	@echo "  make test    — run bats test suite (306 tests)"
+	@echo "  make test    — run bats test suite (307 tests)"
 	@echo "  make check   — lint + test (run before committing)"
 
 lint:
