@@ -18,13 +18,6 @@
   **Files**: `bin/taskgrind`
   **Acceptance**: When every remaining task has `**Blocked by**:` and the blocker ID is still present in TASKS.md, taskgrind logs `all_tasks_blocked` and exits. Test: bats test with a TASKS.md where all tasks are blocked.
 
-- [ ] Default DVB_EARLY_EXIT_ON_STALL to 1
-  **ID**: default-early-exit-stall
-  **Tags**: grind-analysis, efficiency
-  **Details**: The oncall-hub-app grind hit `diminishing_returns window=5 shipped=0` at session 18 (03:27) but continued for 8 more sessions (~2h) producing only 1 more shipped task. With `DVB_EARLY_EXIT_ON_STALL=1`, it would have saved ~2h of compute. The default should be 1 (exit early) since running at <0.4 tasks/5-sessions throughput is almost always a stall. Users who want to force-continue can set `DVB_EARLY_EXIT_ON_STALL=0`. Evidence: `[03:27] diminishing_returns window=5 shipped=0` followed by 8 more sessions, only 1 additional ship at session 20.
-  **Files**: `bin/taskgrind`
-  **Acceptance**: `taskgrind --dry-run` shows early-exit-on-stall is enabled by default. `DVB_EARLY_EXIT_ON_STALL=0 taskgrind --dry-run` shows it disabled. Bats tests updated for new default.
-
 - [ ] Auto-increase DVB_MAX_SESSION after repeated productive timeouts
   **ID**: auto-increase-max-session
   **Tags**: grind-analysis, efficiency, throughput

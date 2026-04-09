@@ -97,7 +97,7 @@ Completed tasks are removed (not checked off). History lives in git log. See the
 | `DVB_NET_RETRY_DELAY` | `2` | Seconds between network check retries |
 | `DVB_GIT_SYNC_TIMEOUT` | `30` | Max seconds for between-session git sync |
 | `DVB_SYNC_INTERVAL` | `5` | Git sync every N sessions (0=every) |
-| `DVB_EARLY_EXIT_ON_STALL` | `0` | Exit on low throughput (1=enabled) |
+| `DVB_EARLY_EXIT_ON_STALL` | `1` | Exit on low throughput (0=disabled) |
 | `DVB_DEVIN_PATH` | auto | Override devin binary path |
 | `DVB_LOG` | auto | Override log file path |
 | `DVB_NOTIFY` | `1` | macOS notification on completion |

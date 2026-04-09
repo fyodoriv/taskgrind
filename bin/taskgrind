@@ -40,7 +40,7 @@
 #        DVB_GIT_SYNC_TIMEOUT — max seconds for between-session git sync (default: 30)
 #        DVB_SYNC_INTERVAL — git sync every N sessions (default: 5, 0=every session)
 #        DVB_SHUTDOWN_GRACE — seconds to wait for current session on exit (default: 120)
-#        DVB_EARLY_EXIT_ON_STALL — exit early on low throughput (default: 0)
+#        DVB_EARLY_EXIT_ON_STALL — exit early on low throughput (default: 1)
 #        DVB_GRIND_CMD  — override the devin command (for testing)
 #        DVB_DEADLINE   — override deadline epoch (for testing)
 #
@@ -467,6 +467,7 @@ if [[ "$dry_run" -eq 1 ]]; then
   echo "  log:      ${DVB_LOG:-$_dvb_tmp/taskgrind-\$(date)-\$\$.log}"
   echo "  notify:   ${DVB_NOTIFY:-1}"
   echo "  max_ses: ${max_session}s"
+  echo "  early_exit_on_stall: ${DVB_EARLY_EXIT_ON_STALL:-1}"
   if [[ -n "$extra_prompt" ]]; then
     echo "  prompt:   $extra_prompt"
   fi
@@ -1131,7 +1132,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
     if [[ $_window_total -lt 2 && $session -ge $_window ]]; then
       echo "   ⚠ Low throughput: ${_window_total} tasks shipped in last ${_window} sessions."
       log_write "[$(date '+%H:%M')] diminishing_returns window=$_window shipped=$_window_total"
-      if [[ "${DVB_EARLY_EXIT_ON_STALL:-0}" == "1" ]]; then
+      if [[ "${DVB_EARLY_EXIT_ON_STALL:-1}" == "1" ]]; then
         echo "   ⚠ DVB_EARLY_EXIT_ON_STALL=1 — exiting early to save time budget."
         log_write "[$(date '+%H:%M')] early_exit_stall"
         break

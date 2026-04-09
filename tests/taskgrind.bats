@@ -3182,6 +3182,19 @@ EOF
   [[ "$output" == *"backend:  codex"* ]]
 }
 
+@test "--dry-run shows early_exit_on_stall enabled by default" {
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"early_exit_on_stall: 1"* ]]
+}
+
+@test "--dry-run shows early_exit_on_stall disabled when DVB_EARLY_EXIT_ON_STALL=0" {
+  export DVB_EARLY_EXIT_ON_STALL=0
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"early_exit_on_stall: 0"* ]]
+}
+
 @test "build_session_args produces --permission-mode dangerous for devin backend" {
   grep -q "permission-mode dangerous" "$DVB_GRIND"
 }
