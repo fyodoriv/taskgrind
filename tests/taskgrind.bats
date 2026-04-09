@@ -2325,6 +2325,83 @@ TASKS
   ! grep -q 'sweep' "$DVB_GRIND_INVOKE_LOG"
 }
 
+@test "productive zero-ship detected when agent commits but does not remove task" {
+  # Set up a real git repo so git HEAD changes can be detected
+  git -C "$TEST_REPO" init -q
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+  git -C "$TEST_REPO" add TASKS.md
+  git -C "$TEST_REPO" commit -q -m "initial"
+
+  # Fake devin that commits code but never removes the task
+  local commit_devin="$TEST_DIR/commit-devin"
+  cat > "$commit_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+echo "fix something" >> "$TEST_REPO/code.txt"
+git -C "$TEST_REPO" add -A
+git -C "$TEST_REPO" commit -q -m "fix: session work" --allow-empty
+SCRIPT
+  chmod +x "$commit_devin"
+  export DVB_GRIND_CMD="$commit_devin"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Task that never gets removed
+TASKS
+
+  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_MAX_ZERO_SHIP=5
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'productive_zero_ship' "$TEST_LOG"
+}
+
+@test "productive zero-ship escalation appears in prompt after 2 zero-ship sessions with commits" {
+  git -C "$TEST_REPO" init -q
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+  git -C "$TEST_REPO" add TASKS.md
+  git -C "$TEST_REPO" commit -q -m "initial"
+
+  local commit_devin="$TEST_DIR/commit-devin"
+  cat > "$commit_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+echo "work" >> "$TEST_REPO/code.txt"
+git -C "$TEST_REPO" add -A
+git -C "$TEST_REPO" commit -q -m "fix: do work"
+SCRIPT
+  chmod +x "$commit_devin"
+  export DVB_GRIND_CMD="$commit_devin"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Persistent task
+TASKS
+
+  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_MAX_ZERO_SHIP=5
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  # Session 3's prompt should contain the URGENT escalation
+  grep -q 'URGENT.*committed code.*did NOT remove' "$DVB_GRIND_INVOKE_LOG"
+}
+
+@test "no productive zero-ship when no commits and no ships" {
+  # Non-git repo: no commits possible, so no productive zero-ship
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Task
+TASKS
+
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_MAX_ZERO_SHIP=5
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  ! grep -q 'productive_zero_ship' "$TEST_LOG"
+}
+
 @test "zero-ship counter resets when a session ships a task" {
   # Fake devin that removes a task each run by counting invocations and rewriting TASKS.md
   local ship_devin="$TEST_DIR/ship-devin"

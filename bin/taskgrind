@@ -776,6 +776,8 @@ while [[ $(date +%s) -lt $deadline ]]; do
 
   tasks_before=$(count_tasks "$repo/TASKS.md")
   _ids_before=$(extract_task_ids "$repo/TASKS.md")
+  # Capture git HEAD before session — used to detect commits during session
+  _git_head_before=$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)
 
   # Capture starting task count on first iteration (for ship rate)
   [[ $tasks_starting -eq 0 && $tasks_before -gt 0 ]] && tasks_starting=$tasks_before
@@ -889,6 +891,13 @@ while [[ $(date +%s) -lt $deadline ]]; do
   # Stall warning — nudge the agent to try different approaches
   if [[ $consecutive_zero_ship -ge 3 ]]; then
     prompt+=" WARNING: Previous $consecutive_zero_ship sessions shipped nothing — tasks count in TASKS.md did not decrease. You MUST remove completed task blocks from TASKS.md for work to count. If previous sessions created PRs, merge them and remove those tasks first. Then decompose the next unclaimed unblocked task into 2-4 sub-tasks and implement the first one."
+  fi
+
+  # Productive zero-ship escalation — the agent committed code but forgot
+  # to remove the completed task from TASKS.md. This fires earlier (2+ zero-ship)
+  # and is more forceful than the general stall warning.
+  if [[ $consecutive_zero_ship -ge 2 && "$_productive_zero_ship" -eq 1 ]]; then
+    prompt+=" URGENT: You committed code in the previous session but did NOT remove the completed task from TASKS.md. Taskgrind tracks progress by task removal — your work counts as ZERO until the task block is removed. BEFORE doing ANY other work: (1) check git log for what you completed, (2) find the matching task in TASKS.md, (3) remove its entire block (checkbox + all metadata lines), (4) commit the TASKS.md change. Only then proceed to the next task."
   fi
 
   # Skip list — tasks attempted 3+ times without shipping
@@ -1085,6 +1094,19 @@ while [[ $(date +%s) -lt $deadline ]]; do
   last_session_summary="session $session shipped $session_shipped tasks (exit=$session_exit, $(format_duration "$session_elapsed")), queue now $tasks_after"
   if [[ "$session_shipped" -eq 0 ]]; then
     last_session_summary+=". NOTE: task count did not decrease — did previous session forget to remove the completed task from TASKS.md or merge the PR?"
+  fi
+
+  # ── Productive zero-ship detection ────────────────────────────────
+  # Detect sessions where the agent committed code but didn't remove
+  # completed tasks from TASKS.md. This is the #1 failure mode.
+  _productive_zero_ship=0
+  if [[ "$session_shipped" -eq 0 && -n "$_git_head_before" ]]; then
+    _git_head_after=$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)
+    if [[ -n "$_git_head_after" && "$_git_head_before" != "$_git_head_after" ]]; then
+      _productive_zero_ship=1
+      _new_commits=$(git -C "$repo" rev-list --count "${_git_head_before}..${_git_head_after}" 2>/dev/null || echo "?")
+      log_write "[$(date '+%H:%M')] productive_zero_ship session=$session commits=$_new_commits (committed code but task count unchanged)"
+    fi
   fi
 
   # ── Zero-ship stall detection ──────────────────────────────────────

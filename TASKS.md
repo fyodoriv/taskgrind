@@ -4,13 +4,6 @@
 
 ## P1
 
-- [ ] Detect "productive zero-ship" sessions and escalate the completion protocol
-  **ID**: escalate-completion-protocol
-  **Tags**: grind-analysis, prompt-engineering, throughput
-  **Details**: In the 2026-04-08 oncall-hub-app grind, 19 of 26 sessions were zero-ship despite the agent committing real code in most of them. The agent consistently forgot to remove completed task blocks from TASKS.md. The existing stall warning (at 3 consecutive zero-ship) wasn't enough — it fires but the agent ignores it. Evidence: session 2 committed "5 production hardening fixes" but shipped=0; session 5 committed a bug fix but shipped=0; session 18 fixed "7 production-blocking issues across 14 files" but shipped=0. The prompt needs a stronger escalation: after 2 consecutive zero-ship sessions, detect if git log shows commits since last session and add a "YOU COMMITTED CODE BUT DIDN'T REMOVE THE TASK — do that NOW before any other work" directive. This is a prompt change in the session prompt builder (lines 865-901).
-  **Files**: `bin/taskgrind`
-  **Acceptance**: When `git log` shows commits but task count didn't decrease, the next session prompt includes a forced "remove completed tasks first" directive. Test: bats test that checks prompt content when commits exist but shipped=0.
-
 - [ ] Detect when all remaining tasks are blocked and exit early
   **ID**: blocked-queue-exit
   **Tags**: grind-analysis, efficiency, stall-detection
