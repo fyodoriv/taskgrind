@@ -4,13 +4,6 @@
 
 ## P1
 
-- [ ] Auto-increase DVB_MAX_SESSION after repeated productive timeouts
-  **ID**: auto-increase-max-session
-  **Tags**: grind-analysis, efficiency, throughput
-  **Details**: In the 2026-04-08 bosun grind, sessions 3, 4, 11, and 13 all hit the 3600s timeout. Sessions 3 and 4 shipped 25 and 12 tasks respectively before being killed — extremely productive work cut short. The `productive_timeout` warning fires (`productive_timeout session=3 shipped=25 timeout=3600s`) and suggests `DVB_MAX_SESSION=5400` in terminal output, but nothing acts on it. Taskgrind should auto-increase `max_session` by 30min (up to a cap of 7200s) after a productive timeout, so the next session gets more runway. This is especially important for fleet-grind skill where sessions manage multiple PRs. Evidence: 4 productive timeouts in one grind, 40 tasks shipped in those timeout sessions alone.
-  **Files**: `bin/taskgrind`
-  **Acceptance**: After a productive timeout (shipped>0 && duration>=max_session), the next session's max_session is increased by 1800s (capped at 7200s). A log line records the increase. Test: bats test with a stub that simulates productive timeout, verify next session gets increased timeout.
-
 - [ ] Clean up stale branches left by grind sessions
   **ID**: cleanup-stale-grind-branches
   **Tags**: grind-analysis, hygiene
