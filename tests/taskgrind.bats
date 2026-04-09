@@ -2217,6 +2217,19 @@ TASKS
   grep -A2 'DVB_CAFFEINATED' "$DVB_GRIND" | grep -q 'caffeinate'
 }
 
+@test "Linux: systemd-inhibit fallback for caffeinate (structural)" {
+  grep -q 'systemd-inhibit' "$DVB_GRIND"
+  grep -q 'idle:sleep' "$DVB_GRIND"
+}
+
+@test "Linux: flock fallback for lockf (structural)" {
+  grep -q 'flock -n 9' "$DVB_GRIND"
+}
+
+@test "Linux: notify-send fallback for osascript (structural)" {
+  grep -q 'notify-send' "$DVB_GRIND"
+}
+
 # ── Reset to main between sessions ──────────────────────────────────
 
 @test "between-session sync checks out default branch, not the current branch" {
@@ -2940,8 +2953,9 @@ TASKS
 
 # ── Multi-project locking ─────────────────────────────────────────────
 
-@test "locking uses lockf(1) for fd-based locking" {
+@test "locking uses lockf(1) on macOS and flock(1) on Linux" {
   grep -q 'lockf -t 0 9' "$DVB_GRIND"
+  grep -q 'flock -n 9' "$DVB_GRIND"
 }
 
 @test "lock file path is derived from repo hash" {

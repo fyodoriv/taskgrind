@@ -422,14 +422,21 @@ fi
 
 # ── Per-repo lock ─────────────────────────────────────────────────────
 # One grind per repo directory. Multiple grinds across different repos are OK.
-# Uses lockf(1) on an fd — lock auto-releases when the process exits/crashes.
+# Uses lockf(1) on macOS or flock(1) on Linux — lock auto-releases on exit/crash.
 # Skip locking in test mode (DVB_GRIND_CMD set) to avoid fd conflicts with bats.
 if [[ -z "${DVB_GRIND_CMD:-}" ]]; then
   _lock_hash=$(echo "$repo" | shasum | cut -d' ' -f1)
   _lock_file="$_dvb_tmp/taskgrind-lock-${_lock_hash}"
   # Open fd 9 on the lockfile (creates if needed)
   exec 9>"$_lock_file"
-  if ! lockf -t 0 9 2>/dev/null; then
+  if [[ "$(uname)" == "Darwin" ]]; then
+    _lock_ok=true
+    lockf -t 0 9 2>/dev/null || _lock_ok=false
+  else
+    _lock_ok=true
+    flock -n 9 2>/dev/null || _lock_ok=false
+  fi
+  if [[ "$_lock_ok" == "false" ]]; then
     _lock_info=$(cat "$_lock_file" 2>/dev/null)
     echo "Error: another taskgrind is already running for this repo" >&2
     echo "  repo: $repo" >&2
@@ -532,11 +539,17 @@ else
 fi
 
 # Prevent sleep for the entire grind loop, not just individual sessions.
-# Re-exec under caffeinate if not already caffeinated (skip in test mode).
+# macOS: re-exec under caffeinate. Linux: re-exec under systemd-inhibit (if available).
+# Skip in test mode.
 if [[ -z "${DVB_GRIND_CMD:-}" && -z "${DVB_CAFFEINATED:-}" ]]; then
   export DVB_CAFFEINATED=1
-  # shellcheck disable=SC2086  # intentionally unquoted — flags must word-split for caffeinate
-  exec caffeinate $DVB_CAFFEINATE_FLAGS "$0" ${_orig_args[@]+"${_orig_args[@]}"}
+  if [[ "$(uname)" == "Darwin" ]]; then
+    # shellcheck disable=SC2086  # intentionally unquoted — flags must word-split for caffeinate
+    exec caffeinate $DVB_CAFFEINATE_FLAGS "$0" ${_orig_args[@]+"${_orig_args[@]}"}
+  elif command -v systemd-inhibit >/dev/null 2>&1; then
+    exec systemd-inhibit --what=idle:sleep --who=taskgrind --why="grind in progress" "$0" ${_orig_args[@]+"${_orig_args[@]}"}
+  fi
+  # No sleep inhibitor available — continue without one
 fi
 
 # Boost to interactive scheduling tier — max CPU/IO priority for the grind
@@ -655,10 +668,15 @@ cleanup() {
     _done_line+=" prompt=$extra_prompt"
   fi
   echo "$_done_line" >> "$log_file" 2>/dev/null || true
-  # macOS notification — on by default, DVB_NOTIFY=0 to disable
+  # Desktop notification — on by default, DVB_NOTIFY=0 to disable
+  # macOS: osascript, Linux: notify-send
   if [[ "${DVB_NOTIFY:-1}" != "0" ]]; then
     _notify_msg="$session sessions, ${tasks_shipped}+ tasks shipped in $duration"
-    osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title "taskgrind complete"' -e 'end run' -- "$_notify_msg" 2>/dev/null || true
+    if [[ "$(uname)" == "Darwin" ]]; then
+      osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title "taskgrind complete"' -e 'end run' -- "$_notify_msg" 2>/dev/null || true
+    elif command -v notify-send >/dev/null 2>&1; then
+      notify-send "taskgrind complete" "$_notify_msg" 2>/dev/null || true
+    fi
   fi
   # Remove temp files
   [[ -n "${_DVB_SELF_COPY:-}" && -f "${_DVB_SELF_COPY}" ]] && rm -f "$_DVB_SELF_COPY"
