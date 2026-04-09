@@ -2,9 +2,23 @@
 
 [![check](https://github.com/cbrwizard/taskgrind/actions/workflows/check.yml/badge.svg)](https://github.com/cbrwizard/taskgrind/actions/workflows/check.yml)
 
-Autonomous multi-session grind — runs sequential AI coding sessions until a deadline. Each session starts with fresh context. State lives in [`TASKS.md`](https://github.com/tasksmd/tasks.md) + git, so sessions pick up seamlessly.
+Autonomous multi-session grind — runs sequential AI coding sessions until a deadline. Each session starts with full context. State lives in [`TASKS.md`](https://github.com/tasksmd/tasks.md) + git, so sessions pick up seamlessly.
 
 Taskgrind works with any AI coding agent that accepts a prompt (Devin, Claude Code, Cursor, etc.) and any repo that uses the [tasks.md spec](https://tasks.md) for task management.
+
+## Prerequisites
+
+Requires **macOS** or **Linux** (or WSL on Windows).
+
+You need at least one AI coding backend installed:
+
+| Backend | Install |
+|---------|---------|
+| [Devin CLI](https://cli.devin.ai/docs) | `curl -fsSL https://cli.devin.ai/install.sh \| sh` |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `npm install -g @anthropic-ai/claude-code` |
+| [Codex](https://github.com/openai/codex) | `npm install -g @openai/codex` |
+
+Taskgrind defaults to Devin. Use `--backend claude-code` or `--backend codex` to switch.
 
 ## Install
 
@@ -15,9 +29,14 @@ curl -fsSL https://raw.githubusercontent.com/cbrwizard/taskgrind/main/install.sh
 # Or clone manually
 git clone https://github.com/cbrwizard/taskgrind.git ~/apps/taskgrind
 
+# Custom install directory
+TASKGRIND_INSTALL_DIR=~/tools/taskgrind curl -fsSL https://raw.githubusercontent.com/cbrwizard/taskgrind/main/install.sh | sh
+
 # Add to PATH (add to your shell rc)
 export PATH="$HOME/apps/taskgrind/bin:$PATH"
 ```
+
+To update: `cd ~/apps/taskgrind && git pull`
 
 ## Usage
 
@@ -30,8 +49,8 @@ taskgrind --prompt "focus on test coverage" 8  # focus prompt
 taskgrind --backend claude-code 8       # use Claude Code backend
 taskgrind --dry-run 8 ~/apps/myrepo    # print config without running
 taskgrind --preflight ~/apps/myrepo    # run health checks only
-taskgrind --help                       # show usage and environment variables
-taskgrind --version                    # print version (commit hash + date)
+taskgrind --help / -h                  # show usage and environment variables
+taskgrind --version / -V               # print version (commit hash + date)
 ```
 
 Arguments can appear in any order. Hours is any bare integer 1-24.
@@ -81,6 +100,15 @@ Completed tasks are removed (not checked off). History lives in git log. See the
 - **External injection detection** — logs when other processes add tasks mid-run
 - **Graceful shutdown** — SIGINT/SIGTERM waits for running session, pushes commits, then exits
 
+## Security
+
+Taskgrind runs AI backends with **unrestricted permissions** (`--permission-mode dangerous` for Devin, `--dangerously-skip-permissions` for Claude Code). This is required because sessions need full filesystem and network access to implement tasks autonomously.
+
+Before deploying, ensure:
+- You trust the AI backend and the tasks in `TASKS.md`
+- The repo does not contain sensitive credentials that the AI should not access
+- You review the `TASKS.md` queue before starting a long grind
+
 ## Environment Variables
 
 `TG_` is the canonical prefix. `DVB_` is supported as a backward-compatible alias for all variables.
@@ -123,7 +151,7 @@ Each session logs: start time, remaining minutes, task count, exit code, duratio
 
 ```bash
 make lint       # shellcheck
-make test       # bats test suite (342 tests)
+make test       # bats test suite (345 tests)
 make check      # lint + test
 ```
 
@@ -132,6 +160,12 @@ Requires: [bats-core](https://github.com/bats-core/bats-core), [shellcheck](http
 ```bash
 # macOS
 brew install bats-core shellcheck
+
+# Ubuntu / Debian
+sudo apt-get install -y bats shellcheck
+
+# Fedora / RHEL
+sudo dnf install -y bats ShellCheck
 ```
 
 ## History
