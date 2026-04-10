@@ -59,7 +59,7 @@ taskgrind ~/apps/backend 6
 ```
 
 What happens:
-- Each instance locks its repo (via `lockf`) so two grinds can't run on the same repo
+- Each instance locks its repo (via `flock`) so two grinds can't run on the same repo
 - Each gets its own log file (includes repo name + PID)
 - Both use caffeinate to prevent system sleep
 

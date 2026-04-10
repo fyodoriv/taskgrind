@@ -86,7 +86,7 @@ Completed tasks are removed (not checked off). History lives in git log. See the
 - **Multi-backend support** — works with Devin, Claude Code, and Codex via `--backend`
 - **Preflight checks** — 7 health checks (binary, network, git state, remote, disk, TASKS.md, network-watchdog) before launch
 - **Self-copy protection** — copies itself to `$TMPDIR` before running, survives script edits mid-grind
-- **Per-repo locking** — `lockf` (macOS) / `flock` (Linux) prevents duplicate grinds on the same repo
+- **Per-repo locking** — `flock` (Linux) / `perl flock(2)` (macOS) prevents duplicate grinds on the same repo
 - **Blocked-queue detection** — exits early when all remaining tasks have `**Blocked by**:` metadata
 - **Caffeinate integration** — prevents system sleep on macOS (`caffeinate`) and Linux (`systemd-inhibit`)
 - **Git sync with stash/rebase** — between-session sync stashes dirty work, rebases on default branch, cleans merged branches
@@ -153,7 +153,7 @@ Each session logs: start time, remaining minutes, task count, exit code, duratio
 
 ```bash
 make lint       # shellcheck
-make test       # bats test suite (352 tests)
+make test       # bats test suite (353 tests)
 make check      # lint + test
 ```
 
