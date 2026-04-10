@@ -2,6 +2,30 @@
 
 ## P0
 
+- [ ] Show active model on every session banner line
+  **ID**: show-model-on-session-banner
+  **Tags**: ux, visibility
+  **Details**: The session banner (bin/taskgrind line 1096) prints `🔄 Session N — Xh Ym remaining — T tasks queued` but omits the active model. The startup banner (line 842) shows the initial model, but after a live model switch via `.taskgrind-model` the only indication is a separate `   Model: <name> (live override)` line that only fires when the model differs from startup. The user has no way to see at a glance what model is actually running for the current session. Change the session banner to always include the model: `🔄 Session N — Xh Ym remaining — T tasks queued — model=<name>`. Remove the separate "live override" line since the banner now makes it visible. Update the log_write on line 1097 to also include `model=`. Keep the test for the "live override" message updated.
+  **Files**: bin/taskgrind, tests/taskgrind.bats
+  **Acceptance**:
+  - [ ] Session banner always includes `model=<name>` for every session
+  - [ ] When model is the startup default, banner shows it with no extra annotation
+  - [ ] When model is a live override, banner shows it (the separate "live override" echo can be removed or kept minimal)
+  - [ ] `log_write` for session start includes `model=<name>`
+  - [ ] Test verifies model name appears in the session banner output
+  - [ ] All existing tests pass
+
+- [ ] Fix unbound variable crash when task count increases during a session
+  **ID**: fix-tasks-before-arrow-crash
+  **Tags**: stability, bug
+  **Details**: At bin/taskgrind line 1304, the log line `"(external injection: $tasks_before→$tasks_after)"` contains a UTF-8 arrow character `→` (U+2192, bytes `\xe2\x86\x92`). Bash variable expansion is multi-byte-unaware: it includes the `\xe2` byte as part of the variable name, so it tries to expand `$tasks_before\xe2` instead of `$tasks_before`. Under `set -u` this crashes with `tasks_before⚠: unbound variable` (the `⚠` is the terminal rendering of `\xe2`). Fix by wrapping the variable in braces: `${tasks_before}→${tasks_after}`. Check the whole file for any other `$var→` patterns.
+  **Files**: bin/taskgrind, tests/taskgrind.bats
+  **Acceptance**:
+  - [ ] Line 1304 uses `${tasks_before}→${tasks_after}` (braces)
+  - [ ] No other `$var→` patterns remain in the file
+  - [ ] Test: simulate a session that adds tasks (tasks_after > tasks_before) and verify no crash and the log entry is written
+  - [ ] All existing tests pass
+
 - [ ] Detect and surface invalid model errors before starting the session loop
   **ID**: detect-invalid-model
   **Tags**: stability, error-handling
@@ -13,6 +37,19 @@
   - [ ] Fast-failure log captures the backend stderr (including model errors) per session
   - [ ] Test: unknown model triggers preflight failure before any session runs
   - [ ] All existing tests pass
+
+- [ ] Speed up test suite 5x by splitting into parallel bats files
+  **ID**: parallel-test-suite
+  **Tags**: dx, test, performance
+  **Details**: `make test` takes ~21 minutes for 397 tests (single-file serial run). All tests are already isolated (each gets its own `mktemp -d` tmpdir in `setup()`), so they are safe to parallelize. bats 1.13 supports `--jobs N` with GNU parallel, which is already installed at `/usr/local/bin/parallel`. The blocker is that bats only parallelizes *across* files — the 397 tests all live in one monolithic `tests/taskgrind.bats`. The fix is to split by feature group into ~8 files (e.g. `tests/model.bats`, `tests/git-sync.bats`, `tests/network.bats`, `tests/prompt.bats`, `tests/session-loop.bats`, `tests/preflight.bats`, `tests/signals.bats`, `tests/misc.bats`), move `setup()`/`teardown()` + shared helpers into `tests/test_helper.bash` (it already exists but is nearly empty), update `Makefile` to run `bats --jobs 8 tests/` so all files run in parallel, and update CI (`.github/workflows/`) to match. Target: ≤5 minutes wall-clock on a MacBook with 8 cores. The `--no-parallelize-within-files` flag is fine to keep if needed for ordering-sensitive tests.
+  **Files**: tests/taskgrind.bats, tests/test_helper.bash, Makefile, .github/workflows/
+  **Acceptance**:
+  - [ ] Tests are split into ≥6 `.bats` files organized by feature group
+  - [ ] `setup()` and `teardown()` live in `test_helper.bash` and are loaded by all files
+  - [ ] `make test` runs `bats --jobs 8 tests/` and completes in ≤5 minutes
+  - [ ] All 397 tests still pass (same count, no tests lost or duplicated)
+  - [ ] CI workflow updated to use `--jobs` flag
+  - [ ] No test relies on ordering between files (each is fully isolated)
 
 - [ ] Log git sync subshell failures instead of silently swallowing them
   **ID**: log-git-sync-failures
