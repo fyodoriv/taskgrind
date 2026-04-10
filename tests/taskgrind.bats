@@ -95,11 +95,18 @@ teardown() {
 
 # ── Argument validation ──────────────────────────────────────────────
 
-@test "no args defaults to 8 hours" {
+@test "no args defaults to 10 hours" {
   export DVB_DEADLINE=$(( $(date +%s) - 1 ))
   run "$DVB_GRIND"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"8h"* ]]
+  [[ "$output" == *"10h"* ]]
+}
+
+@test "default deadline is ~10h from now when no hours arg" {
+  # Use --dry-run to inspect computed config without running sessions
+  run "$DVB_GRIND" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"hours:"*"10"* ]]
 }
 
 @test "--help shows usage and exits 0" {

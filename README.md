@@ -49,7 +49,7 @@ To update: `brew upgrade taskgrind` (Homebrew) or `cd ~/apps/taskgrind && git pu
 ## Usage
 
 ```bash
-taskgrind                              # 8h grind (default), current dir
+taskgrind                              # 10h grind (default), current dir
 taskgrind 10                           # 10h grind
 taskgrind ~/apps/myrepo 10             # 10h grind in specific repo
 taskgrind --model gpt-5-4 8            # use specific model

@@ -11,7 +11,7 @@ it, commits, removes it from TASKS.md, and exits. Between sessions: cooldown,
 optional git sync. Exits when the queue empties, the deadline is reached, or
 stall is detected.
 .PP
-Arguments can appear in any order. Hours is any bare integer (1\-24, default: 8).
+Arguments can appear in any order. Hours is any bare integer (1\-24, default: 10).
 .SH OPTIONS
 .TP
 .BR \-\-skill " " \fIname\fR
@@ -124,7 +124,7 @@ than 1KB are skipped.
 Session logs (one per grind invocation).
 .SH EXAMPLES
 .nf
-taskgrind                           # 8h grind, current dir
+taskgrind                           # 10h grind, current dir
 taskgrind 10 ~/apps/myrepo         # 10h grind in specific repo
 taskgrind \-\-model gpt\-5\-4 8       # use specific model
 taskgrind \-\-skill fleet\-grind 10  # custom skill

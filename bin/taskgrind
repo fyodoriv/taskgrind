@@ -4,7 +4,7 @@
 # next session picks up seamlessly. Sessions should exit BEFORE context fills —
 # context exhaustion crashes the process and loses any uncommitted work.
 #
-# Usage: taskgrind                              → 8h grind (default)
+# Usage: taskgrind                              → 10h grind (default)
 #        taskgrind 10                          → 10h grind, current dir
 #        taskgrind ~/apps/myrepo 10            → 10h grind in specific repo
 #        taskgrind --model gpt-5-4 8           → 8h grind with specific model
@@ -104,7 +104,7 @@ unset _tg_var _tg_ref
 _orig_args=("$@")
 
 # Parse all args in any order: hours (integer), --model NAME, --skill NAME, --backend NAME, --prompt TEXT, --dry-run, --preflight, repo path
-hours="8"
+hours="10"
 repo="."
 skill="${DVB_SKILL:-next-task}"
 extra_prompt="${DVB_PROMPT:-}"

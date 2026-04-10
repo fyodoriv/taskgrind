@@ -2,18 +2,6 @@
 
 ## P0
 
-- [ ] Set default grind length to 10 hours
-  **ID**: default-10h-length
-  **Tags**: feature, config
-  **Details**: The default session length is currently unspecified or set to a short value. Users frequently forget to pass `--hours` and get a short run. Change the default deadline to 10 hours so a plain `taskgrind repo/` does something useful out of the box. Update the help text, man page, and README to reflect the new default.
-  **Files**: bin/taskgrind, README.md, man/taskgrind.1
-  **Acceptance**:
-  - [ ] Default value for hours/deadline is 10 when `--hours` is not passed
-  - [ ] `--help` output shows the new default (e.g., `[default: 10]`)
-  - [ ] README and man page updated to show 10h default
-  - [ ] Existing tests that rely on a specific default duration are updated
-  - [ ] Add a test verifying the default deadline is ~10 hours from now when no flag is passed
-
 - [ ] Log git sync subshell failures instead of silently swallowing them
   **ID**: log-git-sync-failures
   **Tags**: stability, git
