@@ -84,7 +84,7 @@ Completed tasks are removed (not checked off). History lives in git log. See the
 ## Features
 
 - **Multi-backend support** — works with Devin, Claude Code, and Codex via `--backend`
-- **Preflight checks** — 7 health checks (binary, network, git state, remote, disk, TASKS.md, network-watchdog) before launch
+- **Preflight checks** — 7 health checks (binary, network, git state, remote, disk, TASKS.md, network-watchdog) before launch. `network-watchdog` is optional; if missing, taskgrind falls back to `curl` for connectivity checks.
 - **Self-copy protection** — copies itself to `$TMPDIR` before running, survives script edits mid-grind
 - **Per-repo locking** — `flock` (Linux) / `perl flock(2)` (macOS) prevents duplicate grinds on the same repo
 - **Blocked-queue detection** — exits early when all remaining tasks have `**Blocked by**:` metadata
@@ -117,7 +117,7 @@ Before deploying, ensure:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TG_BACKEND` | `devin` | AI backend: `devin`, `claude-code`, `codex` |
-| `TG_MODEL` | `claude-opus-4-6-thinking` | AI model |
+| `TG_MODEL` | `claude-opus-4-6-thinking` | AI model (set to an OpenAI model when using `--backend codex`) |
 | `TG_SKILL` | `next-task` | Skill to run each session |
 | `TG_PROMPT` | (none) | Focus prompt for every session |
 | `TG_COOL` | `5` | Seconds between sessions |
@@ -153,7 +153,7 @@ Each session logs: start time, remaining minutes, task count, exit code, duratio
 
 ```bash
 make lint       # shellcheck
-make test       # bats test suite (353 tests)
+make test       # bats test suite (357 tests)
 make check      # lint + test
 ```
 
@@ -164,7 +164,8 @@ Requires: [bats-core](https://github.com/bats-core/bats-core), [shellcheck](http
 brew install bats-core shellcheck
 
 # Ubuntu / Debian
-sudo apt-get install -y bats shellcheck
+sudo npm install -g bats
+sudo apt-get install -y shellcheck
 
 # Fedora / RHEL
 sudo dnf install -y bats ShellCheck

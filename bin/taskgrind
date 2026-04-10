@@ -215,6 +215,12 @@ case "$backend" in
   *) echo "Error: unknown backend '$backend'. Supported: devin, claude-code, codex" >&2; exit 1 ;;
 esac
 
+# Warn when codex backend uses default Anthropic model
+if [[ "$backend" == "codex" && "$model" == *claude* ]]; then
+  echo "Warning: TG_MODEL='$model' is an Anthropic model but backend is codex (OpenAI)." >&2
+  echo "  Set TG_MODEL to an OpenAI model (e.g. o3, gpt-4o) or codex may reject it." >&2
+fi
+
 # Validate hours is a positive integer within range
 if ! [[ "$hours" =~ ^[0-9]+$ ]] || [[ "$hours" -eq 0 ]]; then
   echo "Error: HOURS must be a positive integer" >&2; exit 1
@@ -499,7 +505,7 @@ if [[ "$dry_run" -eq 1 ]]; then
   echo "  skill:    $skill"
   echo "  model:    $model"
   echo "  cooldown: ${cooldown}s"
-  echo "  log:      ${DVB_LOG:-$_dvb_tmp/taskgrind-\$(date)-\$\$.log}"
+  echo "  log:      ${DVB_LOG:-$_dvb_tmp/taskgrind-\$(date '+%Y-%m-%d-%H%M')-$(basename "$repo")-\$\$.log}"
   echo "  notify:   ${DVB_NOTIFY:-1}"
   echo "  max_session: ${max_session}s"
   echo "  early_exit_on_stall: ${DVB_EARLY_EXIT_ON_STALL:-1}"
@@ -654,6 +660,11 @@ graceful_shutdown() {
     if [[ $_dvb_timeout_pid -gt 0 ]] && kill -0 "$_dvb_timeout_pid" 2>/dev/null; then
       kill "$_dvb_timeout_pid" 2>/dev/null || true
       wait "$_dvb_timeout_pid" 2>/dev/null || true
+    fi
+    # Kill the elapsed timer if it's still running
+    if [[ ${_dvb_timer_pid:-0} -gt 0 ]] && kill -0 "$_dvb_timer_pid" 2>/dev/null; then
+      kill "$_dvb_timer_pid" 2>/dev/null || true
+      wait "$_dvb_timer_pid" 2>/dev/null || true
     fi
   fi
   # Kill git sync processes if interrupted mid-sync

@@ -97,7 +97,7 @@ taskgrind --dry-run
   skill:    next-task
   model:    claude-opus-4-6-thinking
   cooldown: 5s
-  log:      ${TMPDIR:-/tmp}/taskgrind-$(date)-$$.log
+  log:      ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
   notify:   1
   max_session: 3600s
   early_exit_on_stall: 1

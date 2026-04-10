@@ -2272,6 +2272,11 @@ SCRIPT
   grep -A60 'cleanup()' "$DVB_GRIND" | grep -q '_git_pid'
 }
 
+@test "structural: graceful_shutdown kills elapsed timer" {
+  # graceful_shutdown should clean up _dvb_timer_pid to prevent orphan output
+  grep -A50 'graceful_shutdown()' "$DVB_GRIND" | grep -q '_dvb_timer_pid'
+}
+
 @test "structural: _productive_zero_ship initialized before loop" {
   # Must be initialized before the while loop to avoid set -u crash
   grep -q '_productive_zero_ship=0' "$DVB_GRIND"
@@ -3563,6 +3568,14 @@ EOF
   [[ "$output" == *"early_exit_on_stall: 0"* ]]
 }
 
+@test "--dry-run log path includes repo basename" {
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  local repo_name
+  repo_name=$(basename "$TEST_REPO")
+  [[ "$output" == *"$repo_name"* ]]
+}
+
 @test "build_session_args produces --permission-mode dangerous for devin backend" {
   grep -q "permission-mode dangerous" "$DVB_GRIND"
 }
@@ -3592,6 +3605,19 @@ EOF
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" --backend codex 1 "$TEST_REPO"
   [ -f "$DVB_GRIND_INVOKE_LOG" ] && grep -q -- '-q' "$DVB_GRIND_INVOKE_LOG"
+}
+
+@test "codex backend warns when model contains claude" {
+  run "$DVB_GRIND" --dry-run --backend codex 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Warning"*"Anthropic model"*"codex"* ]]
+}
+
+@test "codex backend no warning when model is overridden" {
+  export DVB_MODEL=o3
+  run "$DVB_GRIND" --dry-run --backend codex 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Warning"*"Anthropic model"* ]]
 }
 
 @test "resolve_backend_binary function exists" {

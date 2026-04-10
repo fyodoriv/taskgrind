@@ -15,7 +15,8 @@ Requires [bats-core](https://github.com/bats-core/bats-core) and [shellcheck](ht
 brew install bats-core shellcheck
 
 # Ubuntu / Debian
-sudo apt-get install -y bats shellcheck
+sudo npm install -g bats
+sudo apt-get install -y shellcheck
 
 # Fedora / RHEL
 sudo dnf install -y bats ShellCheck
