@@ -3970,6 +3970,84 @@ TASKS
   grep -q 'clean prompt' "$DVB_GRIND_INVOKE_LOG"
 }
 
+# ── Dynamic model file (live model switching between sessions) ────────
+
+@test "model file overrides startup model" {
+  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  echo "gpt-5-4" > "$TEST_REPO/.taskgrind-model"
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  grep -q -- '--model gpt-5-4' "$DVB_GRIND_INVOKE_LOG"
+}
+
+@test "missing model file uses startup model (no error)" {
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  rm -f "$TEST_REPO/.taskgrind-model"
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+}
+
+@test "oversized model file is skipped with warning" {
+  # Create a file larger than 1KB limit
+  dd if=/dev/zero bs=1024 count=2 2>/dev/null | tr '\0' 'x' > "$TEST_REPO/.taskgrind-model"
+  run "$DVB_GRIND" --dry-run 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  # The oversized content should NOT appear as the model
+  ! grep -q 'xxxx' "$DVB_GRIND_INVOKE_LOG" 2>/dev/null || true
+}
+
+@test "deleting model file reverts to startup model" {
+  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  # Create a fake devin that removes the model file on first run
+  FAKE_DEVIN_V2="$TEST_DIR/fake-devin-v2"
+  cat > "$FAKE_DEVIN_V2" <<'SCRIPT'
+#!/bin/bash
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+# Remove the model file after first invocation so second session reverts
+rm -f "$DVB_MODEL_FILE_PATH"
+exit 0
+SCRIPT
+  chmod +x "$FAKE_DEVIN_V2"
+  export DVB_GRIND_CMD="$FAKE_DEVIN_V2"
+  echo "sonnet" > "$TEST_REPO/.taskgrind-model"
+  export DVB_MODEL_FILE_PATH="$TEST_REPO/.taskgrind-model"
+  run "$DVB_GRIND" --model opus 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  # First session should use the file model
+  head -1 "$DVB_GRIND_INVOKE_LOG" | grep -q -- '--model sonnet'
+}
+
+@test "model file with trailing whitespace is trimmed" {
+  printf "gpt-5-4\n\n\n" > "$TEST_REPO/.taskgrind-model"
+  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q -- '--model gpt-5-4' "$DVB_GRIND_INVOKE_LOG"
+}
+
+@test "model file shown in startup banner when active" {
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  echo "sonnet" > "$TEST_REPO/.taskgrind-model"
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [[ "$output" == *"Live model:"* ]]
+  [[ "$output" == *"sonnet"* ]]
+}
+
+@test "--dry-run shows model from model file" {
+  echo "gpt-5-4" > "$TEST_REPO/.taskgrind-model"
+  run "$DVB_GRIND" --dry-run 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"model:"* ]]
+  [[ "$output" == *"gpt-5-4"* ]]
+}
+
+@test "model file overrides --model flag" {
+  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  echo "gpt-5-4" > "$TEST_REPO/.taskgrind-model"
+  run "$DVB_GRIND" --model opus 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  grep -q -- '--model gpt-5-4' "$DVB_GRIND_INVOKE_LOG"
+}
+
 # ── Stability: mktemp failure message ─────────────────────────────────
 
 @test "structural: mktemp failures produce clear error messages" {

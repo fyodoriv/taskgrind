@@ -283,6 +283,40 @@ _refresh_prompt() {
 }
 _refresh_prompt
 
+# ── Dynamic model file ───────────────────────────────────────────────
+# Users can create/edit $repo/.taskgrind-model while taskgrind runs.
+# Content is re-read before each session and overrides --model / TG_MODEL.
+# Deleting the file reverts to the original startup model.
+_model_file="$repo/.taskgrind-model"
+_startup_model="$model"  # preserve original for revert on file deletion
+
+# Re-read model from file. Call before each session to pick up live edits.
+# Guards: skips files > 1KB (likely accidental), strips trailing whitespace.
+_model_file_max=1024  # 1KB — model names are short
+_refresh_model() {
+  local file_model=""
+  if [[ -f "$_model_file" ]]; then
+    local file_size
+    file_size=$(wc -c < "$_model_file" 2>/dev/null) || file_size=0
+    file_size="${file_size## }"  # trim leading space (macOS wc)
+    if [[ "$file_size" -gt "$_model_file_max" ]]; then
+      echo "   ⚠ .taskgrind-model too large (${file_size}B > ${_model_file_max}B) — skipping" >&2
+    else
+      file_model=$(cat "$_model_file" 2>/dev/null) || true
+    fi
+    # Strip all trailing whitespace (newlines, spaces, tabs)
+    while [[ "$file_model" =~ [[:space:]]$ ]]; do
+      file_model="${file_model%?}"
+    done
+  fi
+  if [[ -n "$file_model" ]]; then
+    model="$file_model"
+  else
+    model="$_startup_model"
+  fi
+}
+_refresh_model
+
 # ── Network check functions ──────────────────────────────────────────
 # Defined early so preflight_check() can reuse them (instead of a bare curl).
 
@@ -807,6 +841,9 @@ trap 'final_sync; cleanup' EXIT
 
 echo "☕ taskgrind: ${hours}h (until ${end_time}) — backend=$backend, skill=$skill, model=$model, repo=$repo"
 echo "   Each session runs $skill. Git sync every ${sync_interval} sessions."
+if [[ "$model" != "$_startup_model" ]]; then
+  echo "   Live model: $model (from .taskgrind-model, startup=$_startup_model)"
+fi
 if [[ -n "$extra_prompt" ]]; then
   echo "   Focus: $extra_prompt"
 fi
@@ -975,6 +1012,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
     log_write "[$(date '+%H:%M')] queue_empty tasks=0 — launching sweep session"
 
     _refresh_prompt
+    _refresh_model
     sweep_prompt="TASKS.md is empty. Audit this repository and populate TASKS.md with actionable tasks."
     sweep_prompt+=" Look at: open TODOs/FIXMEs in code, test coverage gaps, lint warnings, outdated dependencies, missing docs, README gaps."
     sweep_prompt+=" Write tasks following the tasks.md spec: checkbox format under P0-P3 priority headings, with **ID**, **Tags**, **Details**, **Files**, **Acceptance** metadata."
@@ -1059,8 +1097,14 @@ while [[ $(date +%s) -lt $deadline ]]; do
   log_write "[$(date '+%H:%M')] session=$session remaining=${remaining_min}m tasks=$tasks_before"
 
   # ── Build the session prompt ──────────────────────────────────────
-  # Re-read prompt file for live updates between sessions
+  # Re-read prompt and model files for live updates between sessions
   _refresh_prompt
+  _refresh_model
+
+  if [[ "$model" != "$_startup_model" ]]; then
+    echo "   Model: $model (live override)"
+    log_write "[$(date '+%H:%M')] live_model=$model (startup=$_startup_model)"
+  fi
 
   # Thin prompt — the skill handles task selection and execution.
   prompt="Run the $skill skill."

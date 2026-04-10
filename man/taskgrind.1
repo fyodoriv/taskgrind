@@ -114,6 +114,12 @@ Task queue file in the target repo. Uses the tasks.md spec.
 Optional file in the target repo. Content is injected into every session prompt.
 Re\-read before each session, so changes take effect live. Combine with \-\-prompt.
 .TP
+.I .taskgrind\-model
+Optional file in the target repo. Content overrides the model for subsequent
+sessions. Re\-read before each session. Overrides \-\-model and TG_MODEL when
+present. Delete the file to revert to the original startup model. Files larger
+than 1KB are skipped.
+.TP
 .I ${TMPDIR:\-/tmp}/taskgrind\-*.log
 Session logs (one per grind invocation).
 .SH EXAMPLES
@@ -128,6 +134,7 @@ taskgrind \-\-dry\-run 8             # print config only
 taskgrind \-\-preflight             # health checks only
 taskgrind \-\-version               # print version
 TG_MODEL=sonnet taskgrind 8        # override model via env
+echo "gpt\-5\-4" > .taskgrind\-model  # switch model mid\-grind
 .fi
 .SH EXIT STATUS
 .TP

@@ -47,19 +47,6 @@
   - [ ] The user-visible warning message includes the first line of the git error
   - [ ] Existing final_sync tests still pass
 
-- [ ] Add live model switching via .taskgrind-model file
-  **ID**: live-model-switch
-  **Tags**: feature, model
-  **Details**: The `model` variable is set once at startup (line 165) and never refreshed. Users cannot switch models mid-grind without restarting. Add a `.taskgrind-model` file mechanism following the same pattern as `.taskgrind-prompt`: read from `$repo/.taskgrind-model` before each session, override the startup model if the file exists. This lets users switch from opus to sonnet mid-grind when they want faster iterations, or try a new model without restarting.
-  **Files**: bin/taskgrind, tests/taskgrind.bats, README.md, man/taskgrind.1
-  **Acceptance**:
-  - [ ] `_refresh_model()` function reads `$repo/.taskgrind-model` before each session
-  - [ ] File content overrides `--model` and `TG_MODEL` when present; deleting file reverts to original
-  - [ ] Same guards as prompt file: skip if >1KB, strip trailing whitespace
-  - [ ] Startup banner shows when live model is active
-  - [ ] Tests cover: file present, file absent, file too large, file deleted mid-run
-  - [ ] README and man page document the feature
-
 ## P1
 
 - [ ] Test coverage for per-task skip list (attempt tracking)
