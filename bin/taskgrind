@@ -1301,7 +1301,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
   elif [[ "$tasks_after" -gt "$tasks_before" ]]; then
     # Count-based fallback for task addition detection
     _tasks_added=$(( tasks_after - tasks_before ))
-    log_write "[$(date '+%H:%M')] tasks_added=$_tasks_added (external injection: $tasks_before→$tasks_after)"
+    log_write "[$(date '+%H:%M')] tasks_added=$_tasks_added (external injection: ${tasks_before}→${tasks_after})"
   fi
 
   # Auto-increase timeout after productive sessions that were killed by the watchdog.

@@ -1126,6 +1126,44 @@ TASKS
   grep -q 'tasks_added=1' "$TEST_LOG"
 }
 
+@test "count-based: tasks_added log written without crash when tasks_after > tasks_before" {
+  # Regression test for bash UTF-8 variable name bug:
+  # $tasks_before→$tasks_after — the → arrow (\xe2\x86\x92) caused bash to
+  # include \xe2 as part of the variable name under set -u, crashing with
+  # "tasks_before⚠: unbound variable". Fix: ${tasks_before}→${tasks_after}.
+  # This test exercises the count-based fallback branch (no IDs in TASKS.md)
+  # where a session adds tasks (tasks_after > tasks_before).
+  local smart_devin="$TEST_DIR/smart-devin"
+  cat > "$smart_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+- [ ] Task one
+- [ ] Task two
+- [ ] Task three
+EOF
+SCRIPT
+  chmod +x "$smart_devin"
+  export DVB_GRIND_CMD="$smart_devin"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Task one
+TASKS
+
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  # Must not crash — exit 0 or natural deadline expiry
+  [[ "$status" -eq 0 ]]
+  # tasks_added=2 must appear in the log (1→3 = 2 added)
+  grep -q 'tasks_added=2' "$TEST_LOG"
+  # Must include the "external injection" marker
+  grep -q 'external injection' "$TEST_LOG"
+}
+
 @test "ID-based shipped: resets zero-ship counter on ID-tracked ship" {
   # Verify stall detection resets when ID-based shipping detects work.
   # Session 3 ships task-a (removing it, adding task-c). This resets the
