@@ -192,12 +192,12 @@ teardown() {
 
 # ── Model selection ──────────────────────────────────────────────────
 
-@test "defaults to claude-opus-4-6-thinking (not shortname)" {
+@test "defaults to GPT-5.4 XHigh Thinking fast" {
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
-  # Must be the exact explicit name, not 'opus' shortname
-  grep -q -- '--model claude-opus-4-6-thinking' "$DVB_GRIND_INVOKE_LOG"
+  # Must be the exact default model string
+  grep -q -- '--model GPT-5.4 XHigh Thinking fast' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "default model does not use 'opus' shortname" {
@@ -224,10 +224,10 @@ teardown() {
 }
 
 
-@test "default model has no dots (Devin uses dashes)" {
+@test "default model is GPT-5.4 XHigh Thinking fast" {
   local grind_default
   grind_default=$(grep '^DVB_DEFAULT_MODEL=' "$BATS_TEST_DIRNAME/../lib/constants.sh" | sed 's/.*="\(.*\)"/\1/')
-  [[ "$grind_default" != *.* ]]
+  [[ "$grind_default" == "GPT-5.4 XHigh Thinking fast" ]]
 }
 
 @test "default model has no -1m suffix" {
@@ -236,10 +236,25 @@ teardown() {
   [[ "$grind_default" != *-1m ]]
 }
 
-@test "default model includes thinking" {
+@test "default model includes Thinking" {
   local grind_default
   grind_default=$(grep '^DVB_DEFAULT_MODEL=' "$BATS_TEST_DIRNAME/../lib/constants.sh" | sed 's/.*="\(.*\)"/\1/')
-  [[ "$grind_default" == *thinking* ]]
+  [[ "$grind_default" == *Thinking* ]]
+}
+
+@test "multi-word default model passes through without truncation" {
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  unset DVB_MODEL 2>/dev/null || true
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  # The full multi-word model string must appear in the invocation log
+  local invocation
+  invocation=$(head -1 "$DVB_GRIND_INVOKE_LOG")
+  [[ "$invocation" == *"--model GPT-5.4 XHigh Thinking fast"* ]]
+  # Verify no truncation — all 5 words present
+  [[ "$invocation" == *"GPT-5.4"* ]]
+  [[ "$invocation" == *"XHigh"* ]]
+  [[ "$invocation" == *"Thinking"* ]]
+  [[ "$invocation" == *"fast"* ]]
 }
 
 @test "every session gets the same model flag" {
@@ -248,7 +263,7 @@ teardown() {
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Every invocation line must contain the exact model flag
   while IFS= read -r line; do
-    [[ "$line" == *"--model claude-opus-4-6-thinking"* ]] || {
+    [[ "$line" == *"--model GPT-5.4 XHigh Thinking fast"* ]] || {
       echo "Session missing model flag: $line"; return 1
     }
   done < "$DVB_GRIND_INVOKE_LOG"
@@ -260,7 +275,7 @@ teardown() {
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q -- '--model sonnet' "$DVB_GRIND_INVOKE_LOG"
   # And the default must not appear
-  ! grep -q -- '--model claude-opus-4-6-thinking' "$DVB_GRIND_INVOKE_LOG"
+  ! grep -q -- '--model GPT-5.4 XHigh Thinking fast' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "DVB_MODEL=claude-sonnet-4.5 passes through exactly" {
@@ -311,14 +326,14 @@ teardown() {
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
-  [[ "$output" == *"claude-opus-4-6-thinking"* ]]
+  [[ "$output" == *"GPT-5.4 XHigh Thinking fast"* ]]
 }
 
 @test "model shows in log file header" {
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
-  grep -q 'model=claude-opus-4-6-thinking' "$TEST_LOG"
+  grep -q 'model=GPT-5.4 XHigh Thinking fast' "$TEST_LOG"
 }
 
 @test "repo defaults to current directory" {
@@ -1206,7 +1221,7 @@ SCRIPT
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q '# taskgrind started' "$TEST_LOG"
   grep -q "hours=1" "$TEST_LOG"
-  grep -q "model=claude-opus-4-6-thinking" "$TEST_LOG"
+  grep -q "model=GPT-5.4 XHigh Thinking fast" "$TEST_LOG"
 }
 
 @test "log file records session start entries" {
@@ -1261,7 +1276,7 @@ TASKS
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"taskgrind"* ]]
   [[ "$output" == *"1h"* ]]
-  [[ "$output" == *"claude-opus-4-6-thinking"* ]]
+  [[ "$output" == *"GPT-5.4 XHigh Thinking fast"* ]]
 }
 
 @test "shows startup banner with repo path" {
@@ -3608,6 +3623,7 @@ EOF
 }
 
 @test "codex backend warns when model contains claude" {
+  export DVB_MODEL=claude-opus-4-6-thinking
   run "$DVB_GRIND" --dry-run --backend codex 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Warning"*"Anthropic model"*"codex"* ]]

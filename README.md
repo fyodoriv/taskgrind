@@ -129,7 +129,7 @@ Before deploying, ensure:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TG_BACKEND` | `devin` | AI backend: `devin`, `claude-code`, `codex` |
-| `TG_MODEL` | `claude-opus-4-6-thinking` | AI model (set to an OpenAI model when using `--backend codex`) |
+| `TG_MODEL` | `GPT-5.4 XHigh Thinking fast` | AI model (set to an OpenAI model when using `--backend codex`) |
 | `TG_SKILL` | `next-task` | Skill to run each session |
 | `TG_PROMPT` | (none) | Focus prompt for every session |
 | `TG_COOL` | `5` | Seconds between sessions |

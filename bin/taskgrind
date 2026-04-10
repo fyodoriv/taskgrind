@@ -22,7 +22,7 @@
 #        Args can appear in any order. Hours is any bare integer (1-24).
 #
 # Env:   TG_BACKEND     — AI backend: devin, claude-code, codex (default: devin)
-#        TG_MODEL       — AI model (default: claude-opus-4-6-thinking)
+#        TG_MODEL       — AI model (default: "GPT-5.4 XHigh Thinking fast")
 #        TG_COOL        — seconds between sessions (default: 5)
 #        TG_SKILL       — skill to run (default: next-task)
 #        TG_PROMPT      — extra focus prompt prepended to every session

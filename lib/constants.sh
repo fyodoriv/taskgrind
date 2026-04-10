@@ -7,7 +7,7 @@
 # shellcheck disable=SC2034  # used by sourcing scripts
 
 # Default AI model for all backends
-DVB_DEFAULT_MODEL="claude-opus-4-6-thinking"
+DVB_DEFAULT_MODEL="GPT-5.4 XHigh Thinking fast"
 
 # Devin CLI binary location — resolved at source-time with fallback chain:
 # 1. DVB_DEVIN_PATH env override (user-set), 2. PATH lookup, 3. default install path
