@@ -43,7 +43,7 @@ Sample banner:
 ☕ taskgrind: 4h (until 13:00) — backend=devin, skill=next-task, model=claude-opus-4-6-thinking, repo=/Users/you/apps/myproject
    Each session runs next-task. Git sync every 5 sessions.
    Focus: focus on test coverage
-   Log: /tmp/taskgrind-2025-01-15-0900-myproject-38291.log
+   Log: ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
 ```
 
 ## 3. Multi-repo grind
@@ -97,9 +97,9 @@ taskgrind --dry-run
   skill:    next-task
   model:    claude-opus-4-6-thinking
   cooldown: 5s
-  log:      /tmp/taskgrind-$(date)-$$.log
+  log:      ${TMPDIR:-/tmp}/taskgrind-$(date)-$$.log
   notify:   1
-  max_ses: 3600s
+  max_session: 3600s
   early_exit_on_stall: 1
 ```
 

@@ -60,7 +60,7 @@ Arguments can appear in any order. Hours is any bare integer 1-24.
 1. Launches an AI session with the `next-task` skill (configurable via `--skill`, backend via `--backend`)
 2. Session picks a task from `TASKS.md`, implements it, commits, and exits
 3. Between sessions: cooldown, optional git sync (every N sessions)
-4. Exits when: queue empty, deadline reached, or stall detected
+4. Exits when: queue empty, all remaining tasks blocked, deadline reached, or stall detected
 
 ### Task format
 
@@ -87,7 +87,8 @@ Completed tasks are removed (not checked off). History lives in git log. See the
 - **Preflight checks** — 7 health checks (binary, network, git state, remote, disk, TASKS.md, network-watchdog) before launch
 - **Self-copy protection** — copies itself to `$TMPDIR` before running, survives script edits mid-grind
 - **Per-repo locking** — `lockf` (macOS) / `flock` (Linux) prevents duplicate grinds on the same repo
-- **Caffeinate integration** — prevents system sleep for the duration of the grind
+- **Blocked-queue detection** — exits early when all remaining tasks have `**Blocked by**:` metadata
+- **Caffeinate integration** — prevents system sleep on macOS (`caffeinate`) and Linux (`systemd-inhibit`)
 - **Git sync with stash/rebase** — between-session sync stashes dirty work, rebases on default branch, cleans merged branches
 - **Empty-queue sweep** — when `TASKS.md` is empty, launches a sweep session to find work before exiting
 - **Network resilience** — pauses on network loss, extends deadline on recovery
@@ -141,8 +142,9 @@ Before deploying, ensure:
 ## Monitoring
 
 ```bash
-tail -f /tmp/taskgrind-*.log      # watch live progress
-cat /tmp/taskgrind-*.log          # review completed sessions
+# Use the log path shown in the startup banner, or:
+tail -f "${TMPDIR:-/tmp}"/taskgrind-*.log   # watch live progress
+cat "${TMPDIR:-/tmp}"/taskgrind-*.log       # review completed sessions
 ```
 
 Each session logs: start time, remaining minutes, task count, exit code, duration, and shipped count. The `grind_done` summary includes ship rate, remaining tasks, and average session duration.

@@ -116,14 +116,14 @@ while [[ $# -gt 0 ]]; do
     --version|-V) echo "taskgrind $(git -C "$TASKGRIND_DIR" log -1 --format='%h %ci' 2>/dev/null || echo 'unknown')"; exit 0 ;;
     --dry-run) dry_run=1; shift ;;
     --preflight) preflight_only=1; shift ;;
-    --skill=*) skill="${1#--skill=}"; shift ;;
+    --skill=*) skill="${1#--skill=}"; [[ -z "$skill" ]] && { echo "Error: --skill requires a non-empty name" >&2; exit 1; }; shift ;;
     --skill)
       if [[ $# -lt 2 ]]; then
         echo "Error: --skill requires a name" >&2; exit 1
       fi
       skill="$2"; shift 2
       ;;
-    --backend=*) _cli_backend="${1#--backend=}"; shift ;;
+    --backend=*) _cli_backend="${1#--backend=}"; [[ -z "$_cli_backend" ]] && { echo "Error: --backend requires a name (devin, claude-code, codex)" >&2; exit 1; }; shift ;;
     --backend)
       if [[ $# -lt 2 ]]; then
         echo "Error: --backend requires a name (devin, claude-code, codex)" >&2; exit 1
@@ -237,7 +237,7 @@ _check_network_once() {
     network-watchdog --check-only >/dev/null 2>&1
   else
     # Fallback: lightweight connectivity test when network-watchdog is missing
-    curl -sf --max-time 5 https://api.anthropic.com >/dev/null 2>&1
+    curl -sf --max-time 5 https://connectivitycheck.gstatic.com/generate_204 >/dev/null 2>&1
   fi
 }
 
@@ -332,7 +332,7 @@ preflight_check() {
   elif check_network; then
     dvb_spinner_stop; preflight_pass "Network connectivity"
   else
-    dvb_spinner_stop; preflight_fail "Network unreachable (api.anthropic.com)"
+    dvb_spinner_stop; preflight_fail "Network unreachable"
   fi
 
   # 3. Git state clean — not mid-rebase, not detached HEAD, not mid-merge
@@ -492,7 +492,7 @@ if [[ "$dry_run" -eq 1 ]]; then
   echo "  cooldown: ${cooldown}s"
   echo "  log:      ${DVB_LOG:-$_dvb_tmp/taskgrind-\$(date)-\$\$.log}"
   echo "  notify:   ${DVB_NOTIFY:-1}"
-  echo "  max_ses: ${max_session}s"
+  echo "  max_session: ${max_session}s"
   echo "  early_exit_on_stall: ${DVB_EARLY_EXIT_ON_STALL:-1}"
   if [[ -n "$extra_prompt" ]]; then
     echo "  prompt:   $extra_prompt"
@@ -771,8 +771,13 @@ all_tasks_blocked() {
   total_tasks=$(grep -c '^[[:space:]]*- \[ \]' "$tasks_file" 2>/dev/null) || true
   total_tasks="${total_tasks:-0}"
   [[ "$total_tasks" -eq 0 ]] && return 1  # empty queue is not "all blocked"
-  blocked_tasks=$(grep -c '^\s*\*\*Blocked by\*\*:' "$tasks_file" 2>/dev/null) || true
-  blocked_tasks="${blocked_tasks:-0}"
+  # Count tasks (not lines) that have at least one **Blocked by**: underneath.
+  # A task starts at a checkbox line; metadata is indented below it.
+  blocked_tasks=$(awk '
+    /^[[:space:]]*- \[ \]/ { if (in_task && has_blocker) b++; in_task=1; has_blocker=0 }
+    in_task && /\*\*Blocked by\*\*:/ { has_blocker=1 }
+    END { if (in_task && has_blocker) b++; print b+0 }
+  ' "$tasks_file")
   [[ "$blocked_tasks" -ge "$total_tasks" ]]
 }
 

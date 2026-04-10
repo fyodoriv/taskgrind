@@ -22,4 +22,4 @@ Before running taskgrind, ensure:
 - You trust the AI backend being used
 - You have reviewed the tasks in `TASKS.md`
 - The repo does not contain secrets or credentials that should not be accessible to the AI
-- Log files (`/tmp/taskgrind-*.log`) are readable only by the owner (permissions are set to `600`)
+- Log files (`${TMPDIR:-/tmp}/taskgrind-*.log`) are readable only by the owner (permissions are set to `600`)

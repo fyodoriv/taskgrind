@@ -793,6 +793,25 @@ TASKS
   grep -q 'all_tasks_blocked' "$TEST_LOG"
 }
 
+@test "multi-blocker task does not cause false all-blocked" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P1
+- [ ] Deploy to K8s
+  **ID**: deploy-k8s
+  **Blocked by**: jenkins-setup
+  **Blocked by**: dns-config
+- [ ] Write docs
+  **ID**: write-docs
+TASKS
+
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  ! grep -q 'all_tasks_blocked' "$TEST_LOG"
+  # Should have launched at least 1 session (write-docs is not blocked)
+  [ -f "$DVB_GRIND_INVOKE_LOG" ]
+}
+
 @test "second session prompt includes previous session context" {
   export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -1790,6 +1809,18 @@ SCRIPT
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill=fleet-grind
   [ "$status" -eq 0 ]
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
+}
+
+@test "--skill= empty value exits with clear error" {
+  run "$DVB_GRIND" 1 "$TEST_REPO" "--skill="
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"requires a non-empty name"* ]]
+}
+
+@test "--backend= empty value exits with clear error" {
+  run "$DVB_GRIND" 1 "$TEST_REPO" "--backend="
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"requires a name"* ]]
 }
 
 @test "DVB_COOL=abc exits with must be numeric error" {
