@@ -22,7 +22,7 @@ Sample log:
 [pid=38291] [09:45] session=1 ended exit=0 duration=2700s tasks_after=11 shipped=1
 [pid=38291] [09:45] session=2 remaining=435m tasks=11
 ...
-[pid=38291] [17:00] grind_done sessions=10 shipped=8 remaining=4 ship_rate=67% avg_session=48m duration=8h rate=1.0/h sessions_zero_ship=2
+[pid=38291] [17:00] grind_done sessions=10 shipped=8 remaining=4 ship_rate=67% avg_session=48m elapsed=28800s duration=8h rate=1.0/h sessions_zero_ship=2
 ```
 
 ## 2. Focused grind with --prompt

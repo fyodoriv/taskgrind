@@ -6,6 +6,7 @@
 git clone https://github.com/cbrwizard/taskgrind.git
 cd taskgrind
 make check   # runs shellcheck + bats test suite
+make install # symlink to /usr/local/bin + install man page
 ```
 
 Requires [bats-core](https://github.com/bats-core/bats-core) and [shellcheck](https://www.shellcheck.net/):
@@ -15,8 +16,9 @@ Requires [bats-core](https://github.com/bats-core/bats-core) and [shellcheck](ht
 brew install bats-core shellcheck
 
 # Ubuntu / Debian
+sudo apt-get update
+sudo apt-get install -y npm shellcheck
 sudo npm install -g bats
-sudo apt-get install -y shellcheck
 
 # Fedora / RHEL
 sudo dnf install -y bats ShellCheck

@@ -4,7 +4,7 @@
 # next session picks up seamlessly. Sessions should exit BEFORE context fills —
 # context exhaustion crashes the process and loses any uncommitted work.
 #
-# Usage: taskgrind                              → 8h grind (default), opus 4.6 thinking
+# Usage: taskgrind                              → 8h grind (default)
 #        taskgrind 10                          → 10h grind, current dir
 #        taskgrind ~/apps/myrepo 10            → 10h grind in specific repo
 #        taskgrind --skill fleet-grind 10      → 10h fleet-grind
@@ -58,11 +58,11 @@ _dvb_tmp="${TMPDIR:-/tmp}"
 _dvb_tmp="${_dvb_tmp%/}"
 
 # Self-copy protection: bash reads scripts lazily by byte offset. If a grind
-# session modifies this script (e.g., grinding the dotfiles repo), the running
-# process reads from shifted offsets and crashes. Copy to a temp file and
-# re-exec from there so the running copy is never modified.
+# session modifies this script (e.g., grinding the taskgrind repo itself), the
+# running process reads from shifted offsets and crashes. Copy to a temp file
+# and re-exec from there so the running copy is never modified.
 # Must run BEFORE sourcing relative paths — the copy lives in $TMPDIR so $0-based
-# paths would resolve to / instead of the real dotfiles dir.
+# paths would resolve incorrectly instead of to the real repo dir.
 if [[ -z "${_DVB_SELF_COPY:-}" ]]; then
   _dvb_copy=$(mktemp "$_dvb_tmp/taskgrind-exec.XXXXXX")
   cp "$0" "$_dvb_copy"
@@ -590,7 +590,7 @@ if [[ -z "${DVB_GRIND_CMD:-}" && -z "${DVB_CAFFEINATED:-}" ]]; then
 fi
 
 # Boost to interactive scheduling tier — max CPU/IO priority for the grind
-# and all child devin sessions. Uses shared lib (same flags as cursor-priority).
+# and all child devin sessions (macOS taskpolicy throughput/latency flags).
 # shellcheck source=../lib/fullpower.sh
 source "$TASKGRIND_DIR/lib/fullpower.sh"
 boost_priority

@@ -152,9 +152,11 @@ Each session logs: start time, remaining minutes, task count, exit code, duratio
 ## Development
 
 ```bash
+make install    # symlink to /usr/local/bin + install man page
 make lint       # shellcheck
 make test       # bats test suite (357 tests)
 make check      # lint + test
+make uninstall  # remove symlink and man page
 ```
 
 Requires: [bats-core](https://github.com/bats-core/bats-core), [shellcheck](https://www.shellcheck.net/)
@@ -164,8 +166,9 @@ Requires: [bats-core](https://github.com/bats-core/bats-core), [shellcheck](http
 brew install bats-core shellcheck
 
 # Ubuntu / Debian
+sudo apt-get update
+sudo apt-get install -y npm shellcheck
 sudo npm install -g bats
-sudo apt-get install -y shellcheck
 
 # Fedora / RHEL
 sudo dnf install -y bats ShellCheck
