@@ -56,17 +56,6 @@
   - [ ] Test verifies model name appears in the session banner output
   - [ ] All existing tests pass
 
-- [ ] Fix unbound variable crash when task count increases during a session
-  **ID**: fix-tasks-before-arrow-crash
-  **Tags**: stability, bug
-  **Details**: At bin/taskgrind line 1304, the log line `"(external injection: $tasks_before→$tasks_after)"` contains a UTF-8 arrow character `→` (U+2192, bytes `\xe2\x86\x92`). Bash variable expansion is multi-byte-unaware: it includes the `\xe2` byte as part of the variable name, so it tries to expand `$tasks_before\xe2` instead of `$tasks_before`. Under `set -u` this crashes with `tasks_before⚠: unbound variable` (the `⚠` is the terminal rendering of `\xe2`). Fix by wrapping the variable in braces: `${tasks_before}→${tasks_after}`. Check the whole file for any other `$var→` patterns.
-  **Files**: bin/taskgrind, tests/taskgrind.bats
-  **Acceptance**:
-  - [ ] Line 1304 uses `${tasks_before}→${tasks_after}` (braces)
-  - [ ] No other `$var→` patterns remain in the file
-  - [ ] Test: simulate a session that adds tasks (tasks_after > tasks_before) and verify no crash and the log entry is written
-  - [ ] All existing tests pass
-
 - [ ] Detect and surface invalid model errors before starting the session loop
   **ID**: detect-invalid-model
   **Tags**: stability, error-handling
