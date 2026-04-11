@@ -46,6 +46,16 @@
 
 ## P3
 
+- [ ] Document the post-sweep empty-queue wait in architecture notes
+  **ID**: document-empty-queue-wait
+  **Tags**: docs, architecture
+  **Details**: The current empty-queue architecture note says taskgrind runs a single sweep and exits if no work is found. The runtime now waits up to 10 minutes for external task injection after an empty sweep before exiting. Update the architecture doc so contributors understand the real control flow and why the wait exists.
+  **Files**: docs/architecture.md
+  **Acceptance**:
+  - [ ] `docs/architecture.md` explains the post-sweep wait before exit
+  - [ ] `_sweep_done` state transitions are described accurately
+  - [ ] The note reflects the current implementation without implying an immediate exit
+
 - [ ] Make network check URL configurable via TG_NET_CHECK_URL
   **ID**: configurable-net-url
   **Tags**: feature, config
