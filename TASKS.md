@@ -9,6 +9,13 @@
   **Acceptance**: `make lint` exits 0 locally; the fix preserves source-path checking for real issues and does not break runtime path resolution.
 
 ## P1
+- [ ] Analyze recent taskgrind logs and refresh repo tasks (@instance-1)
+  **ID**: audit-recent-grind-logs
+  **Tags**: audit, logs, maintenance
+  **Details**: Review the newest unanalyzed taskgrind logs, capture actionable reliability findings, and update the task queues for the affected repos so future sessions work from the observed failures instead of rediscovering them.
+  **Files**: `TASKS.md`
+  **Acceptance**: The recent logs have been reviewed; resulting follow-up tasks are recorded in the relevant task queues; this tracking block is removed once the audit update lands.
+
 - [ ] Reconcile resumable-state docs with the implemented on-disk contract
   **ID**: align-resume-state-docs
   **Tags**: docs, resume, reliability
@@ -36,6 +43,20 @@
   **Details**: README mentions `TG_STATUS_FILE` but does not spell out the emitted JSON fields or how values change across startup, active sessions, network waits, and completion. Add a field reference plus one realistic example so operators can build external monitors without reverse-engineering `write_status_file`.
   **Files**: `README.md`, `man/taskgrind.1`, `bin/taskgrind`
   **Acceptance**: Docs enumerate the status payload fields written by `write_status_file`; at least one example matches the current runtime shape and phase transitions.
+
+- [ ] Stop launching no-op sessions once the deadline is already exhausted
+  **ID**: guard-expired-deadline-launch
+  **Tags**: reliability, runtime, logs
+  **Details**: Several 2026-04-11 grind logs against temporary fixture repos (`taskgrind-2026-04-11-1805-repo-60489.log`, `...-1810-repo-46402.log`, `...-1824-repo-18279.log`, `...-1825-repo-39851.log`) show taskgrind starting with `remaining=0m` and still running one to four empty sessions before finally stopping. Add an early deadline guard so an already-expired run exits before launching the session loop, logs why it skipped work, and avoids generating misleading stall warnings or repeated zero-ship retries.
+  **Files**: `bin/taskgrind`, `tests/taskgrind.bats`, `tests/session.bats`
+  **Acceptance**: A run with an already-expired deadline exits without launching a session; the log records the expired-deadline skip; no stall-warning or extra zero-ship sessions are emitted in that case.
+
+- [ ] Distinguish real zero-ship sessions from task-count races in multi-agent runs
+  **ID**: reconcile-productive-zero-ship-accounting
+  **Tags**: reliability, metrics, concurrency
+  **Details**: Recent logs for `bosun`, `ideas`, and `agentbrew` show `productive_zero_ship` firing even when the session output says the task block was removed or code was successfully shipped. In the same windows the logs also record `tasks_added=` external injections or temporary add/remove subtask workflows, so a plain `tasks_before - tasks_after` comparison is misclassifying productive sessions as zero-ship. Tighten shipped accounting and log messaging so concurrent queue growth or temporary subtask churn does not look like a failed session.
+  **Files**: `bin/taskgrind`, `tests/taskgrind.bats`, `tests/logging.bats`
+  **Acceptance**: Sessions that commit and remove a task block are not flagged as `productive_zero_ship` solely because other tasks were injected or a temporary subtask was added and removed in the same session; logs make the reason for any remaining zero-ship classification explicit; regression tests cover concurrent task additions and temporary subtask flows.
 
 ## P2
 - [ ] Add behavioral tests for macOS priority boosting and Linux no-op fallback
