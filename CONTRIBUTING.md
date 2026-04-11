@@ -17,8 +17,7 @@ brew install bats-core shellcheck
 
 # Ubuntu / Debian
 sudo apt-get update
-sudo apt-get install -y npm shellcheck
-sudo npm install -g bats
+sudo apt-get install -y bats shellcheck
 
 # Fedora / RHEL
 sudo dnf install -y bats ShellCheck
