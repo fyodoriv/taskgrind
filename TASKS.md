@@ -88,6 +88,28 @@
   - [ ] Test: live `.taskgrind-model` with `sonnet` → resolves to `claude-sonnet-4.6`
   - [ ] All existing tests pass
 
+- [ ] Resolve startup and live `.taskgrind-model` aliases through one path (@devin)
+  **ID**: model-alias-resolution-runtime
+  **Parent**: model-alias-resolution
+  **Tags**: ux, models
+  **Details**: Introduce a single alias-resolution path that applies before the first session and on every `.taskgrind-model` refresh. Keep the alias table in `lib/constants.sh`, resolve known short names to their strongest model IDs, and leave unknown names unchanged so the backend can still reject them explicitly.
+  **Files**: lib/constants.sh, bin/taskgrind, tests/features.bats
+  **Acceptance**:
+  - [ ] `--model opus` reaches the backend as `claude-opus-4-6-thinking`
+  - [ ] `.taskgrind-model` containing `sonnet` resolves to `claude-sonnet-4.6` on the next session
+  - [ ] Unknown model names still pass through unchanged
+
+- [ ] Surface resolved model IDs and raw aliases in taskgrind output
+  **ID**: model-alias-resolution-visibility
+  **Parent**: model-alias-resolution
+  **Tags**: ux, models
+  **Details**: Once alias resolution is in place, show users the resolved model ID in the banner and preserve the original alias in logs so live model changes stay debuggable.
+  **Files**: bin/taskgrind, tests/features.bats, tests/logging.bats
+  **Acceptance**:
+  - [ ] Startup output shows the resolved model ID instead of the short alias
+  - [ ] Live model log entries include both the resolved ID and the original alias when they differ
+  - [ ] Existing model banner/logging tests still pass
+
 - [ ] Show active model on every session banner line
   **ID**: show-model-on-session-banner
   **Tags**: ux, visibility
