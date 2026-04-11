@@ -138,12 +138,16 @@
   - [ ] The fix preserves the behavioral intent of the current session accounting tests
   - [ ] Targeted `tests/session.bats` runs still pass
 
-- [ ] Stabilize `tests/signals.bats` prompt-warning and graceful-shutdown assertions under parallel `make check`
+- [ ] Stabilize `tests/signals.bats` prompt-warning and graceful-shutdown assertions under parallel `make check` (@devin)
   **ID**: stabilize-parallel-signal-tests
   **Parent**: stabilize-parallel-check-suite
   **Tags**: test, stability
   **Details**: Recent parallel `make check` failures included `tests/signals.bats` prompt-warning assertions and graceful-shutdown timing paths. Make those signal-driven tests deterministic without weakening the behavior they cover.
   **Files**: tests/signals.bats, tests/test_helper.bash
+  **Plan**:
+  - [ ] Reproduce the unstable `tests/signals.bats` cases and identify which assertions depend on whole-log greps or short deadlines
+  - [ ] Rewrite the flaky signal tests to use deterministic scripted backends or direct per-session assertions
+  - [ ] Run targeted `tests/signals.bats` verification and remove this task block once the file is stable
   **Acceptance**:
   - [ ] `tests/signals.bats` no longer intermittently fails prompt-warning or shutdown assertions during parallel runs
   - [ ] The fix preserves SIGINT/SIGTERM behavioral coverage
