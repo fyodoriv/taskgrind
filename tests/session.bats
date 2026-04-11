@@ -77,6 +77,104 @@ TASKS
   sed -n '2p' "$DVB_GRIND_INVOKE_LOG" | grep -q 'task count did not decrease'
 }
 
+@test "skip list warning appears in session 4 prompt after repeated task attempts" {
+  local tmp_root="$TEST_DIR/tmp"
+  local counter_file="$TEST_DIR/skip-counter"
+  local prompt_devin="$TEST_DIR/prompt-devin"
+  mkdir -p "$tmp_root"
+  echo "0" > "$counter_file"
+  export TMPDIR="$tmp_root"
+  cat > "$prompt_devin" <<SCRIPT
+#!/bin/bash
+n=\$(cat "$counter_file")
+n=\$((n + 1))
+echo "\$n" > "$counter_file"
+prompt=""
+prev=""
+for arg in "\$@"; do
+  if [ "\$prev" = "-p" ]; then
+    prompt="\$arg"
+    break
+  fi
+  case "\$arg" in
+    -p=*)
+      prompt="\${arg#-p=}"
+      break
+      ;;
+  esac
+  prev="\$arg"
+done
+printf '%s' "\$prompt" > "$TEST_DIR/prompt-\$n.txt"
+sleep 0.2
+SCRIPT
+  chmod +x "$prompt_devin"
+  export DVB_GRIND_CMD="$prompt_devin"
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stubborn task
+  **ID**: stubborn-task
+TASKS
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_MAX_ZERO_SHIP=6
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ -f "$TEST_DIR/prompt-4.txt" ]
+  grep -q 'SKIP these stuck tasks (attempted 3+ times): stubborn-task' "$TEST_DIR/prompt-4.txt"
+}
+
+@test "task skip threshold is logged when a task hits 3 attempts" {
+  local counter_file="$TEST_DIR/log-counter"
+  local prompt_devin="$TEST_DIR/log-devin"
+  echo "0" > "$counter_file"
+  cat > "$prompt_devin" <<SCRIPT
+#!/bin/bash
+n=\$(cat "$counter_file")
+n=\$((n + 1))
+echo "\$n" > "$counter_file"
+sleep 0.2
+SCRIPT
+  chmod +x "$prompt_devin"
+  export DVB_GRIND_CMD="$prompt_devin"
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stubborn task
+  **ID**: stubborn-task
+TASKS
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_MAX_ZERO_SHIP=6
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'task_skip_threshold ids=stubborn-task' "$TEST_LOG"
+}
+
+@test "task attempt temp files are cleaned up after the run" {
+  local tmp_root="$TEST_DIR/tmp"
+  local counter_file="$TEST_DIR/cleanup-counter"
+  local prompt_devin="$TEST_DIR/cleanup-devin"
+  mkdir -p "$tmp_root"
+  echo "0" > "$counter_file"
+  export TMPDIR="$tmp_root"
+  cat > "$prompt_devin" <<SCRIPT
+#!/bin/bash
+n=\$(cat "$counter_file")
+n=\$((n + 1))
+echo "\$n" > "$counter_file"
+sleep 0.2
+SCRIPT
+  chmod +x "$prompt_devin"
+  export DVB_GRIND_CMD="$prompt_devin"
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stubborn task
+  **ID**: stubborn-task
+TASKS
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_MAX_ZERO_SHIP=6
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  ! find "$tmp_root" -maxdepth 1 -name 'taskgrind-*.task-attempts*' | grep -q .
+}
+
 @test "--skill flag changes the skill in the prompt" {
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill fleet-grind

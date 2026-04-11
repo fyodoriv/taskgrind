@@ -164,17 +164,6 @@
   - [ ] CI/local parallel bats invocation remains enabled as the primary path
   - [ ] AGENTS.md documents any remaining test limitations with exact commands or scenarios if they still exist
 
-- [ ] Test coverage for per-task skip list (attempt tracking)
-  **ID**: test-skip-list
-  **Tags**: test, stability
-  **Details**: The per-task attempt tracking system (bin/taskgrind:1099-1104, 1282-1297) has ZERO test coverage. This is the largest uncovered feature. When a task survives 3+ sessions, it gets added to a skip list in the prompt. No test verifies the skip list appears in prompts, that `task_skip_threshold` is logged, or that temp files are cleaned up.
-  **Files**: tests/taskgrind.bats
-  **Acceptance**:
-  - [ ] Test: fake devin that never removes a task ID — verify `task_skip_threshold` logged after 3 sessions
-  - [ ] Test: verify `SKIP these stuck tasks:` appears in session 4's prompt
-  - [ ] Test: verify `_task_attempts_file.new` temp file is not leaked after the run
-  - [ ] All existing tests still pass
-
 - [ ] Test coverage for TG_ prefix precedence on remaining 16 env vars
   **ID**: test-tg-prefix
   **Tags**: test
