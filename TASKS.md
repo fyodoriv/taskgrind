@@ -44,21 +44,6 @@
 
 ## P2
 
-- [ ] Add resumable grind state so interrupted runs can continue without losing counters
-  **ID**: resumable-grind-state
-  **Tags**: feature, reliability, ux
-  **Details**: Taskgrind currently treats every launch as a fresh marathon: if the terminal dies, the machine reboots, or the operator intentionally restarts the process, the new run loses session count, shipped-count history, zero-ship streaks, startup model, and the original deadline context. Adjacent long-running workflows such as `tmux`-hosted agent loops and CI/job runners preserve enough runtime state to resume after an interruption instead of starting blind. Add a small durable state file plus a `--resume` flow so taskgrind can pick up an interrupted grind for the same repo and continue with the original deadline and counters when the operator wants that behavior.
-  **Files**: bin/taskgrind, lib/constants.sh, tests/taskgrind.bats, README.md, man/taskgrind.1
-  **Acceptance**:
-  - [ ] Taskgrind writes a durable per-repo state file that captures at least deadline, session count, shipped count, zero-ship streak, backend, skill, and model
-  - [ ] `taskgrind --resume` on the same repo restores that state instead of starting a fresh session counter
-  - [ ] Resume refuses stale or incompatible state with a clear operator-facing message rather than silently mixing runs
-  - [ ] Clean completion and explicit abort paths remove or invalidate the saved state so later runs do not resume accidentally
-  - [ ] README, man page, and `--help` document how resume works and when to prefer a fresh run
-  - [ ] Tests cover save-on-progress, resume-after-interruption, and stale-state rejection
-
-  - [ ] Verification confirms the documented flow matches the implementation
-
 ## P3
 
 - [ ] Make network check URL configurable via TG_NET_CHECK_URL
