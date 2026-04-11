@@ -94,16 +94,6 @@
   - [ ] The feature is documented, including the default path or the env var/flag used to override it
   - [ ] Tests verify heartbeat contents across at least startup, in-session, and completion states
 
-- [ ] Stabilize the DVB_COOL=0 timing-sensitive test under load
-  **ID**: stabilize-cool-zero-test
-  **Tags**: test, flake
-  **Details**: The test `DVB_COOL=0 skips sleep between sessions` in `tests/taskgrind.bats` intermittently fails under normal repo load because it asserts the whole run finishes in under 8 seconds. During verification for `detect-invalid-model` on 2026-04-10, the same test passed once and failed once when rerun in isolation, matching the repo's documented timing-sensitive flake pattern. Replace the wall-clock assertion with a more deterministic signal for "no cooldown sleep happened" so `make check` can pass reliably under load.
-  **Files**: tests/taskgrind.bats
-  **Acceptance**:
-  - [ ] Test no longer depends on a tight wall-clock threshold across the full suite
-  - [ ] It still verifies that `DVB_COOL=0` skips cooldown behavior
-  - [ ] Repeated isolated runs are stable under typical laptop load
-
 ## P3
 
 - [ ] Make network check URL configurable via TG_NET_CHECK_URL
@@ -127,13 +117,3 @@
   - [ ] Validated as numeric at startup
   - [ ] Documented in README, man page, and --help
   - [ ] Test verifies custom value is used
-
-- [ ] Add user story for live prompt injection workflow
-  **ID**: doc-live-prompt-story
-  **Tags**: docs
-  **Details**: docs/user-stories.md has 5 stories but none covering the live prompt injection workflow. Add a story showing: start a grind, realize you want to shift focus mid-run, create `.taskgrind-prompt`, see the change take effect.
-  **Files**: docs/user-stories.md
-  **Acceptance**:
-  - [ ] New story: "Redirecting focus mid-grind"
-  - [ ] Shows command sequence and expected log output
-  - [ ] Mentions that changes apply at next session start, not current

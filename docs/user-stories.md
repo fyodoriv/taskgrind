@@ -150,3 +150,31 @@ Sample log:
 [pid=38291] [09:47] live_model=claude-sonnet-4.6
 [pid=38291] [09:47] session=2 remaining=313m tasks=8 model=claude-sonnet-4.6
 ```
+
+## 7. Redirecting focus mid-grind
+
+You start a grind, then realize the next few sessions should focus on a specific bug or subsystem. Instead of stopping the run, you drop a `.taskgrind-prompt` file into the repo so the next session picks up the new direction.
+
+```bash
+# Start the grind normally
+taskgrind ~/apps/myproject 6
+
+# Mid-run, redirect the next sessions
+cat > ~/apps/myproject/.taskgrind-prompt <<'EOF'
+Focus on flaky tests in the checkout flow before any other work.
+EOF
+```
+
+What happens:
+- The current session keeps running with its original prompt
+- Taskgrind checks `.taskgrind-prompt` between sessions, so the new focus applies at the next session start
+- Future sessions prepend that prompt to the skill instructions until you edit or remove the file
+- This is useful when production issues or new priorities show up during a long grind
+
+Sample log:
+```
+[pid=38291] [14:00] session=3 remaining=240m tasks=7 model=claude-sonnet-4.6
+[pid=38291] [14:36] session=3 ended exit=0 duration=2160s tasks_after=6 shipped=1
+[pid=38291] [14:41] live_prompt=.taskgrind-prompt loaded bytes=58
+[pid=38291] [14:41] session=4 remaining=199m tasks=6 model=claude-sonnet-4.6
+```
