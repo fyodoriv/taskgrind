@@ -23,7 +23,8 @@ AI backend: devin, claude\-code, codex (default: devin).
 .BR \-\-model " " \fIname\fR
 AI model to use (default: "gpt\-5.4"). Overrides TG_MODEL env var. Short aliases such as
 \fBopus\fR, \fBsonnet\fR, \fBhaiku\fR, \fBgpt\fR, \fBcodex\fR, and \fBswe\fR resolve to the
-current preferred model IDs.
+current preferred model IDs. Quote multi-word model names, for example
+\fB\-\-model "gpt\-5\-4 XHigh thinking fast"\fR.
 .TP
 .BR \-\-prompt " " \fItext\fR
 Focus prompt prepended to every session.

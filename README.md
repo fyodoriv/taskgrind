@@ -53,6 +53,7 @@ taskgrind                              # 10h grind (default), current dir
 taskgrind 10                           # 10h grind
 taskgrind ~/apps/myrepo 10             # 10h grind in specific repo
 taskgrind --model gpt-5-4 8            # use specific model
+taskgrind --model "gpt-5-4 XHigh thinking fast" 8  # quote multi-word model names
 taskgrind --skill fleet-grind 10       # custom skill
 taskgrind --prompt "focus on test coverage" 8  # focus prompt
 taskgrind --backend claude-code 8       # use Claude Code backend
@@ -94,7 +95,7 @@ Completed tasks are removed (not checked off). History lives in git log. See the
 ## Features
 
 - **Multi-backend support** — works with Devin, Claude Code, and Codex via `--backend`
-- **Model selection** — `--model gpt-5-4` or `TG_MODEL=gpt-5-4` to use any model the backend supports; short aliases like `opus` and `sonnet` resolve to the current preferred model IDs
+- **Model selection** — `--model gpt-5-4` or `TG_MODEL=gpt-5-4` to use any model the backend supports; quote multi-word model names such as `--model "gpt-5-4 XHigh thinking fast"`; short aliases like `opus` and `sonnet` resolve to the current preferred model IDs
 - **Live model switching** — create/edit `.taskgrind-model` in the repo while running; changes take effect at the next session, including short alias resolution. Delete the file to revert to the startup model.
 - **Live prompt injection** — create/edit `.taskgrind-prompt` in the repo while running; changes take effect at the next session
 - **Preflight checks** — 8 health checks plus active slot reporting before launch. `network-watchdog` is optional; if missing, taskgrind falls back to `curl` for connectivity checks.

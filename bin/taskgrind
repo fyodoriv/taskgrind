@@ -8,6 +8,8 @@
 #        taskgrind 10                          → 10h grind, current dir
 #        taskgrind ~/apps/myrepo 10            → 10h grind in specific repo
 #        taskgrind --model gpt-5-4 8           → 8h grind with specific model
+#        taskgrind --model "gpt-5-4 XHigh thinking fast" 8
+#                                               → quote multi-word model names
 #        taskgrind --skill fleet-grind 10      → 10h fleet-grind
 #        taskgrind ~/apps/bosun --skill fleet-grind 10
 #        taskgrind --backend claude-code 8     → 8h grind with Claude Code
@@ -542,7 +544,8 @@ preflight_check() {
 
   # 6. Disk space — at least 1GB free on the repo partition
   local free_kb
-  free_kb=$(df -k "$repo" | awk 'NR==2 { print $4 }' 2>/dev/null) || free_kb=0
+  free_kb=$(df -Pk "$repo" | awk 'NR==2 { print $4 }' 2>/dev/null) || free_kb=0
+  free_kb="${free_kb:-0}"
   if [[ "$free_kb" -gt 1048576 ]]; then
     preflight_pass "Disk space: $(( free_kb / 1048576 ))GB free"
   elif [[ "$free_kb" -gt 524288 ]]; then
@@ -1006,9 +1009,11 @@ chmod 600 "$log_file" 2>/dev/null || true
 export TG_INSTANCE_ID="$_dvb_slot"
 
 # Run preflight checks before entering the main loop
-if ! preflight_check; then
-  log_write "[$(date '+%H:%M')] preflight_failed"
-  exit 1
+if [[ "${DVB_SKIP_PREFLIGHT:-0}" != "1" ]]; then
+  if ! preflight_check; then
+    log_write "[$(date '+%H:%M')] preflight_failed"
+    exit 1
+  fi
 fi
 echo ""
 
@@ -1145,6 +1150,11 @@ while [[ $(date +%s) -lt $deadline ]]; do
   # _sweep_done resets when tasks are shipped, so a grind that clears
   # all tasks can sweep again for more work.
   if [[ "$tasks_before" -eq 0 ]]; then
+    if [[ "${DVB_SKIP_SWEEP_ON_EMPTY:-0}" == "1" ]]; then
+      echo "   ✓ Queue empty — skipping sweep in test mode."
+      log_write "[$(date '+%H:%M')] queue_empty tasks=0 sweep=skipped_for_test"
+      break
+    fi
     if [[ "$_sweep_done" -ge 2 ]]; then
       echo "   ✓ Queue still empty after sweep + wait — exiting."
       log_write "[$(date '+%H:%M')] queue_empty tasks=0 sweep=exhausted — exiting"

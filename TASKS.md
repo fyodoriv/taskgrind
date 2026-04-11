@@ -169,17 +169,6 @@
   - [ ] Test verifies `git_sync skipped` log entries for non-sync sessions
   - [ ] All existing tests still pass
 
-- [ ] Document multi-word model strings require quoting
-  **ID**: doc-model-quoting
-  **Tags**: docs
-  **Details**: The README (line 96) shows `--model gpt-5-4` as an example. Multi-word model strings like `--model "gpt-5-4 XHigh thinking fast"` work when properly quoted (the value flows through bash arrays safely), but unquoted multi-word strings break because only the first word is captured by `$2`. Add a note to README, man page, and --help header.
-  **Files**: README.md, man/taskgrind.1, bin/taskgrind
-  **Acceptance**:
-  - [ ] README shows a quoted multi-word model example
-  - [ ] Man page documents quoting requirement
-  - [ ] --help header shows a quoted example
-  - [ ] Add a test that verifies a quoted multi-word model string passes through correctly
-
 ## P2
 
 - [ ] Add SIGTERM graceful shutdown behavioral test

@@ -66,6 +66,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "--preflight shows backend in config header" {
+  _enable_preflight_checks
   _preflight_git_init
   echo "# Tasks" > "$TEST_REPO/TASKS.md"
   run "$DVB_GRIND" --preflight "$TEST_REPO"
@@ -212,6 +213,13 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   grep -q -- '--model gpt-5-4' "$DVB_GRIND_INVOKE_LOG"
 }
 
+@test "--model preserves quoted multi-word values" {
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  run "$DVB_GRIND" --model "gpt-5-4 XHigh thinking fast" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  grep -q -- '--model gpt-5-4 XHigh thinking fast' "$DVB_GRIND_INVOKE_LOG"
+}
+
 @test "--model alias resolves before backend invocation" {
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" --model opus 1 "$TEST_REPO"
@@ -247,6 +255,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 @test "--help shows --model in usage" {
   run "$DVB_GRIND" --help
   [[ "$output" == *"--model"* ]]
+  [[ "$output" == *'--model "gpt-5-4 XHigh thinking fast"'* ]]
 }
 
 # ── Dynamic prompt file (prompt injection between sessions) ──────────
