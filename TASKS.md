@@ -56,11 +56,15 @@
   - [ ] Test verifies model name appears in the session banner output
   - [ ] All existing tests pass
 
-- [ ] Detect and surface invalid model errors before starting the session loop
+- [ ] Detect and surface invalid model errors before starting the session loop (@devin)
   **ID**: detect-invalid-model
   **Tags**: stability, error-handling
   **Details**: When the devin CLI rejects the model (e.g. `Error: Unknown model: 'gpt-5.4 xhigh thinking fast'`), every session exits in <1s with exit=1, burning through the fast-failure budget and terminating the grind with zero useful output. The root fix (correct model ID) already landed, but taskgrind itself has no guard: it passes the model string blindly and only learns it's wrong after the first session fails. Add a preflight check that validates the configured model by running `devin --model "$model" --help` (or a cheap equivalent) and exits immediately with a clear error if the model is rejected — before any session starts. Also capture and surface the backend's model-rejection message in the fast-failure log so it's obvious what went wrong without reading the raw log.
   **Files**: bin/taskgrind, tests/taskgrind.bats
+  **Plan**:
+  - [ ] Add a preflight model validation step that fails fast with the backend's rejection message
+  - [ ] Capture backend stderr in the per-session log so invalid-model failures are diagnosable after the fact
+  - [ ] Verify the new behavior with targeted regression tests and the full `make check` gate
   **Acceptance**:
   - [ ] Preflight check validates the model and exits with a clear error for unknown models
   - [ ] The rejection message from the backend is included in the error output
