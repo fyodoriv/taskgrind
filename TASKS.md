@@ -27,6 +27,7 @@
   **ID**: reconcile-productive-zero-ship-accounting
   **Tags**: reliability, metrics, concurrency
   **Details**: Recent logs for `bosun`, `ideas`, and `agentbrew` show `productive_zero_ship` firing even when the session output says the task block was removed or code was successfully shipped. In the same windows the logs also record `tasks_added=` external injections or temporary add/remove subtask workflows, so a plain `tasks_before - tasks_after` comparison is misclassifying productive sessions as zero-ship. Tighten shipped accounting and log messaging so concurrent queue growth or temporary subtask churn does not look like a failed session. Keep the log report explicit about whether zero-ship came from unchanged queue length, concurrent task injection, or a temporary add/remove decomposition loop so future audits do not need to reconstruct the cause by hand.
+  **Reviewed 2026-04-11**: The follow-up audit confirmed this is a cross-repo runtime bug, not a repo-specific queue issue: `agentbrew` logs line up with real-e2e fixture tasks being injected during the same session, `ideas` logs line up with temporary subtask churn during planning, and `bosun` logs line up with shipped code plus concurrent queue growth. Keep the fix in `taskgrind`; do not create repo-local workaround tasks for the affected product repos.
   **Files**: `bin/taskgrind`, `tests/taskgrind.bats`, `tests/logging.bats`
   **Acceptance**: Sessions that commit and remove a task block are not flagged as `productive_zero_ship` solely because other tasks were injected or a temporary subtask was added and removed in the same session; logs make the reason for any remaining zero-ship classification explicit; regression tests cover concurrent task additions and temporary subtask flows.
 
@@ -34,6 +35,7 @@
   **ID**: harden-bats-tempdir-cleanup
   **Tags**: tests, reliability, ci
   **Details**: Current verify logs still show intermittent cleanup failures after parallel bats runs, including `rm: .../parallel_output: Directory not empty` in `/tmp/taskgrind-p0-verify.log` and `/tmp/taskgrind-test-jobs6-clean.log`, plus `make: *** [test-force] Terminated: 15` in the same window. Tighten the test harness and cleanup path so interrupted or high-concurrency runs do not leave temp directories behind or turn cleanup noise into a failed verify.
+  **Reviewed 2026-04-11**: No sibling repo task updates are needed for this failure pattern. The dirty worktrees in `agentbrew`, `bosun`, and `ideas` match active session leftovers rather than product bugs, so the remaining owner stays `taskgrind`'s bats harness and cleanup path.
   **Files**: `Makefile`, `tests/test_helper.bash`, `tests/*.bats`
   **Acceptance**: Repeated local `make test` and `make check` runs at the default parallelism do not fail with `Directory not empty` cleanup errors or follow-on `signal 15` terminations caused by leftover bats temp state.
 
@@ -41,6 +43,7 @@
   **ID**: stabilize-repo-deletion-abort-test
   **Tags**: tests, reliability, regression
   **Details**: The current log set shows `repo deletion mid-marathon aborts gracefully` passing in some runs (`/tmp/taskgrind-check.log`, `/tmp/taskgrind-fix-stash-masking-make-check.log`) and failing in others (`/tmp/taskgrind-detect-invalid-model-make-check.log`, `/tmp/taskgrind-full-test.log`, `/tmp/taskgrind-fix-stash-masking-make-check-rerun.log`). Audit the test timing and runtime behavior around repo disappearance so this regression reflects one deterministic contract instead of flapping across verify runs.
+  **Reviewed 2026-04-11**: The latest repo sweep did not surface any downstream repo queue action from this flake. Treat it as a pure `taskgrind` regression until a future log proves that a product repo's own runtime contract is involved.
   **Files**: `bin/taskgrind`, `tests/session.bats`, `tests/test_helper.bash`
   **Acceptance**: The repo-deletion abort regression passes consistently across repeated targeted and full-suite runs, and its assertions describe the intended abort contract without timing-sensitive flakes.
 
