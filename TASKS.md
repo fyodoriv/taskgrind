@@ -59,15 +59,6 @@
   - [ ] README, man page, and `--help` document how resume works and when to prefer a fresh run
   - [ ] Tests cover save-on-progress, resume-after-interruption, and stale-state rejection
 
-- [ ] Cover resumable grind state with tests and operator docs
-  **ID**: resumable-grind-state-verify
-  **Parent**: resumable-grind-state
-  **Tags**: test, docs
-  **Details**: Add regression coverage for save/resume/reject flows and document the final operator-facing behavior in the README, man page, and help text once the runtime path exists.
-  **Files**: tests, README.md, man/taskgrind.1
-  **Acceptance**:
-  - [ ] Tests cover save-on-progress, resume-after-interruption, and stale-state rejection
-  - [ ] README, man page, and help text explain how and when to use `--resume`
   - [ ] Verification confirms the documented flow matches the implementation
 
 - [ ] Emit machine-readable heartbeat status for external monitors and wrappers

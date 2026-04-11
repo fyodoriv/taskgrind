@@ -163,6 +163,15 @@ Normal completion (deadline reached or queue empty).
 .TP
 .B 1
 Error (invalid args, missing binary, preflight failure).
+.SH RESUME
+Use
+.B taskgrind \-\-resume
+in the same repo after an unexpected interruption such as a terminal crash or
+machine reboot. The saved
+.I .taskgrind\-state
+file restores the original deadline and runtime counters. Start a fresh
+.B taskgrind
+run instead when you want a new deadline or different runtime settings.
 .TP
 .B 130
 Interrupted by SIGINT (Ctrl\-C). Waits for running session, pushes commits.

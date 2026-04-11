@@ -196,6 +196,18 @@ TG_MAX_INSTANCES=3 taskgrind ~/apps/myrepo 8
 
 Each running grind claims the lowest free slot (`0`, `1`, ...). Slot 0 remains the primary instance and owns the between-session git sync. Higher slots skip that sync and get extra prompt guidance to avoid overlapping file edits. `taskgrind --preflight` reports how many slots are active before you launch another grind.
 
+### Resuming an interrupted grind
+
+If taskgrind is interrupted unexpectedly, rerun it with `--resume` in the same repo:
+
+```bash
+taskgrind --resume ~/apps/myrepo
+```
+
+Taskgrind saves resumable runtime state in `~/apps/myrepo/.taskgrind-state` while the grind is active. A resumed run restores the original deadline, session counter, shipped count, backend, skill, and model instead of starting from session 1 again.
+
+Use `--resume` when the previous run was interrupted by a terminal crash, reboot, or similar external interruption. Prefer a fresh `taskgrind` launch when you intentionally want a new deadline or different runtime settings.
+
 ## Development
 
 ```bash
