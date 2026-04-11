@@ -164,7 +164,7 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-model="${_cli_model:-${DVB_MODEL:-$DVB_DEFAULT_MODEL}}"
+model="$(dvb_resolve_model_alias "${_cli_model:-${DVB_MODEL:-$DVB_DEFAULT_MODEL}}")"
 backend="${_cli_backend:-${DVB_BACKEND:-devin}}"
 _cli_prompt="$extra_prompt"
 cooldown="${DVB_COOL:-5}"
@@ -316,7 +316,7 @@ _refresh_model() {
     done
   fi
   if [[ -n "$file_model" ]]; then
-    model="$file_model"
+    model="$(dvb_resolve_model_alias "$file_model")"
   else
     model="$_startup_model"
   fi

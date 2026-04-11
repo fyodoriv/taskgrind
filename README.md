@@ -94,8 +94,8 @@ Completed tasks are removed (not checked off). History lives in git log. See the
 ## Features
 
 - **Multi-backend support** — works with Devin, Claude Code, and Codex via `--backend`
-- **Model selection** — `--model gpt-5-4` or `TG_MODEL=gpt-5-4` to use any model the backend supports
-- **Live model switching** — create/edit `.taskgrind-model` in the repo while running; changes take effect at the next session. Delete the file to revert to the startup model.
+- **Model selection** — `--model gpt-5-4` or `TG_MODEL=gpt-5-4` to use any model the backend supports; short aliases like `opus` and `sonnet` resolve to the current preferred model IDs
+- **Live model switching** — create/edit `.taskgrind-model` in the repo while running; changes take effect at the next session, including short alias resolution. Delete the file to revert to the startup model.
 - **Live prompt injection** — create/edit `.taskgrind-prompt` in the repo while running; changes take effect at the next session
 - **Preflight checks** — 8 health checks plus active slot reporting before launch. `network-watchdog` is optional; if missing, taskgrind falls back to `curl` for connectivity checks.
 - **Self-copy protection** — copies itself to `$TMPDIR` before running, survives script edits mid-grind
@@ -181,7 +181,7 @@ Switch models mid-grind without restarting — useful for switching from a power
 echo "gpt-5-4" > ~/apps/myrepo/.taskgrind-model
 ```
 
-The file is re-read before each session. Overrides `--model` and `TG_MODEL` when present. Delete the file to revert to the original startup model. Files larger than 1KB are skipped (safety guard).
+The file is re-read before each session. Overrides `--model` and `TG_MODEL` when present. Short aliases such as `opus`, `sonnet`, `haiku`, `codex`, `gpt`, and `swe` resolve to the current preferred model IDs. Delete the file to revert to the original startup model. Files larger than 1KB are skipped (safety guard).
 
 ### Concurrent instances on one repo
 

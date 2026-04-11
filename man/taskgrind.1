@@ -21,7 +21,9 @@ Skill to run each session (default: next\-task).
 AI backend: devin, claude\-code, codex (default: devin).
 .TP
 .BR \-\-model " " \fIname\fR
-AI model to use (default: "gpt\-5.4"). Overrides TG_MODEL env var.
+AI model to use (default: "gpt\-5.4"). Overrides TG_MODEL env var. Short aliases such as
+\fBopus\fR, \fBsonnet\fR, \fBhaiku\fR, \fBgpt\fR, \fBcodex\fR, and \fBswe\fR resolve to the
+current preferred model IDs.
 .TP
 .BR \-\-prompt " " \fItext\fR
 Focus prompt prepended to every session.
@@ -120,8 +122,9 @@ Re\-read before each session, so changes take effect live. Combine with \-\-prom
 .I .taskgrind\-model
 Optional file in the target repo. Content overrides the model for subsequent
 sessions. Re\-read before each session. Overrides \-\-model and TG_MODEL when
-present. Delete the file to revert to the original startup model. Files larger
-than 1KB are skipped.
+present. Short aliases resolve the same way they do for \-\-model and TG_MODEL.
+Delete the file to revert to the original startup model. Files larger than 1KB
+are skipped.
 .PP
 Set
 .B TG_MAX_INSTANCES
@@ -139,6 +142,7 @@ Session logs (one per grind invocation).
 taskgrind                           # 10h grind, current dir
 taskgrind 10 ~/apps/myrepo         # 10h grind in specific repo
 taskgrind \-\-model gpt\-5\-4 8       # use specific model
+taskgrind \-\-model opus 8          # resolves to claude-opus-4-6-thinking
 taskgrind \-\-skill fleet\-grind 10  # custom skill
 taskgrind \-\-backend claude\-code 8  # use Claude Code backend
 taskgrind \-\-prompt "test coverage" 8
@@ -146,7 +150,7 @@ taskgrind \-\-dry\-run 8             # print config only
 taskgrind \-\-preflight             # health checks only
 taskgrind \-\-version               # print version
 TG_MAX_INSTANCES=2 taskgrind 8     # allow two concurrent grinds per repo
-TG_MODEL=sonnet taskgrind 8        # override model via env
+TG_MODEL=sonnet taskgrind 8        # resolves to claude-sonnet-4.6
 echo "gpt\-5\-4" > .taskgrind\-model  # switch model mid\-grind
 .fi
 .SH EXIT STATUS
