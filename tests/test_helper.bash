@@ -43,6 +43,12 @@ teardown() {
   rm -rf "$TEST_DIR"
 }
 
+# Helper: force model validation paths to run during tests that exercise
+# the preflight validator instead of the normal "test mode skips it" branch.
+_enable_preflight_checks() {
+  export DVB_VALIDATE_MODEL=1
+}
+
 # Helper: initialize a git repo in TEST_REPO for preflight tests
 _preflight_git_init() {
   git -C "$TEST_REPO" init -q -b main

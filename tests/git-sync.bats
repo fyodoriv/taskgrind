@@ -139,9 +139,9 @@ if [ "\${1:-}" = "stash" ] && [ "\${2:-}" = "--include-untracked" ]; then
   exit 1
 fi
 if [ -n "\${repo_path:-}" ]; then
-  exec "/opt/homebrew/bin/git" -C "\$repo_path" "\$@"
+  exec "$real_git" -C "\$repo_path" "\$@"
 fi
-exec "/opt/homebrew/bin/git" "\$@"
+exec "$real_git" "\$@"
 EOF
   chmod +x "$TEST_DIR/bin/git"
   export PATH="$TEST_DIR/bin:$PATH"

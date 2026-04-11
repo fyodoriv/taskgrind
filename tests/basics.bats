@@ -60,7 +60,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 
 @test "no args defaults to 10 hours" {
   export DVB_DEADLINE=$(( $(date +%s) - 1 ))
-  run "$DVB_GRIND"
+  run "$DVB_GRIND" "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"10h"* ]]
 }
