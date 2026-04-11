@@ -76,7 +76,9 @@ dvb_spinner_stop() {
     wait "$_dvb_spinner_pid" 2>/dev/null || true
   fi
   _dvb_spinner_pid=0
-  [[ $_dvb_is_tty -eq 1 ]] && printf '\r\033[K' || true
+  if [[ $_dvb_is_tty -eq 1 ]]; then
+    printf '\r\033[K'
+  fi
 }
 
 # Sleep with a visible countdown.  Falls back to plain sleep when not a TTY.

@@ -2,6 +2,51 @@
 
 ## P0
 
+- [ ] Standing audit-only loop: keep taskgrind's queue full from repeated audits and adjacent-tool comparisons
+  **ID**: standing-audit-gap-loop
+  **Tags**: operations, audit, competitor-research, queue, no-code-changes
+  **Details**: This is a standing P0 operator loop. Work on one single thing only: audit taskgrind over and over again, compare it against adjacent tools and workflows, and turn every concrete gap into queued work. Do not implement fixes. Do not edit production code, tests, skills, docs, configs, workflows, or prompts. The only artifact from each cycle is new or updated task entries, committed and pushed as a tasks-only change.
+
+  **Plan**:
+  - [x] Read the queue rules, current product surface, and repo docs for this cycle
+  - [x] Compare current taskgrind behavior against at least one adjacent tool or workflow and confirm concrete gaps
+  - [x] Add or refine actionable tasks in `TASKS.md` only
+  - [ ] Lint `TASKS.md`, then commit and push the task-only diff
+
+  **Cycle contract:**
+  1. Read `AGENTS.md`, `README.md`, `docs/architecture.md`, and `docs/user-stories.md` to anchor taskgrind's intended behavior for the cycle.
+  2. Read the current `TASKS.md`, recent commits, and open diffs so the audit targets the latest repo state.
+  3. Audit taskgrind from multiple angles: shell-script correctness, session-loop behavior, git sync safety, prompt/model reload flows, network recovery, install and uninstall flow, docs drift, CI and test coverage, and operator UX.
+  4. Compare taskgrind with at least one relevant adjacent tool or workflow. When another tool has a materially better capability, safeguard, or operator experience that taskgrind lacks, write a concrete taskgrind task instead of editing code or docs inline.
+  5. Add or refine tasks in `TASKS.md` only. Every new task must be actionable, scoped, prioritized, and include file paths plus acceptance criteria.
+  6. Commit only the task-file changes and push them. Then start the next audit cycle.
+
+  **Hard constraints:**
+  - Output of each cycle is task production only
+  - No source-code changes, no doc rewrites, no test edits, no skill edits, no config edits
+  - Do not fix gaps inline even if the fix looks easy; file the task instead
+  - Do not launch implementation sessions from this task
+  - Keep the diff limited to `TASKS.md` so it does not conflict with agents doing code work
+
+  **Suggested audit inputs each cycle:**
+  - `bin/taskgrind`
+  - `lib/*.sh`
+  - `tests/taskgrind.bats`
+  - `tests/test_helper.bash`
+  - `.devin/skills/**`
+  - `README.md`
+  - `docs/architecture.md`
+  - `docs/user-stories.md`
+  - `.github/workflows/**`
+  - recent commits, recent PRs, and the current `TASKS.md`
+  **Files**: `TASKS.md`, `AGENTS.md`, `README.md`, `docs/architecture.md`, `docs/user-stories.md`, `bin/taskgrind`, `lib/*.sh`, `tests/taskgrind.bats`, `tests/test_helper.bash`, `.devin/skills/**`, `.github/workflows/**`
+  **Acceptance**:
+  - [ ] Each cycle audits taskgrind and at least one adjacent tool or workflow before writing tasks
+  - [ ] Each cycle produces only `TASKS.md` changes, with no production code, test, doc, skill, or config edits
+  - [ ] Each added task includes priority, ID, details, files, and acceptance criteria
+  - [ ] Each cycle ends with a commit and push containing only the task updates
+  - [ ] This task remains open as a standing queue-filling loop until Fyodor removes it
+
 - [ ] Allow multiple taskgrind instances on the same repo via instance slots
   **ID**: multi-instance-same-repo
   **Tags**: feature, stability, dx
@@ -56,18 +101,6 @@
   - [ ] Test verifies model name appears in the session banner output
   - [ ] All existing tests pass
 
-- [ ] Detect and surface invalid model errors before starting the session loop
-  **ID**: detect-invalid-model
-  **Tags**: stability, error-handling
-  **Details**: When the devin CLI rejects the model (e.g. `Error: Unknown model: 'gpt-5.4 xhigh thinking fast'`), every session exits in <1s with exit=1, burning through the fast-failure budget and terminating the grind with zero useful output. The root fix (correct model ID) already landed, but taskgrind itself has no guard: it passes the model string blindly and only learns it's wrong after the first session fails. Add a preflight check that validates the configured model by running `devin --model "$model" --help` (or a cheap equivalent) and exits immediately with a clear error if the model is rejected — before any session starts. Also capture and surface the backend's model-rejection message in the fast-failure log so it's obvious what went wrong without reading the raw log.
-  **Files**: bin/taskgrind, tests/taskgrind.bats
-  **Acceptance**:
-  - [ ] Preflight check validates the model and exits with a clear error for unknown models
-  - [ ] The rejection message from the backend is included in the error output
-  - [ ] Fast-failure log captures the backend stderr (including model errors) per session
-  - [ ] Test: unknown model triggers preflight failure before any session runs
-  - [ ] All existing tests pass
-
 - [ ] Speed up test suite 5x by splitting into parallel bats files
   **ID**: parallel-test-suite
   **Tags**: dx, test, performance
@@ -80,17 +113,6 @@
   - [ ] All 397 tests still pass (same count, no tests lost or duplicated)
   - [ ] CI workflow updated to use `--jobs` flag
   - [ ] No test relies on ordering between files (each is fully isolated)
-
-- [ ] Log git sync subshell failures instead of silently swallowing them
-  **ID**: log-git-sync-failures
-  **Tags**: stability, git
-  **Details**: The git sync subshell (bin/taskgrind:1399-1423) redirects stderr to /dev/null and uses `|| true` on checkout, fetch, and rebase. A failed `git fetch` (auth error, network) produces zero diagnostic output — not to stdout, not to the log. The outer `wait` sees exit 0 because `|| true` masks the real exit code. Capture each git command's exit code and stderr to `$_git_out` so the outer handler can diagnose which step failed. This is the #1 silent failure mode in production.
-  **Files**: bin/taskgrind
-  **Acceptance**:
-  - [ ] `git fetch` failure writes the error message to `$_git_out` (not /dev/null)
-  - [ ] `git checkout` and `git rebase` failures similarly captured
-  - [ ] Log entry distinguishes which git op failed (e.g., `git_sync fetch_failed`)
-  - [ ] Existing tests pass; add a test that verifies fetch failure is logged
 
 - [ ] Surface git push error output in final_sync
   **ID**: surface-push-errors
@@ -217,6 +239,16 @@
   - [ ] Test for disk space warning (<1GB)
   - [ ] Test for disk space failure (<512MB)
   - [ ] Tests may need to mock `df` output
+
+- [ ] Stabilize the DVB_COOL=0 timing-sensitive test under load
+  **ID**: stabilize-cool-zero-test
+  **Tags**: test, flake
+  **Details**: The test `DVB_COOL=0 skips sleep between sessions` in `tests/taskgrind.bats` intermittently fails under normal repo load because it asserts the whole run finishes in under 8 seconds. During verification for `detect-invalid-model` on 2026-04-10, the same test passed once and failed once when rerun in isolation, matching the repo's documented timing-sensitive flake pattern. Replace the wall-clock assertion with a more deterministic signal for "no cooldown sleep happened" so `make check` can pass reliably under load.
+  **Files**: tests/taskgrind.bats
+  **Acceptance**:
+  - [ ] Test no longer depends on a tight wall-clock threshold across the full suite
+  - [ ] It still verifies that `DVB_COOL=0` skips cooldown behavior
+  - [ ] Repeated isolated runs are stable under typical laptop load
 
 ## P3
 

@@ -1813,6 +1813,9 @@ SCRIPT
   cat > "$err_devin" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+if [[ "$*" == *"--help"* ]]; then
+  exit 0
+fi
 echo "ERROR: something went wrong"
 exit 1
 SCRIPT
@@ -1829,6 +1832,32 @@ SCRIPT
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'session.*output' "$TEST_LOG"
   grep -q 'ERROR: something went wrong' "$TEST_LOG"
+}
+
+@test "fast failure captures backend stderr to log" {
+  local err_devin="$TEST_DIR/stderr-devin"
+  cat > "$err_devin" <<'SCRIPT'
+#!/bin/bash
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+if [[ "$*" == *"--help"* ]]; then
+  exit 0
+fi
+echo "Error: Unknown model: 'broken-model'" >&2
+exit 1
+SCRIPT
+  chmod +x "$err_devin"
+  export DVB_GRIND_CMD="$err_devin"
+  local net_file="$TEST_DIR/net-up"
+  touch "$net_file"
+  export DVB_NET_FILE="$net_file"
+  export DVB_MIN_SESSION=999
+  export DVB_MAX_FAST=2
+  export DVB_BACKOFF_BASE=0
+  export DVB_COOL=0
+  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'session.*output' "$TEST_LOG"
+  grep -q "Error: Unknown model: 'broken-model'" "$TEST_LOG"
 }
 
 @test "bail out shows last session output in terminal" {
@@ -2103,8 +2132,8 @@ SCRIPT
 
 # ── Stderr Logging ────────────────────────────────────────────────────
 
-@test "production mode redirects stderr to log file" {
-  grep -q '2>> "$log_file" &' "$DVB_GRIND"
+@test "production mode tees stderr to session output and log file" {
+  grep -q '2> >(tee -a "$session_output" >> "$log_file" >&2) &' "$DVB_GRIND"
 }
 
 # ── macOS Notification ────────────────────────────────────────────────
@@ -2193,7 +2222,11 @@ SCRIPT
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ -f "$TEST_LOG" ]
   local perms
-  perms=$(stat -f '%Lp' "$TEST_LOG" 2>/dev/null || stat -c '%a' "$TEST_LOG" 2>/dev/null)
+  if stat --version >/dev/null 2>&1; then
+    perms=$(stat -c '%a' "$TEST_LOG")
+  else
+    perms=$(stat -f '%Lp' "$TEST_LOG")
+  fi
   [ "$perms" = "600" ]
 }
 
@@ -2446,6 +2479,7 @@ TASKS
   git init -q --bare "$bare"
   git -C "$TEST_REPO" remote add origin "$bare"
   git -C "$TEST_REPO" push -q origin main 2>/dev/null
+  git -C "$bare" symbolic-ref HEAD refs/heads/main
   # Create a feature branch and leave the repo on it
   git -C "$TEST_REPO" checkout -q -b chore/grind-session-1
   echo "feature" > "$TEST_REPO/feature.txt"
@@ -2490,6 +2524,7 @@ TASKS
   git init -q --bare "$bare"
   git -C "$TEST_REPO" remote add origin "$bare"
   git -C "$TEST_REPO" push -q origin main 2>/dev/null
+  git -C "$bare" symbolic-ref HEAD refs/heads/main
 
   # Create a dirty file (simulating agent leaving uncommitted changes)
   echo "uncommitted work" > "$TEST_REPO/dirty.txt"
@@ -2809,6 +2844,7 @@ SCRIPT
   git init -q --bare "$bare"
   git -C "$TEST_REPO" remote add origin "$bare"
   git -C "$TEST_REPO" push -q origin main 2>/dev/null
+  git -C "$bare" symbolic-ref HEAD refs/heads/main
   # Create a feature branch, push it, then delete it on the remote
   git -C "$TEST_REPO" checkout -q -b stale-feature
   echo "feature" > "$TEST_REPO/feature.txt"
@@ -2841,6 +2877,7 @@ SCRIPT
   git init -q --bare "$bare"
   git -C "$TEST_REPO" remote add origin "$bare"
   git -C "$TEST_REPO" push -q origin main 2>/dev/null
+  git -C "$bare" symbolic-ref HEAD refs/heads/main
   # Create two feature branches, push them, delete on remote
   for branch_name in stale-one stale-two; do
     git -C "$TEST_REPO" checkout -q -b "$branch_name"
@@ -2995,7 +3032,41 @@ SCRIPT
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  grep -q 'git_sync fetch_failed' "$TEST_LOG"
+  grep -q 'git_sync fetch_failed:' "$TEST_LOG"
+  grep -q '/nonexistent/bare.git' "$TEST_LOG"
+}
+
+@test "git rebase failure logs conflict details" {
+  git -C "$TEST_REPO" init -q -b main
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+  printf 'shared\n' > "$TEST_REPO/README.md"
+  git -C "$TEST_REPO" add README.md
+  git -C "$TEST_REPO" commit -q --no-verify -m "init"
+
+  local bare="$TEST_DIR/bare.git"
+  local remote_worktree="$TEST_DIR/remote-worktree"
+  git init -q --bare "$bare"
+  git -C "$TEST_REPO" remote add origin "$bare"
+  git -C "$TEST_REPO" push -q -u origin main 2>/dev/null
+  git -C "$bare" symbolic-ref HEAD refs/heads/main
+
+  git clone -q "$bare" "$remote_worktree"
+  git -C "$remote_worktree" config user.email "test@test.com"
+  git -C "$remote_worktree" config user.name "Test"
+  printf 'remote-change\n' > "$remote_worktree/README.md"
+  git -C "$remote_worktree" commit -qam "remote change"
+  git -C "$remote_worktree" push -q origin main 2>/dev/null
+
+  printf 'local-change\n' > "$TEST_REPO/README.md"
+  git -C "$TEST_REPO" commit -qam "local change"
+
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_SYNC_INTERVAL=0
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  grep -q 'git_sync rebase_failed:' "$TEST_LOG"
+  grep -q 'CONFLICT' "$TEST_LOG"
 }
 
 @test "git checkout failure is logged with checkout_failed marker" {
@@ -3473,9 +3544,10 @@ EOF
   grep -q 'preflight_failed' "$DVB_GRIND"
 }
 
-@test "preflight has all 7 checks" {
-  # Structural: verify all 7 check categories exist
+@test "preflight has all 8 checks" {
+  # Structural: verify all 8 check categories exist
   grep -q 'Backend binary' "$DVB_GRIND"
+  grep -q 'Model accepted by' "$DVB_GRIND"
   grep -q 'Network connectivity' "$DVB_GRIND"
   grep -q 'Git state clean' "$DVB_GRIND"
   grep -q 'Git remote reachable' "$DVB_GRIND"
@@ -3490,6 +3562,33 @@ EOF
   run "$DVB_GRIND" --preflight "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"test mode"* ]]
+}
+
+@test "preflight rejects unknown model before the session loop" {
+  local validating_devin="$TEST_DIR/validating-devin"
+  cat > "$validating_devin" <<'SCRIPT'
+#!/bin/bash
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+if [[ "$*" == *"--help"* ]] && [[ "$*" == *"--model invalid-model"* ]]; then
+  echo "Error: Unknown model: 'invalid-model'" >&2
+  exit 1
+fi
+exit 0
+SCRIPT
+  chmod +x "$validating_devin"
+  export DVB_GRIND_CMD="$validating_devin"
+  export DVB_VALIDATE_MODEL=1
+  _preflight_git_init
+
+  run "$DVB_GRIND" --model invalid-model 1 "$TEST_REPO"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Unknown model: 'invalid-model'"* ]]
+  [[ "$output" == *"before starting"* ]]
+
+  local invoke_count
+  invoke_count=$(wc -l < "$DVB_GRIND_INVOKE_LOG" | tr -d ' ')
+  [ "$invoke_count" -eq 1 ]
+  grep -q -- '--help' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "preflight disk space check runs" {
