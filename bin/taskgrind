@@ -1694,7 +1694,11 @@ while [[ $(date +%s) -lt $deadline ]]; do
       _git_timer=$!
       if wait "$_git_pid" 2>/dev/null; then
         dvb_spinner_stop
-        if grep -q 'stash_pop_failed' "$_git_out" 2>/dev/null; then
+        if grep -q 'stash_failed' "$_git_out" 2>/dev/null; then
+          _git_fail=$(grep 'stash_failed' "$_git_out" 2>/dev/null | head -1 | sed 's/^git_sync stash_failed: //' | tr -cd '[:print:]' | head -c 500)
+          echo "   ⚠ git stash failed: $_git_fail"
+          log_write "[$(date '+%H:%M')] git_sync stash_failed: $_git_fail"
+        elif grep -q 'stash_pop_failed' "$_git_out" 2>/dev/null; then
           echo "   ⚠ git stash pop failed — stash preserved for manual recovery"
           log_write "[$(date '+%H:%M')] git_sync stash_pop_failed (stash preserved)"
         elif grep -q 'fetch_failed' "$_git_out" 2>/dev/null; then

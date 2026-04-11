@@ -148,17 +148,6 @@
   - [ ] Each test sets TG_X and DVB_X to different values, runs grind, asserts TG_ value took effect
   - [ ] All existing tests still pass
 
-- [ ] Fix git stash failure masking in sync subshell
-  **ID**: fix-stash-masking
-  **Tags**: stability, git
-  **Details**: In the git sync subshell (bin/taskgrind:1403), if `git stash` fails, `_dirty=1` is still set unconditionally. The subsequent `git stash pop` then fails, and the user sees "stash pop failed" but never learns why the initial stash failed. Only set `_dirty=1` if stash actually succeeds, and log the stash failure reason.
-  **Files**: bin/taskgrind
-  **Acceptance**:
-  - [ ] `_dirty=1` only set when `git stash` exits 0
-  - [ ] Stash failure is logged with the error message
-  - [ ] `stash pop` is not attempted when stash failed
-  - [ ] Existing git sync tests still pass
-
 - [ ] Add test for sync_interval > 0 modulo logic
   **ID**: test-sync-interval
   **Tags**: test

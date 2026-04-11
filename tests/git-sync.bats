@@ -101,6 +101,51 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   grep -q 'stash pop failed.*stash preserved' "$DVB_GRIND"
 }
 
+@test "stash failure is surfaced and stash pop is skipped" {
+  local real_git
+  real_git="$(command -v git)"
+  mkdir -p "$TEST_DIR/bin"
+  cat > "$TEST_DIR/bin/git" <<EOF
+#!/bin/bash
+if [ "\${1:-}" = "-C" ]; then
+  repo_path="\$2"
+  shift 2
+fi
+if [ "\${1:-}" = "stash" ] && [ "\${2:-}" = "--include-untracked" ]; then
+  echo "simulated stash failure" >&2
+  exit 1
+fi
+if [ -n "\${repo_path:-}" ]; then
+  exec "/opt/homebrew/bin/git" -C "\$repo_path" "\$@"
+fi
+exec "/opt/homebrew/bin/git" "\$@"
+EOF
+  chmod +x "$TEST_DIR/bin/git"
+  export PATH="$TEST_DIR/bin:$PATH"
+
+  git -C "$TEST_REPO" init -q -b main
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+  echo "init" > "$TEST_REPO/README.md"
+  git -C "$TEST_REPO" add README.md
+  git -C "$TEST_REPO" commit -q --no-verify -m "init"
+  local bare="$TEST_DIR/bare.git"
+  git init -q --bare "$bare"
+  git -C "$TEST_REPO" remote add origin "$bare"
+  git -C "$TEST_REPO" push -q origin main 2>/dev/null
+
+  echo "uncommitted work" > "$TEST_REPO/dirty.txt"
+  git -C "$TEST_REPO" add dirty.txt
+
+  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
+  export DVB_SYNC_INTERVAL=0
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"git stash failed"* ]]
+  [[ "$output" == *"simulated stash failure"* ]]
+  ! grep -q 'stash_pop_failed' "$TEST_LOG"
+}
+
 # ── Branch cleanup between sessions ───────────────────────────────────
 
 @test "merged branches are cleaned up between sessions" {
