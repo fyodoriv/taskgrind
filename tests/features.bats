@@ -212,6 +212,12 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   grep -q -- '--model gpt-5-4' "$DVB_GRIND_INVOKE_LOG"
 }
 
+@test "--model alias resolves before backend invocation" {
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  run "$DVB_GRIND" --model opus 1 "$TEST_REPO"
+  grep -q -- '--model claude-opus-4-6-thinking' "$DVB_GRIND_INVOKE_LOG"
+}
+
 @test "--model works with --backend and --skill" {
   run "$DVB_GRIND" --dry-run --model gpt-5-4 --backend codex --skill fleet-grind 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -368,8 +374,33 @@ SCRIPT
   export DVB_MODEL_FILE_PATH="$TEST_REPO/.taskgrind-model"
   run "$DVB_GRIND" --model opus 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  # First session should use the file model
-  head -1 "$DVB_GRIND_INVOKE_LOG" | grep -q -- '--model sonnet'
+  head -1 "$DVB_GRIND_INVOKE_LOG" | grep -q -- '--model claude-sonnet-4.6'
+}
+
+@test "model file alias resolves on live reload" {
+  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  FAKE_DEVIN_V3="$TEST_DIR/fake-devin-v3"
+  cat > "$FAKE_DEVIN_V3" <<'SCRIPT'
+#!/bin/bash
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+count_file="${DVB_MODEL_COUNT_FILE:?}"
+count=$(cat "$count_file")
+count=$((count + 1))
+echo "$count" > "$count_file"
+if [[ "$count" -eq 1 ]]; then
+  printf 'sonnet\n' > "${DVB_MODEL_FILE_PATH:?}"
+fi
+exit 0
+SCRIPT
+  chmod +x "$FAKE_DEVIN_V3"
+  export DVB_GRIND_CMD="$FAKE_DEVIN_V3"
+  export DVB_MODEL_FILE_PATH="$TEST_REPO/.taskgrind-model"
+  export DVB_MODEL_COUNT_FILE="$TEST_DIR/model-count"
+  echo "0" > "$DVB_MODEL_COUNT_FILE"
+  rm -f "$DVB_MODEL_FILE_PATH"
+  run "$DVB_GRIND" --model gpt-5-4 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  sed -n '2p' "$DVB_GRIND_INVOKE_LOG" | grep -q -- '--model claude-sonnet-4.6'
 }
 
 @test "model file with trailing whitespace is trimmed" {
@@ -384,7 +415,7 @@ SCRIPT
   echo "sonnet" > "$TEST_REPO/.taskgrind-model"
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"Live model:"* ]]
-  [[ "$output" == *"sonnet"* ]]
+  [[ "$output" == *"claude-sonnet-4.6"* ]]
 }
 
 @test "--dry-run shows model from model file" {
@@ -401,6 +432,13 @@ SCRIPT
   run "$DVB_GRIND" --model opus 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q -- '--model gpt-5-4' "$DVB_GRIND_INVOKE_LOG"
+}
+
+@test "unknown model alias passes through unchanged" {
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  run "$DVB_GRIND" --model custom-unknown-model 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  grep -q -- '--model custom-unknown-model' "$DVB_GRIND_INVOKE_LOG"
 }
 
 # ── Stability: mktemp failure message ─────────────────────────────────
@@ -494,4 +532,3 @@ SCRIPT
   [ "$status" -eq 0 ]
   [[ "$output" == *"Pick tasks from TASKS.md that relate to this focus"* ]]
 }
-

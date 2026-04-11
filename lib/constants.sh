@@ -8,6 +8,22 @@
 
 # Default AI model for all backends
 DVB_DEFAULT_MODEL="gpt-5.4"
+DVB_MODEL_ALIASES=$'opus=claude-opus-4-6-thinking\nsonnet=claude-sonnet-4.6\nhaiku=claude-haiku-4.5\nswe=swe-1.6\ncodex=gpt-5.3-codex\ngpt=gpt-5.4'
+
+dvb_resolve_model_alias() {
+  local requested="$1"
+  local entry="" alias="" resolved=""
+  while IFS= read -r entry; do
+    [[ -z "$entry" ]] && continue
+    alias="${entry%%=*}"
+    resolved="${entry#*=}"
+    if [[ "$requested" == "$alias" ]]; then
+      printf '%s' "$resolved"
+      return 0
+    fi
+  done <<< "$DVB_MODEL_ALIASES"
+  printf '%s' "$requested"
+}
 
 # Devin CLI binary location — resolved at source-time with fallback chain:
 # 1. DVB_DEVIN_PATH env override (user-set), 2. PATH lookup, 3. default install path

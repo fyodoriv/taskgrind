@@ -239,7 +239,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   export DVB_MODEL=sonnet
   run "$DVB_GRIND" 1 "$TEST_REPO"
-  grep -q -- '--model sonnet' "$DVB_GRIND_INVOKE_LOG"
+  grep -q -- '--model claude-sonnet-4.6' "$DVB_GRIND_INVOKE_LOG"
   # And the default must not appear
   ! grep -q -- '--model gpt-5.4 ' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -257,7 +257,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   export TG_MODEL=sonnet
   run "$DVB_GRIND" 1 "$TEST_REPO"
-  grep -q -- '--model sonnet' "$DVB_GRIND_INVOKE_LOG"
+  grep -q -- '--model claude-sonnet-4.6' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "TG_MODEL takes precedence over DVB_MODEL" {
@@ -309,4 +309,3 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [ "$status" -eq 0 ]
   [[ "$output" == *"$TEST_REPO"* ]]
 }
-

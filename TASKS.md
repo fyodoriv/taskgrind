@@ -88,17 +88,6 @@
   - [ ] Test: live `.taskgrind-model` with `sonnet` → resolves to `claude-sonnet-4.6`
   - [ ] All existing tests pass
 
-- [ ] Resolve startup and live `.taskgrind-model` aliases through one path (@devin)
-  **ID**: model-alias-resolution-runtime
-  **Parent**: model-alias-resolution
-  **Tags**: ux, models
-  **Details**: Introduce a single alias-resolution path that applies before the first session and on every `.taskgrind-model` refresh. Keep the alias table in `lib/constants.sh`, resolve known short names to their strongest model IDs, and leave unknown names unchanged so the backend can still reject them explicitly.
-  **Files**: lib/constants.sh, bin/taskgrind, tests/features.bats
-  **Acceptance**:
-  - [ ] `--model opus` reaches the backend as `claude-opus-4-6-thinking`
-  - [ ] `.taskgrind-model` containing `sonnet` resolves to `claude-sonnet-4.6` on the next session
-  - [ ] Unknown model names still pass through unchanged
-
 - [ ] Surface resolved model IDs and raw aliases in taskgrind output
   **ID**: model-alias-resolution-visibility
   **Parent**: model-alias-resolution
@@ -212,6 +201,16 @@
   - [ ] Test sends SIGTERM to a running grind, verifies session completes
   - [ ] Verifies exit code is 143
   - [ ] Verifies "Grind complete" summary is printed
+
+- [ ] Guard `/bin/bash` 3.2 compatibility in runtime code
+  **ID**: bash-3-2-compat
+  **Tags**: portability, test
+  **Details**: Taskgrind runs through `#!/bin/bash` on macOS, which is still Bash 3.2. The current suite has no check that sourced runtime files avoid Bash-4-only syntax such as associative arrays, so future model or config helpers can silently break on the real interpreter even when `bash` on PATH is newer. Add a focused verification step or regression test that exercises the runtime files with `/bin/bash`.
+  **Files**: `bin/taskgrind`, `lib/constants.sh`, `tests/`
+  **Acceptance**:
+  - [ ] Verification exercises at least one runtime path with `/bin/bash`
+  - [ ] Bash-4-only syntax in sourced runtime files is caught before merge
+  - [ ] The repo documents the `/bin/bash` compatibility constraint if the check alone is not obvious
 
 - [ ] Add concurrent lock rejection end-to-end test
   **ID**: test-lock-contention
