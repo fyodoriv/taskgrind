@@ -369,6 +369,29 @@ build_session_args() {
   esac
 }
 
+_model_validation_error=""
+validate_model() {
+  local validation_cmd=()
+  local validation_output=""
+  local validation_status=0
+
+  _model_validation_error=""
+  if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+    validation_cmd=("$DVB_GRIND_CMD")
+  else
+    resolve_backend_binary
+    validation_cmd=("$_backend_binary")
+  fi
+
+  validation_output=$("${validation_cmd[@]}" --model "$model" --help 2>&1) || validation_status=$?
+  if [[ "$validation_status" -eq 0 ]]; then
+    return 0
+  fi
+
+  _model_validation_error=$(printf '%s\n' "$validation_output" | sed '/^[[:space:]]*$/d' | head -5)
+  return 1
+}
+
 # Resolve the backend binary path for the configured backend.
 # Returns the path in _backend_binary. Used by preflight and binary resolution.
 _backend_binary=""
@@ -395,6 +418,7 @@ preflight_fail()  { echo "  ✗ $1"; _pf_fail=$((_pf_fail + 1)); }
 preflight_check() {
   echo "Preflight checks for: $repo"
   echo ""
+  local backend_available=1
 
   # 1. Backend binary — required to run sessions
   if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
@@ -406,10 +430,24 @@ preflight_check() {
       preflight_pass "Backend binary ($backend): $_backend_binary"
     else
       preflight_fail "Backend binary not found ($backend): ${_backend_binary:-not in PATH}"
+      backend_available=0
     fi
   fi
 
-  # 2. Network connectivity — required for API calls
+  # 2. Model validation — fail fast before burning sessions on a bad model ID
+  if [[ "$backend_available" -eq 1 && ( -z "${DVB_GRIND_CMD:-}" || -n "${DVB_VALIDATE_MODEL:-}" ) ]]; then
+    dvb_spinner_start "Validating model..."
+    if validate_model; then
+      dvb_spinner_stop; preflight_pass "Model accepted by $backend: $model"
+    else
+      dvb_spinner_stop
+      preflight_fail "Model rejected by $backend before starting: ${_model_validation_error:-unknown error}"
+    fi
+  elif [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+    preflight_pass "Model validation skipped in test mode"
+  fi
+
+  # 3. Network connectivity — required for API calls
   dvb_spinner_start "Checking network..."
   if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
     # Test mode — use sentinel file
@@ -426,7 +464,7 @@ preflight_check() {
     dvb_spinner_stop; preflight_fail "Network unreachable"
   fi
 
-  # 3. Git state clean — not mid-rebase, not detached HEAD, not mid-merge
+  # 4. Git state clean — not mid-rebase, not detached HEAD, not mid-merge
   local git_dir
   git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)" || git_dir=""
   if [[ -z "$git_dir" ]]; then
@@ -450,7 +488,7 @@ preflight_check() {
     fi
   fi
 
-  # 4. Git remote reachable — required for between-session sync
+  # 5. Git remote reachable — required for between-session sync
   if [[ -n "$git_dir" ]] && [[ -n "$(git -C "$repo" remote 2>/dev/null)" ]]; then
     dvb_spinner_start "Checking git remote..."
     # Use background + sleep pattern since timeout/gtimeout may not exist on macOS
@@ -472,7 +510,7 @@ preflight_check() {
     preflight_warn "No git remote configured"
   fi
 
-  # 5. Disk space — at least 1GB free on the repo partition
+  # 6. Disk space — at least 1GB free on the repo partition
   local free_kb
   free_kb=$(df -k "$repo" | awk 'NR==2 { print $4 }' 2>/dev/null) || free_kb=0
   if [[ "$free_kb" -gt 1048576 ]]; then
@@ -483,7 +521,7 @@ preflight_check() {
     preflight_fail "Disk space critical: $(( free_kb / 1024 ))MB free"
   fi
 
-  # 6. TASKS.md exists — signal for work discovery
+  # 7. TASKS.md exists — signal for work discovery
   if [[ -f "$repo/TASKS.md" ]]; then
     local task_count
     task_count=$(grep -c '^[[:space:]]*- \[ \]' "$repo/TASKS.md" 2>/dev/null) || true
@@ -492,7 +530,7 @@ preflight_check() {
     preflight_warn "TASKS.md not found — empty queue sweep will find work"
   fi
 
-  # 7. network-watchdog available — network resilience during marathon
+  # 8. network-watchdog available — network resilience during marathon
   if command -v network-watchdog >/dev/null 2>&1; then
     preflight_pass "network-watchdog available"
   else
@@ -1031,7 +1069,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
     else
       "${devin_cmd[@]}" "${_session_args[@]}" \
         > >(tee -a "$session_output") \
-        2>> "$log_file" &
+        2> >(tee -a "$session_output" >> "$log_file" >&2) &
       _dvb_pid=$!
       (
         trap 'kill $! 2>/dev/null; exit 0' TERM
@@ -1166,7 +1204,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
     # Capture stdout to session_output for post-mortem diagnostics.
     "${devin_cmd[@]}" "${_session_args[@]}" \
       > >(tee -a "$session_output") \
-      2>> "$log_file" &
+      2> >(tee -a "$session_output" >> "$log_file" >&2) &
     _dvb_pid=$!
     (
       trap 'kill $! 2>/dev/null; exit 0' TERM
