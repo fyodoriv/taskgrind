@@ -224,7 +224,9 @@ Use `--resume` when the previous run was interrupted by a terminal crash, reboot
 ```bash
 make install    # symlink to /usr/local/bin + install man page
 make lint       # shellcheck
-make test       # bats test suite
+make test       # bats test suite (cached, auto-capped parallelism)
+make test TESTS=tests/bash-compat.bats  # targeted rerun with its own cache key
+make test TEST_JOBS=4  # override the auto-capped parallelism for diagnostics
 make check      # lint + test
 make uninstall  # remove symlink and man page
 ```
