@@ -4,6 +4,22 @@
 # Provides setup()/teardown() used by all split test files.
 # Each test gets an isolated tmpdir with fake devin, repo, and lib copies.
 
+remove_with_retries() {
+  local target_dir="$1"
+  local attempts=0
+
+  while :; do
+    rm -rf "$target_dir" && return 0
+
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 5 ] || [ ! -e "$target_dir" ]; then
+      return 1
+    fi
+
+    sleep 0.1
+  done
+}
+
 setup() {
   TEST_DIR="$(mktemp -d)"
   TEST_HOME="$TEST_DIR/home"
@@ -40,7 +56,7 @@ SCRIPT
 }
 
 teardown() {
-  rm -rf "$TEST_DIR"
+  remove_with_retries "$TEST_DIR"
 }
 
 # Helper: force model validation paths to run during tests that exercise

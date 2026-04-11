@@ -34,14 +34,6 @@
   **Files**: `bin/taskgrind`, `tests/taskgrind.bats`, `tests/logging.bats`
   **Acceptance**: Sessions that commit and remove a task block are not flagged as `productive_zero_ship` solely because other tasks were injected or a temporary subtask was added and removed in the same session; logs make the reason for any remaining zero-ship classification explicit; regression tests cover concurrent task additions and temporary subtask flows.
 
-- [ ] Make parallel bats cleanup robust after interrupted or high-job runs
-  **ID**: harden-bats-tempdir-cleanup
-  **Tags**: tests, reliability, ci
-  **Details**: Current verify logs still show intermittent cleanup failures after parallel bats runs, including `rm: .../parallel_output: Directory not empty` in `/tmp/taskgrind-p0-verify.log` and `/tmp/taskgrind-test-jobs6-clean.log`, plus `make: *** [test-force] Terminated: 15` in the same window. Tighten the test harness and cleanup path so interrupted or high-concurrency runs do not leave temp directories behind or turn cleanup noise into a failed verify.
-  **Reviewed 2026-04-11**: No sibling repo task updates are needed for this failure pattern. The dirty worktrees in `agentbrew`, `bosun`, and `ideas` match active session leftovers rather than product bugs, so the remaining owner stays `taskgrind`'s bats harness and cleanup path.
-  **Files**: `Makefile`, `tests/test_helper.bash`, `tests/*.bats`
-  **Acceptance**: Repeated local `make test` and `make check` runs at the default parallelism do not fail with `Directory not empty` cleanup errors or follow-on `signal 15` terminations caused by leftover bats temp state.
-
 ## P2
 - [ ] Add behavioral tests for macOS priority boosting and Linux no-op fallback
   **ID**: cover-fullpower-runtime
