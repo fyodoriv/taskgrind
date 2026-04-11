@@ -44,6 +44,17 @@
 
 ## P1
 
+- [ ] Refresh README development docs so test guidance does not drift from the suite size (@devin)
+  **ID**: refresh-readme-test-guidance
+  **Tags**: docs, dx
+  **Details**: The README currently hard-codes `make test       # bats test suite (400+ tests)`, which drifts every time the suite grows or shrinks. Replace the numeric wording with stable guidance that stays accurate as the suite evolves.
+  **Files**: README.md
+  **Acceptance**:
+  - [ ] README development commands no longer hard-code a test count
+  - [ ] The updated wording still tells contributors what `make test` runs
+  - [ ] `make check` still reflects lint + test
+  - [ ] Verification confirms the README change is the only behavior change
+
 ## P2
 
 - [ ] Add resumable grind state so interrupted runs can continue without losing counters
