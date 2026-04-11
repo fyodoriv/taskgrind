@@ -892,6 +892,7 @@ echo ""
 
 # Create log file with secure permissions before writing any content
 install -m 600 /dev/null "$log_file"
+chmod 600 "$log_file" 2>/dev/null || true
 
 {
   echo "# taskgrind started $(date '+%Y-%m-%d %H:%M')"
