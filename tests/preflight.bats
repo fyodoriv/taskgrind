@@ -23,6 +23,21 @@ SCRIPT
   export PATH="$TEST_DIR:$PATH"
 }
 
+_install_fake_df() {
+  local free_kb="$1"
+  local script_path="$TEST_DIR/df"
+
+  cat > "$script_path" <<SCRIPT
+#!/bin/bash
+cat <<'EOF'
+Filesystem 1024-blocks Used Available Capacity Mounted on
+/dev/disk1 2097152 1000000 ${free_kb} 50% /tmp
+EOF
+SCRIPT
+  chmod +x "$script_path"
+  export PATH="$TEST_DIR:$PATH"
+}
+
 # ── Preflight health checks ───────────────────────────────────────────
 
 @test "--preflight runs health checks and exits 0 on healthy repo" {
@@ -228,6 +243,25 @@ SCRIPT
   [[ "$output" == *"Disk space"* ]]
 }
 
+@test "preflight warns when free disk space is below 1GB" {
+  _preflight_git_init
+  _install_fake_df 800000
+
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Disk space low: 781MB free (< 1GB)"* ]]
+}
+
+@test "preflight fails when free disk space is below 512MB" {
+  _preflight_git_init
+  _install_fake_df 500000
+
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Disk space critical: 488MB free"* ]]
+  [[ "$output" == *"Preflight FAILED"* ]]
+}
+
 @test "main loop preflight blocks launch on failure" {
   # Force preflight failure by pointing DVB_DEVIN_PATH to nonexistent binary.
   # Must unset DVB_GRIND_CMD so the binary check runs (not skipped in test mode).
@@ -241,4 +275,3 @@ SCRIPT
   [ "$status" -ne 0 ]
   [[ "$output" == *"Preflight FAILED"* ]] || [[ "$output" == *"not found"* ]]
 }
-

@@ -103,16 +103,6 @@
   - [ ] Verifies the second process exits with "another taskgrind is already running"
   - [ ] First process completes normally
 
-- [ ] Add preflight disk space threshold tests
-  **ID**: test-disk-thresholds
-  **Tags**: test
-  **Details**: Preflight disk space checks (bin/taskgrind:442-450) have three branches: >1GB pass, 512MB-1GB warn, <512MB fail. Only the string "Disk space" is verified. The warn and fail thresholds have no behavioral coverage.
-  **Files**: tests/taskgrind.bats
-  **Acceptance**:
-  - [ ] Test for disk space warning (<1GB)
-  - [ ] Test for disk space failure (<512MB)
-  - [ ] Tests may need to mock `df` output
-
 - [ ] Stabilize the DVB_COOL=0 timing-sensitive test under load
   **ID**: stabilize-cool-zero-test
   **Tags**: test, flake
