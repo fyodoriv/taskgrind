@@ -1,12 +1,6 @@
 # Tasks
 
 ## P0
-- [ ] Make `make lint` pass cleanly with the current dynamic source layout
-  **ID**: restore-shellcheck-green
-  **Tags**: quality, lint, shellcheck
-  **Details**: `make lint` currently fails on ShellCheck `SC1091` because `bin/taskgrind` sources `lib/constants.sh` and `lib/fullpower.sh` through `TASKGRIND_DIR`, which ShellCheck cannot resolve. Fix the lint path so local runs and CI are green without weakening useful checks.
-  **Files**: `Makefile`, `bin/taskgrind`
-  **Acceptance**: `make lint` exits 0 locally; the fix preserves source-path checking for real issues and does not break runtime path resolution.
 
 ## P1
 - [ ] Expand resume coverage for malformed and incompatible saved states
