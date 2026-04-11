@@ -2476,6 +2476,7 @@ TASKS
   git -C "$TEST_REPO" remote add origin "$bare"
   git -C "$TEST_REPO" push -q origin main 2>/dev/null
   git -C "$bare" symbolic-ref HEAD refs/heads/main
+  git -C "$bare" symbolic-ref HEAD refs/heads/main
   # Create a feature branch and leave the repo on it
   git -C "$TEST_REPO" checkout -q -b chore/grind-session-1
   echo "feature" > "$TEST_REPO/feature.txt"
@@ -2520,6 +2521,7 @@ TASKS
   git init -q --bare "$bare"
   git -C "$TEST_REPO" remote add origin "$bare"
   git -C "$TEST_REPO" push -q origin main 2>/dev/null
+  git -C "$bare" symbolic-ref HEAD refs/heads/main
   git -C "$bare" symbolic-ref HEAD refs/heads/main
 
   # Create a dirty file (simulating agent leaving uncommitted changes)
