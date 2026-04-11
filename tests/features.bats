@@ -79,17 +79,17 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [[ "$output" == *"backend:  codex"* ]]
 }
 
-@test "--dry-run shows early_exit_on_stall enabled by default" {
-  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"early_exit_on_stall: 1"* ]]
-}
-
-@test "--dry-run shows early_exit_on_stall disabled when DVB_EARLY_EXIT_ON_STALL=0" {
-  export DVB_EARLY_EXIT_ON_STALL=0
+@test "--dry-run shows early_exit_on_stall disabled by default" {
   run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"early_exit_on_stall: 0"* ]]
+}
+
+@test "--dry-run shows early_exit_on_stall enabled when DVB_EARLY_EXIT_ON_STALL=1" {
+  export DVB_EARLY_EXIT_ON_STALL=1
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"early_exit_on_stall: 1"* ]]
 }
 
 @test "--dry-run log path includes repo basename" {

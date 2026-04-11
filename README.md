@@ -146,7 +146,7 @@ Before deploying, ensure:
 | `TG_NET_RETRY_DELAY` | `2` | Seconds between network check retries |
 | `TG_GIT_SYNC_TIMEOUT` | `30` | Max seconds for between-session git sync |
 | `TG_SYNC_INTERVAL` | `5` | Git sync every N sessions (0=every) |
-| `TG_EARLY_EXIT_ON_STALL` | `1` | Exit on low throughput (0=disabled) |
+| `TG_EARLY_EXIT_ON_STALL` | `0` | Exit on low throughput (1=enabled) |
 | `TG_MAX_INSTANCES` | `1` | Max concurrent instances per repo |
 | `TG_DEVIN_PATH` | auto | Override devin binary path |
 | `TG_LOG` | auto | Override log file path |
