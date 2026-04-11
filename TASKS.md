@@ -115,13 +115,13 @@
 - [ ] Speed up test suite 5x by splitting into parallel bats files
   **ID**: parallel-test-suite
   **Tags**: dx, test, performance
-  **Details**: `make test` takes ~21 minutes for 397 tests (single-file serial run). All tests are already isolated (each gets its own `mktemp -d` tmpdir in `setup()`), so they are safe to parallelize. bats 1.13 supports `--jobs N` with GNU parallel, which is already installed at `/usr/local/bin/parallel`. The blocker is that bats only parallelizes *across* files — the 397 tests all live in one monolithic `tests/taskgrind.bats`. The fix is to split by feature group into ~8 files (e.g. `tests/model.bats`, `tests/git-sync.bats`, `tests/network.bats`, `tests/prompt.bats`, `tests/session-loop.bats`, `tests/preflight.bats`, `tests/signals.bats`, `tests/misc.bats`), move `setup()`/`teardown()` + shared helpers into `tests/test_helper.bash` (it already exists but is nearly empty), update `Makefile` to run `bats --jobs 8 tests/` so all files run in parallel, and update CI (`.github/workflows/`) to match. Target: ≤5 minutes wall-clock on a MacBook with 8 cores. The `--no-parallelize-within-files` flag is fine to keep if needed for ordering-sensitive tests.
+  **Details**: `make test` takes ~21 minutes for the current monolithic single-file bats run. All tests are already isolated (each gets its own `mktemp -d` tmpdir in `setup()`), so they are safe to parallelize. bats 1.13 supports `--jobs N` with GNU parallel, which is already installed at `/usr/local/bin/parallel`. The blocker is that bats only parallelizes *across* files — the whole suite still lives in one monolithic `tests/taskgrind.bats`. The fix is to split by feature group into ~8 files (e.g. `tests/model.bats`, `tests/git-sync.bats`, `tests/network.bats`, `tests/prompt.bats`, `tests/session-loop.bats`, `tests/preflight.bats`, `tests/signals.bats`, `tests/misc.bats`), move `setup()`/`teardown()` + shared helpers into `tests/test_helper.bash` (it already exists but is nearly empty), update `Makefile` to run `bats --jobs 8 tests/` so all files run in parallel, and update CI (`.github/workflows/`) to match. Target: ≤5 minutes wall-clock on a MacBook with 8 cores. The `--no-parallelize-within-files` flag is fine to keep if needed for ordering-sensitive tests.
   **Files**: tests/taskgrind.bats, tests/test_helper.bash, Makefile, .github/workflows/
   **Acceptance**:
   - [ ] Tests are split into ≥6 `.bats` files organized by feature group
   - [ ] `setup()` and `teardown()` live in `test_helper.bash` and are loaded by all files
   - [ ] `make test` runs `bats --jobs 8 tests/` and completes in ≤5 minutes
-  - [ ] All 397 tests still pass (same count, no tests lost or duplicated)
+  - [ ] All current tests still pass (same total count, no tests lost or duplicated)
   - [ ] CI workflow updated to use `--jobs` flag
   - [ ] No test relies on ordering between files (each is fully isolated)
 
@@ -192,7 +192,7 @@
 - [ ] Extract shared test helpers to reduce duplication
   **ID**: extract-test-helpers
   **Tags**: test, chore
-  **Details**: `tests/test_helper.bash` is effectively empty (6 lines, no functions). The fake-devin creation pattern, git-repo initialization pattern, and network sentinel setup are duplicated across 384+ tests. Extract into named helper functions.
+  **Details**: `tests/test_helper.bash` is effectively empty (6 lines, no functions). The fake-devin creation pattern, git-repo initialization pattern, and network sentinel setup are duplicated across the large monolithic bats suite. Extract into named helper functions.
   **Files**: tests/test_helper.bash, tests/taskgrind.bats
   **Acceptance**:
   - [ ] `test_helper.bash` provides: `create_fake_devin`, `init_test_repo`, `setup_network_sentinel`
