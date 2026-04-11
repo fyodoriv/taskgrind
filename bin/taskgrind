@@ -1396,7 +1396,8 @@ while [[ $(date +%s) -lt $deadline ]]; do
 
     _refresh_prompt
     _refresh_model
-    sweep_prompt="TASKS.md is empty. Audit this repository and populate TASKS.md with actionable tasks."
+    sweep_prompt="Run the $skill skill."
+    sweep_prompt+=" TASKS.md is empty. Audit this repository and populate TASKS.md with actionable tasks."
     sweep_prompt+=" Look at: open TODOs/FIXMEs in code, test coverage gaps, lint warnings, outdated dependencies, missing docs, README gaps."
     sweep_prompt+=" Write tasks following the tasks.md spec: checkbox format under P0-P3 priority headings, with **ID**, **Tags**, **Details**, **Files**, **Acceptance** metadata."
     sweep_prompt+=" Focus on concrete improvements, not busywork. Commit the updated TASKS.md before timeout."

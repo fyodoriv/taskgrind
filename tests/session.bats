@@ -422,6 +422,18 @@ TASKS
   grep -q 'sweep_empty' "$TEST_LOG"
 }
 
+@test "empty queue sweep keeps the configured skill in the prompt" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  run "$DVB_GRIND" 1 "$TEST_REPO" --skill standing-audit-gap-loop
+  [ "$status" -eq 0 ]
+  grep -q 'Run the standing-audit-gap-loop skill' "$DVB_GRIND_INVOKE_LOG"
+  grep -q 'TASKS.md is empty' "$DVB_GRIND_INVOKE_LOG"
+}
+
 @test "missing TASKS.md launches sweep then exits" {
   rm -f "$TEST_REPO/TASKS.md"
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
