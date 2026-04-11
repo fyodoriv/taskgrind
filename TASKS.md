@@ -116,16 +116,6 @@
   - [ ] Documented in README, man page, and --help
   - [ ] Test verifies custom value is used
 
-- [ ] Add .taskgrind-prompt race condition guard
-  **ID**: prompt-file-race-guard
-  **Tags**: stability
-  **Details**: In `_refresh_prompt()`, `wc -c` and `cat` are separate operations. If the file is deleted between the size check and the read, `cat` silently fails and the prompt is dropped. Use a single `cat` with size check on the captured content instead.
-  **Files**: bin/taskgrind
-  **Acceptance**:
-  - [ ] Read file once into variable, then check size
-  - [ ] File deletion between reads does not silently drop the prompt
-  - [ ] Existing prompt tests still pass
-
 - [ ] Add user story for live prompt injection workflow
   **ID**: doc-live-prompt-story
   **Tags**: docs

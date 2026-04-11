@@ -350,6 +350,30 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   grep -q 'clean prompt' "$DVB_GRIND_INVOKE_LOG"
 }
 
+@test "prompt file survives deletion race after size check" {
+  _prompt_file="$TEST_REPO/.taskgrind-prompt"
+  printf "race-safe prompt" > "$_prompt_file"
+
+  fake_bin="$TEST_DIR/fake-bin"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/wc" <<EOF
+#!/bin/bash
+if [ "\$1" = "-c" ]; then
+  cat >/dev/null
+  rm -f "$_prompt_file"
+  printf "16\n"
+else
+  /usr/bin/wc "\$@"
+fi
+EOF
+  chmod +x "$fake_bin/wc"
+  export PATH="$fake_bin:$PATH"
+
+  run "$DVB_GRIND" --dry-run 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"race-safe prompt"* ]]
+}
+
 # ── Dynamic model file (live model switching between sessions) ────────
 
 @test "model file overrides startup model" {

@@ -29,6 +29,7 @@
 #        TG_SKILL       — skill to run (default: next-task)
 #        TG_PROMPT      — extra focus prompt prepended to every session
 #        TG_LOG         — override log file path
+#        TG_STATUS_FILE — write machine-readable runtime status JSON to this path
 #        TG_NOTIFY      — desktop notification on completion (default: 1, set 0 to disable)
 #        TG_MAX_SESSION — max seconds per session before timeout (default: 3600)
 #        TG_MAX_FAST    — max consecutive fast failures before bail out (default: 20)
@@ -96,7 +97,7 @@ for _tg_var in BACKEND BACKOFF_BASE BACKOFF_MAX COOL DEVIN_PATH \
                EARLY_EXIT_ON_STALL GIT_SYNC_TIMEOUT LOG MAX_FAST MAX_INSTANCES \
                MAX_SESSION MAX_ZERO_SHIP MIN_SESSION MODEL NET_MAX_WAIT \
                NET_RETRIES NET_RETRY_DELAY NET_WAIT NOTIFY PROMPT \
-               SHUTDOWN_GRACE SKILL SYNC_INTERVAL; do
+               SHUTDOWN_GRACE SKILL STATUS_FILE SYNC_INTERVAL; do
   _tg_ref="TG_${_tg_var}"
   if [[ -n "${!_tg_ref:-}" ]]; then
     export "DVB_${_tg_var}"="${!_tg_ref}"
@@ -269,12 +270,12 @@ _refresh_prompt() {
   local file_prompt=""
   if [[ -f "$_prompt_file" ]]; then
     local file_size
-    file_size=$(wc -c < "$_prompt_file" 2>/dev/null) || file_size=0
+    file_prompt=$(cat "$_prompt_file" 2>/dev/null) || file_prompt=""
+    file_size=$(printf '%s' "$file_prompt" | wc -c 2>/dev/null) || file_size=0
     file_size="${file_size## }"  # trim leading space (macOS wc)
     if [[ "$file_size" -gt "$_prompt_file_max" ]]; then
       echo "   ⚠ .taskgrind-prompt too large (${file_size}B > ${_prompt_file_max}B) — skipping" >&2
-    else
-      file_prompt=$(cat "$_prompt_file" 2>/dev/null) || true
+      file_prompt=""
     fi
     # Strip all trailing whitespace (newlines, spaces, tabs)
     while [[ "$file_prompt" =~ [[:space:]]$ ]]; do
@@ -681,6 +682,7 @@ if [[ "$dry_run" -eq 1 ]]; then
   echo "  model:    $model"
   echo "  cooldown: ${cooldown}s"
   echo "  log:      ${DVB_LOG:-$_dvb_tmp/taskgrind-\$(date '+%Y-%m-%d-%H%M')-$(basename "$repo")-\$\$.log}"
+  echo "  status:   ${DVB_STATUS_FILE:-disabled}"
   echo "  notify:   ${DVB_NOTIFY:-1}"
   echo "  max_session: ${max_session}s"
   echo "  early_exit_on_stall: ${DVB_EARLY_EXIT_ON_STALL:-0}"
@@ -719,6 +721,7 @@ fi
 end_time=$(date -v+"${hours}"H +%H:%M 2>/dev/null || date -d "+${hours} hours" +%H:%M 2>/dev/null || echo "??:??")
 _repo_basename=$(basename "$repo")
 log_file="${DVB_LOG:-$_dvb_tmp/taskgrind-$(date '+%Y-%m-%d-%H%M')-${_repo_basename}-$$.log}"
+status_file="${DVB_STATUS_FILE:-}"
 
 # Ensure log directory exists and set secure permissions
 log_dir="$(dirname "$log_file")"
@@ -727,6 +730,9 @@ if [[ ! -d "$log_dir" ]]; then
 fi
 if [[ -d "$log_file" ]]; then
   echo "Error: DVB_LOG points to a directory: $log_file" >&2; exit 1
+fi
+if [[ -n "$status_file" ]] && [[ -d "$status_file" ]]; then
+  echo "Error: DVB_STATUS_FILE points to a directory: $status_file" >&2; exit 1
 fi
 
 session=0
@@ -741,6 +747,13 @@ _task_attempts_file=$(mktemp "$_dvb_tmp/taskgrind-att-XXXXXX") || { echo "Error:
 _git_out=""
 : > "$_task_attempts_file" 2>/dev/null || true
 last_session_summary=""
+current_phase="startup"
+last_session_number=0
+last_session_result="pending"
+last_session_exit=""
+last_session_shipped=0
+last_session_duration=0
+last_session_completed_at=""
 _dvb_pid=0
 _dvb_timeout_pid=0
 _git_pid=0
@@ -752,6 +765,59 @@ format_duration() { dvb_format_duration "$@"; }
 # Safe log append — never crash the loop on disk-full or deleted log.
 # Every line is PID-prefixed for defense-in-depth against interleaving.
 log_write() { echo "[pid=$$] $*" >> "$log_file" 2>/dev/null || true; }
+
+json_escape() {
+  local value="${1:-}"
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  value=${value//$'\n'/\\n}
+  value=${value//$'\r'/\\r}
+  value=${value//$'\t'/\\t}
+  printf '%s' "$value"
+}
+
+write_status_file() {
+  [[ -n "$status_file" ]] || return 0
+
+  local status_dir status_tmp now remaining_secs remaining_minutes
+  status_dir="$(dirname "$status_file")"
+  mkdir -p "$status_dir" 2>/dev/null || return 0
+  status_tmp=$(mktemp "${status_file}.tmp.XXXXXX") 2>/dev/null || return 0
+  now=$(date +%s)
+  remaining_secs=$((deadline - now))
+  [[ "$remaining_secs" -lt 0 ]] && remaining_secs=0
+  remaining_minutes=$((remaining_secs / 60))
+
+  cat > "$status_tmp" <<EOF
+{
+  "repo": "$(json_escape "$repo")",
+  "pid": $$,
+  "slot": $_dvb_slot,
+  "backend": "$(json_escape "$backend")",
+  "skill": "$(json_escape "$skill")",
+  "model": "$(json_escape "$model")",
+  "session": $session,
+  "remaining_minutes": $remaining_minutes,
+  "current_phase": "$(json_escape "$current_phase")",
+  "updated_at": "$(date '+%Y-%m-%dT%H:%M:%S%z')",
+  "last_session": {
+    "number": $last_session_number,
+    "result": "$(json_escape "$last_session_result")",
+    "exit_code": ${last_session_exit:-null},
+    "shipped": $last_session_shipped,
+    "duration_seconds": $last_session_duration,
+    "completed_at": "$(json_escape "$last_session_completed_at")"
+  }
+}
+EOF
+
+  mv -f "$status_tmp" "$status_file" 2>/dev/null || rm -f "$status_tmp"
+}
+
+set_phase() {
+  current_phase="$1"
+  write_status_file
+}
 
 run_test_backend() {
   # Avoid process-substitution helpers in test mode. Parallel bats can tear down
@@ -912,6 +978,10 @@ cleanup() {
   [[ $_dvb_cleaned -eq 1 ]] && return
   _dvb_cleaned=1
   _dvb_finalizing=1
+  if [[ "$current_phase" != "failed" ]]; then
+    current_phase="complete"
+  fi
+  write_status_file
   dvb_spinner_stop
   local elapsed=$(( $(date +%s) - start_epoch ))
   local duration
@@ -990,6 +1060,9 @@ if [[ -n "$extra_prompt" ]]; then
   echo "   Focus: $extra_prompt"
 fi
 echo "   Log: $log_file"
+if [[ -n "$status_file" ]]; then
+  echo "   Status: $status_file"
+fi
 echo ""
 
 # Create log file with secure permissions before writing any content
@@ -1008,11 +1081,14 @@ chmod 600 "$log_file" 2>/dev/null || true
 
 # Export instance slot so child processes (devin sessions) can see it
 export TG_INSTANCE_ID="$_dvb_slot"
+write_status_file
 
 # Run preflight checks before entering the main loop
 if [[ "${DVB_SKIP_PREFLIGHT:-0}" != "1" ]]; then
+  set_phase "preflight"
   if ! preflight_check; then
     log_write "[$(date '+%H:%M')] preflight_failed"
+    set_phase "failed"
     exit 1
   fi
 fi
@@ -1082,6 +1158,7 @@ wait_for_network() {
   local max_wait="${DVB_NET_MAX_WAIT:-14400}"
   wait_start=$(date +%s)
 
+  set_phase "waiting_for_network"
   echo "📡 Network down — pausing marathon. Deadline will extend."
   log_write "[$(date '+%H:%M')] network_down"
 
@@ -1102,6 +1179,7 @@ wait_for_network() {
 
   # Extend deadline by the time spent waiting — no minutes lost to outage
   deadline=$((deadline + waited))
+  set_phase "network_restored"
   return 0
 }
 
@@ -1125,6 +1203,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
   if ! cd "$repo" 2>/dev/null; then
     echo "   ❌ Repo directory missing: $repo — aborting."
     log_write "[$(date '+%H:%M')] repo_missing path=$repo"
+    set_phase "failed"
     break
   fi
 
@@ -1154,11 +1233,13 @@ while [[ $(date +%s) -lt $deadline ]]; do
     if [[ "${DVB_SKIP_SWEEP_ON_EMPTY:-0}" == "1" ]]; then
       echo "   ✓ Queue empty — skipping sweep in test mode."
       log_write "[$(date '+%H:%M')] queue_empty tasks=0 sweep=skipped_for_test"
+      set_phase "queue_empty"
       break
     fi
     if [[ "$_sweep_done" -ge 2 ]]; then
       echo "   ✓ Queue still empty after sweep + wait — exiting."
       log_write "[$(date '+%H:%M')] queue_empty tasks=0 sweep=exhausted — exiting"
+      set_phase "queue_empty"
       break
     fi
     if [[ "$_sweep_done" -eq 1 ]]; then
@@ -1170,12 +1251,14 @@ while [[ $(date +%s) -lt $deadline ]]; do
       [[ $_empty_wait -le 0 ]] && { _sweep_done=2; continue; }
       echo "   ⏸ Queue empty after sweep — waiting ${_empty_wait}s for external task injection..."
       log_write "[$(date '+%H:%M')] queue_empty tasks=0 sweep=done — waiting ${_empty_wait}s"
+      set_phase "queue_empty_wait"
       dvb_countdown_sleep "$_empty_wait" "Waiting for tasks"
       deadline=$((deadline + _empty_wait))
       tasks_before=$(count_tasks "$repo/TASKS.md")
       if [[ "$tasks_before" -gt 0 ]]; then
         echo "   ✓ Tasks appeared ($tasks_before) — resuming."
         log_write "[$(date '+%H:%M')] tasks_appeared tasks=$tasks_before — resuming"
+        set_phase "queue_refilled"
         _sweep_done=0
         continue
       fi
@@ -1185,6 +1268,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
     _sweep_done=1
     echo "🔍 Queue empty — running sweep to find work..."
     log_write "[$(date '+%H:%M')] queue_empty tasks=0 — launching sweep session"
+    set_phase "running_sweep"
 
     _refresh_prompt
     _refresh_model
@@ -1249,9 +1333,11 @@ while [[ $(date +%s) -lt $deadline ]]; do
     if [[ "$tasks_found" -gt 0 ]]; then
       echo "   ✓ Sweep found $tasks_found tasks — continuing grind."
       log_write "[$(date '+%H:%M')] sweep_found tasks=$tasks_found"
+      set_phase "queue_refilled"
     else
       echo "   ✓ Sweep found no tasks — exiting."
       log_write "[$(date '+%H:%M')] sweep_empty tasks=0 — exiting"
+      set_phase "queue_empty"
       break
     fi
     # Re-enter loop — next iteration will pick up the new tasks.
@@ -1271,10 +1357,12 @@ while [[ $(date +%s) -lt $deadline ]]; do
     if [[ $_blocked_wait -le 0 ]]; then
       echo "   ✓ All $tasks_before remaining tasks are blocked and deadline reached — exiting."
       log_write "[$(date '+%H:%M')] all_tasks_blocked tasks=$tasks_before deadline_reached — exiting"
+      set_phase "all_tasks_blocked"
       break
     fi
     echo "   ⏸ All $tasks_before remaining tasks are blocked — waiting ${_blocked_wait}s for external unblock..."
     log_write "[$(date '+%H:%M')] all_tasks_blocked tasks=$tasks_before — waiting ${_blocked_wait}s"
+    set_phase "blocked_wait"
     dvb_countdown_sleep "$_blocked_wait" "Blocked"
     # Extend deadline by wait time — dead time should not count against the marathon
     deadline=$((deadline + _blocked_wait))
@@ -1282,10 +1370,12 @@ while [[ $(date +%s) -lt $deadline ]]; do
     if all_tasks_blocked "$repo/TASKS.md"; then
       echo "   ✓ All tasks still blocked after wait — exiting."
       log_write "[$(date '+%H:%M')] all_tasks_blocked tasks=$tasks_before still_blocked — exiting"
+      set_phase "all_tasks_blocked"
       break
     fi
     echo "   ✓ Tasks unblocked — resuming."
     log_write "[$(date '+%H:%M')] tasks_unblocked tasks=$(count_tasks "$repo/TASKS.md") — resuming"
+    set_phase "queue_refilled"
     tasks_before=$(count_tasks "$repo/TASKS.md")
     _ids_before=$(extract_task_ids "$repo/TASKS.md")
   fi
@@ -1297,6 +1387,13 @@ while [[ $(date +%s) -lt $deadline ]]; do
 
   echo "🔄 Session $session — ${remaining_h}h${remaining_m}m remaining — $tasks_before tasks queued — model=$model"
   log_write "[$(date '+%H:%M')] session=$session remaining=${remaining_min}m tasks=$tasks_before model=$model"
+  last_session_number=$session
+  last_session_result="pending"
+  last_session_exit=""
+  last_session_shipped=0
+  last_session_duration=0
+  last_session_completed_at=""
+  set_phase "running_session"
 
   if [[ "$model" != "$_startup_model" ]]; then
     if [[ -n "$_model_alias" ]]; then
@@ -1442,7 +1539,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
     fi
 
     if ! check_network; then
-      wait_for_network || break
+      wait_for_network || { set_phase "failed"; break; }
       session=$((session - 1))
       continue
     fi
@@ -1455,6 +1552,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
         tail -5 "$session_output" | sed 's/^/      /'
       fi
       log_write "[$(date '+%H:%M')] bail_out consecutive=$consecutive_fast exit=$session_exit"
+      set_phase "failed"
       break
     fi
 
@@ -1567,6 +1665,17 @@ while [[ $(date +%s) -lt $deadline ]]; do
     fi
   fi
 
+  last_session_exit="$session_exit"
+  last_session_shipped="$session_shipped"
+  last_session_duration="$session_elapsed"
+  if [[ "$session_exit" -eq 0 ]]; then
+    last_session_result="success"
+  else
+    last_session_result="failure"
+  fi
+  last_session_completed_at="$(date '+%Y-%m-%dT%H:%M:%S%z')"
+  set_phase "session_complete"
+
   # ── Zero-ship stall detection ──────────────────────────────────────
   # Detect sessions that run full duration but accomplish nothing.
   # Separate from consecutive_fast which catches crashes.
@@ -1587,6 +1696,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
     if [[ $consecutive_zero_ship -ge $max_zero_ship ]]; then
       echo "   ❌ ${consecutive_zero_ship} consecutive zero-ship sessions. Marathon is stalled — exiting."
       log_write "[$(date '+%H:%M')] stall_bail consecutive_zero_ship=$consecutive_zero_ship"
+      set_phase "failed"
       break
     elif [[ $consecutive_zero_ship -ge 3 ]]; then
       echo "   ⚠ ${consecutive_zero_ship} consecutive zero-ship sessions — adding stall warning to next prompt."
@@ -1615,6 +1725,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
       if [[ "${DVB_EARLY_EXIT_ON_STALL:-0}" == "1" ]]; then
         echo "   ⚠ TG_EARLY_EXIT_ON_STALL=1 — exiting early to save time budget."
         log_write "[$(date '+%H:%M')] early_exit_stall"
+        set_phase "failed"
         break
       fi
     fi
@@ -1633,6 +1744,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
     break
   fi
 
+  set_phase "cooldown"
   echo "   Session $session ended (exit=$session_exit, $(format_duration "$session_elapsed")). Cooling down ${cooldown}s..."
   dvb_countdown_sleep "$cooldown" "Cooldown"
 
@@ -1640,8 +1752,10 @@ while [[ $(date +%s) -lt $deadline ]]; do
   # sync_interval=0 means every session (backward compat). Default: every 5 sessions.
   # Slot ≥1 instances skip git sync entirely (slot 0 owns it).
   if [[ $_dvb_slot -ge 1 ]]; then
+    set_phase "git_sync_skipped"
     log_write "[$(date '+%H:%M')] git_sync skipped (slot=$_dvb_slot, only slot 0 syncs)"
   elif [[ "$sync_interval" -eq 0 ]] || [[ $((session % sync_interval)) -eq 0 ]]; then
+    set_phase "git_sync"
     if git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 \
        && [[ -n "$(git -C "$repo" remote 2>/dev/null)" ]]; then
       dvb_spinner_start "Syncing git..."
