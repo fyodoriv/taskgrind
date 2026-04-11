@@ -2,51 +2,6 @@
 
 ## P0
 
-- [ ] Standing audit-only loop: keep taskgrind's queue full from repeated audits and adjacent-tool comparisons
-  **ID**: standing-audit-gap-loop
-  **Tags**: operations, audit, competitor-research, queue, no-code-changes
-  **Details**: This is a standing P0 operator loop. Work on one single thing only: audit taskgrind over and over again, compare it against adjacent tools and workflows, and turn every concrete gap into queued work. Do not implement fixes. Do not edit production code, tests, skills, docs, configs, workflows, or prompts. The only artifact from each cycle is new or updated task entries, committed and pushed as a tasks-only change.
-
-  **Plan**:
-  - [x] Read the queue rules, current product surface, and repo docs for this cycle
-  - [x] Compare current taskgrind behavior against at least one adjacent tool or workflow and confirm concrete gaps
-  - [x] Add or refine actionable tasks in `TASKS.md` only
-  - [ ] Lint `TASKS.md`, then commit and push the task-only diff
-
-  **Cycle contract:**
-  1. Read `AGENTS.md`, `README.md`, `docs/architecture.md`, and `docs/user-stories.md` to anchor taskgrind's intended behavior for the cycle.
-  2. Read the current `TASKS.md`, recent commits, and open diffs so the audit targets the latest repo state.
-  3. Audit taskgrind from multiple angles: shell-script correctness, session-loop behavior, git sync safety, prompt/model reload flows, network recovery, install and uninstall flow, docs drift, CI and test coverage, and operator UX.
-  4. Compare taskgrind with at least one relevant adjacent tool or workflow. When another tool has a materially better capability, safeguard, or operator experience that taskgrind lacks, write a concrete taskgrind task instead of editing code or docs inline.
-  5. Add or refine tasks in `TASKS.md` only. Every new task must be actionable, scoped, prioritized, and include file paths plus acceptance criteria.
-  6. Commit only the task-file changes and push them. Then start the next audit cycle.
-
-  **Hard constraints:**
-  - Output of each cycle is task production only
-  - No source-code changes, no doc rewrites, no test edits, no skill edits, no config edits
-  - Do not fix gaps inline even if the fix looks easy; file the task instead
-  - Do not launch implementation sessions from this task
-  - Keep the diff limited to `TASKS.md` so it does not conflict with agents doing code work
-
-  **Suggested audit inputs each cycle:**
-  - `bin/taskgrind`
-  - `lib/*.sh`
-  - `tests/taskgrind.bats`
-  - `tests/test_helper.bash`
-  - `.devin/skills/**`
-  - `README.md`
-  - `docs/architecture.md`
-  - `docs/user-stories.md`
-  - `.github/workflows/**`
-  - recent commits, recent PRs, and the current `TASKS.md`
-  **Files**: `TASKS.md`, `AGENTS.md`, `README.md`, `docs/architecture.md`, `docs/user-stories.md`, `bin/taskgrind`, `lib/*.sh`, `tests/taskgrind.bats`, `tests/test_helper.bash`, `.devin/skills/**`, `.github/workflows/**`
-  **Acceptance**:
-  - [ ] Each cycle audits taskgrind and at least one adjacent tool or workflow before writing tasks
-  - [ ] Each cycle produces only `TASKS.md` changes, with no production code, test, doc, skill, or config edits
-  - [ ] Each added task includes priority, ID, details, files, and acceptance criteria
-  - [ ] Each cycle ends with a commit and push containing only the task updates
-  - [ ] This task remains open as a standing queue-filling loop until Fyodor removes it
-
 - [ ] Allow multiple taskgrind instances on the same repo via instance slots
   **ID**: multi-instance-same-repo
   **Tags**: feature, stability, dx
@@ -169,6 +124,32 @@
   - [ ] All existing tests still pass
 
 ## P2
+
+- [ ] Add resumable grind state so interrupted runs can continue without losing counters
+  **ID**: resumable-grind-state
+  **Tags**: feature, reliability, ux
+  **Details**: Taskgrind currently treats every launch as a fresh marathon: if the terminal dies, the machine reboots, or the operator intentionally restarts the process, the new run loses session count, shipped-count history, zero-ship streaks, startup model, and the original deadline context. Adjacent long-running workflows such as `tmux`-hosted agent loops and CI/job runners preserve enough runtime state to resume after an interruption instead of starting blind. Add a small durable state file plus a `--resume` flow so taskgrind can pick up an interrupted grind for the same repo and continue with the original deadline and counters when the operator wants that behavior.
+  **Files**: bin/taskgrind, lib/constants.sh, tests/taskgrind.bats, README.md, man/taskgrind.1
+  **Acceptance**:
+  - [ ] Taskgrind writes a durable per-repo state file that captures at least deadline, session count, shipped count, zero-ship streak, backend, skill, and model
+  - [ ] `taskgrind --resume` on the same repo restores that state instead of starting a fresh session counter
+  - [ ] Resume refuses stale or incompatible state with a clear operator-facing message rather than silently mixing runs
+  - [ ] Clean completion and explicit abort paths remove or invalidate the saved state so later runs do not resume accidentally
+  - [ ] README, man page, and `--help` document how resume works and when to prefer a fresh run
+  - [ ] Tests cover save-on-progress, resume-after-interruption, and stale-state rejection
+
+- [ ] Emit machine-readable heartbeat status for external monitors and wrappers
+  **ID**: heartbeat-status-file
+  **Tags**: feature, observability, ux
+  **Details**: Taskgrind's only live status surface today is human-oriented stdout plus an append-only log file in `$TMPDIR`. That is hard for wrappers, launchd/systemd jobs, menu-bar tools, or watchdog scripts to consume. Adjacent supervisors and CI runners usually expose a structured status file or endpoint that external tooling can poll for health, current phase, session number, remaining minutes, and last error. Add an opt-in heartbeat/status artifact so operators can monitor a running grind without scraping prose logs.
+  **Files**: bin/taskgrind, tests/taskgrind.bats, README.md, man/taskgrind.1
+  **Acceptance**:
+  - [ ] Taskgrind can write a structured status file (for example JSON) to a predictable path while a grind is running
+  - [ ] The status includes repo, pid, slot, backend, skill, model, session number, remaining time, current phase, and the timestamp/result of the most recent session
+  - [ ] The heartbeat updates on startup, before and after each session, during network waits, and on final completion/failure
+  - [ ] The file is written atomically so external readers never see truncated content
+  - [ ] The feature is documented, including the default path or the env var/flag used to override it
+  - [ ] Tests verify heartbeat contents across at least startup, in-session, and completion states
 
 - [ ] Add SIGTERM graceful shutdown behavioral test
   **ID**: test-sigterm
