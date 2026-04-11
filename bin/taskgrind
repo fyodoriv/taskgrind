@@ -1137,16 +1137,15 @@ while [[ $(date +%s) -lt $deadline ]]; do
     break
   fi
 
-  echo "🔄 Session $session — ${remaining_h}h${remaining_m}m remaining — $tasks_before tasks queued"
-  log_write "[$(date '+%H:%M')] session=$session remaining=${remaining_min}m tasks=$tasks_before"
-
   # ── Build the session prompt ──────────────────────────────────────
   # Re-read prompt and model files for live updates between sessions
   _refresh_prompt
   _refresh_model
 
+  echo "🔄 Session $session — ${remaining_h}h${remaining_m}m remaining — $tasks_before tasks queued — model=$model"
+  log_write "[$(date '+%H:%M')] session=$session remaining=${remaining_min}m tasks=$tasks_before model=$model"
+
   if [[ "$model" != "$_startup_model" ]]; then
-    echo "   Model: $model (live override)"
     log_write "[$(date '+%H:%M')] live_model=$model (startup=$_startup_model)"
   fi
 

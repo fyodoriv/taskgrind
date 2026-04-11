@@ -1271,6 +1271,13 @@ SCRIPT
   grep -q 'session=1' "$TEST_LOG"
 }
 
+@test "log file records session start model" {
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  run "$DVB_GRIND" --model custom-model 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  grep -q 'session=1 .*model=custom-model' "$TEST_LOG"
+}
+
 @test "log file records session end entries" {
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -1324,6 +1331,13 @@ TASKS
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"$TEST_REPO"* ]]
+}
+
+@test "session banner shows active model" {
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  run "$DVB_GRIND" --model custom-model 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" | grep -qE 'Session 1 .*model=custom-model'
 }
 
 @test "shows session restart message" {
@@ -4217,12 +4231,13 @@ SCRIPT
   grep -q -- '--model gpt-5-4' "$DVB_GRIND_INVOKE_LOG"
 }
 
-@test "model file shown in startup banner when active" {
+@test "model file shown in session banner when active" {
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   echo "sonnet" > "$TEST_REPO/.taskgrind-model"
   run "$DVB_GRIND" 1 "$TEST_REPO"
-  [[ "$output" == *"Live model:"* ]]
-  [[ "$output" == *"sonnet"* ]]
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" | grep -qE 'Session 1 .*model=sonnet'
+  [[ "$output" != *"Model: sonnet (live override)"* ]]
 }
 
 @test "--dry-run shows model from model file" {
