@@ -712,7 +712,7 @@ fi
 # and all child devin sessions (macOS taskpolicy throughput/latency flags).
 # shellcheck source=../lib/fullpower.sh
 source "$TASKGRIND_DIR/lib/fullpower.sh"
-boost_priority
+boost_priority "$$"
 
 # ── Final sync — push local commits to origin before exiting ──────────
 # Called on every exit path so committed work is never left unpublished.
@@ -861,7 +861,9 @@ cleanup() {
   rm -f "$session_output"
   rm -f "$_task_attempts_file"
   rm -f "${_task_attempts_file}.new" 2>/dev/null || true
-  [[ -n "${_git_out:-}" ]] && rm -f "$_git_out" || true
+  if [[ -n "${_git_out:-}" ]]; then
+    rm -f "$_git_out"
+  fi
   # Kill orphaned git sync processes (interrupted mid-sync)
   if [[ ${_git_pid:-0} -gt 0 ]] && kill -0 "$_git_pid" 2>/dev/null; then
     kill "$_git_pid" 2>/dev/null || true
@@ -1084,7 +1086,9 @@ while [[ $(date +%s) -lt $deadline ]]; do
         kill -INT "$_dvb_pid" 2>/dev/null || true
         sleep 15 &
         wait $! 2>/dev/null || exit 0
-        kill -0 "$_dvb_pid" 2>/dev/null && kill "$_dvb_pid" 2>/dev/null || true
+        if kill -0 "$_dvb_pid" 2>/dev/null; then
+          kill "$_dvb_pid" 2>/dev/null || true
+        fi
       ) &
       _dvb_timeout_pid=$!
       wait "$_dvb_pid" 2>/dev/null || session_exit=$?
@@ -1250,7 +1254,9 @@ while [[ $(date +%s) -lt $deadline ]]; do
       kill "$_dvb_timer_pid" 2>/dev/null || true
       wait "$_dvb_timer_pid" 2>/dev/null || true
     fi
-    [[ $_dvb_is_tty -eq 1 ]] && printf '\r\033[K' || true
+    if [[ $_dvb_is_tty -eq 1 ]]; then
+      printf '\r\033[K'
+    fi
     kill "$_dvb_timeout_pid" 2>/dev/null || true
     wait "$_dvb_timeout_pid" 2>/dev/null || true
     _dvb_timeout_pid=0
@@ -1590,7 +1596,9 @@ while [[ $(date +%s) -lt $deadline ]]; do
       while IFS= read -r _branch; do
         [[ -z "$_branch" ]] && continue
         _branch="$(echo "$_branch" | xargs)"  # trim whitespace
-        git -C "$repo" branch -D "$_branch" 2>/dev/null && (( _stale_count++ )) || true
+        if git -C "$repo" branch -D "$_branch" 2>/dev/null; then
+          (( _stale_count++ ))
+        fi
       done < <(git -C "$repo" branch -vv 2>/dev/null | grep ': gone]' | awk '{print $1}' | grep -v '^\*')
       if [[ "$_stale_count" -gt 0 ]]; then
         log_write "[$(date '+%H:%M')] branch_cleanup pruned=$_stale_count stale branches"
