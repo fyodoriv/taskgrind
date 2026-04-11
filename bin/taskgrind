@@ -1600,7 +1600,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
         [[ -z "$_branch" ]] && continue
         _branch="$(echo "$_branch" | xargs)"  # trim whitespace
         if git -C "$repo" branch -D "$_branch" 2>/dev/null; then
-          (( _stale_count++ ))
+          (( _stale_count += 1 ))
         fi
       done < <(git -C "$repo" branch -vv 2>/dev/null | grep ': gone]' | awk '{print $1}' | grep -v '^\*')
       if [[ "$_stale_count" -gt 0 ]]; then

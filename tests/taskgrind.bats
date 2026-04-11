@@ -2860,6 +2860,7 @@ SCRIPT
   export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
   # The stale branch should be pruned
   ! git -C "$TEST_REPO" branch | grep -q 'stale-feature'
   grep -q 'branch_cleanup pruned=1' "$TEST_LOG"
@@ -2892,6 +2893,7 @@ SCRIPT
   export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
   ! git -C "$TEST_REPO" branch | grep -q 'stale-one'
   ! git -C "$TEST_REPO" branch | grep -q 'stale-two'
   grep -q 'branch_cleanup pruned=2' "$TEST_LOG"
