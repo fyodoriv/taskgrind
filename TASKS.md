@@ -226,16 +226,6 @@
   - [ ] File deletion between reads does not silently drop the prompt
   - [ ] Existing prompt tests still pass
 
-- [ ] Add architecture doc for live prompt and model injection
-  **ID**: doc-live-injection-arch
-  **Tags**: docs
-  **Details**: The architecture doc (docs/architecture.md) covers self-copy, caffeinate, git sync, retry caps, empty-queue sweep, and next-task skill. Missing: rationale for live prompt injection via `.taskgrind-prompt`, the prompt combination logic (CLI + file), and the 10KB guard. Also add rationale for the planned `.taskgrind-model` feature.
-  **Files**: docs/architecture.md
-  **Acceptance**:
-  - [ ] New section: "Why .taskgrind-prompt for live injection"
-  - [ ] Covers: re-read timing, CLI+file combination, size guard rationale
-  - [ ] Mentions .taskgrind-model if implemented
-
 - [ ] Add user story for live prompt injection workflow
   **ID**: doc-live-prompt-story
   **Tags**: docs

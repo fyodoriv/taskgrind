@@ -25,3 +25,13 @@ When TASKS.md is empty, taskgrind runs a single sweep session that audits the re
 ## Why next-task over custom grind skill
 
 Taskgrind orchestrates the marathon: deadline management, network resilience, git sync, stall detection, task tracking. It deliberately does not understand task prioritization, decomposition, or implementation — that's the skill's job. The default `next-task` skill is a general-purpose task picker that reads TASKS.md, selects the highest-priority unblocked task, and implements it. By keeping the prompt thin (`"Run the $skill skill."`) and delegating everything to the skill, taskgrind stays composable. Users can swap in `--skill fleet-grind` for pipeline management or any custom skill without changing taskgrind itself.
+
+## Why `.taskgrind-prompt` for live injection
+
+Long grinds need a low-friction way to steer the next session without restarting the whole run or editing shell history. `.taskgrind-prompt` is a plain file in the repo root, so contributors can update it with any editor, script, or automation while taskgrind keeps running. Taskgrind re-reads the file at the start of each session, which gives users a predictable handoff point: the current session finishes with the prompt it already received, and the next session sees the updated instructions. That timing avoids half-applied prompt changes inside an active coding run.
+
+The file is combined with any `--prompt` text instead of replacing it. The command-line prompt remains the stable baseline for the whole grind, while `.taskgrind-prompt` acts as a live overlay for new priorities, investigation notes, or temporary constraints. That split keeps startup commands short for common cases but still supports mid-run steering when the repo state changes.
+
+The 10 kilobyte guard exists to keep the live-injection path safe and legible. A prompt file should carry concise session guidance, not entire specs, logs, or pasted documents. Without a size limit, a runaway redirect or accidental binary/blob write could flood every later session with junk, blow up token usage, and make the actual operator intent hard to spot. Failing fast on oversized prompt files keeps the feature useful instead of letting it become an unbounded hidden input.
+
+The same pattern also explains `.taskgrind-model`. The startup `--model` flag sets the baseline model for the grind, while a repo-local file can steer later sessions toward a different model as the remaining work changes. That gives operators the same "baseline plus live override" behavior for both instructions and model choice, without forcing a restart.
