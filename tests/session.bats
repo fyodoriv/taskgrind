@@ -47,15 +47,34 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "zero-ship session summary tells next session about the problem" {
+  local counter_file="$TEST_DIR/counter"
+  echo "0" > "$counter_file"
+  local smart_devin="$TEST_DIR/smart-devin"
+  cat > "$smart_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+n=\$(cat "$counter_file")
+n=\$((n + 1))
+echo "\$n" > "$counter_file"
+if [ "\$n" -eq 2 ]; then
+  cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+EOF
+fi
+SCRIPT
+  chmod +x "$smart_devin"
+  export DVB_GRIND_CMD="$smart_devin"
+
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
 ## P0
 - [ ] Persistent task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Session 2 prompt should mention the zero-ship from session 1
-  grep -q 'task count did not decrease' "$DVB_GRIND_INVOKE_LOG"
+  sed -n '2p' "$DVB_GRIND_INVOKE_LOG" | grep -q 'task count did not decrease'
 }
 
 @test "--skill flag changes the skill in the prompt" {
@@ -850,6 +869,11 @@ if [ "\$n" -eq 3 ]; then
 - [ ] Task C
   **ID**: task-c
 EOF
+elif [ "\$n" -eq 4 ]; then
+  cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+EOF
 fi
 SCRIPT
   chmod +x "$smart_devin"
@@ -864,7 +888,7 @@ SCRIPT
   **ID**: task-b
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
   export DVB_MAX_ZERO_SHIP=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Session 3 shipped via ID tracking — verify the shipped=1 log
