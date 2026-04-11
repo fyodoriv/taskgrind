@@ -42,18 +42,6 @@
   - [ ] Test verifies model name appears in the session banner output
   - [ ] All existing tests pass
 
-## P1
-
-- [ ] Refresh README development docs so test guidance stays accurate (@devin)
-  **ID**: refresh-readme-test-guidance
-  **Tags**: docs, dx
-  **Details**: The README hard-codes a moving test count in the development section. Replace it with stable wording that still tells contributors what `make test` and `make check` do without drifting as the suite changes size.
-  **Files**: README.md
-  **Acceptance**:
-  - [ ] README development commands no longer hard-code a test count
-  - [ ] The updated wording still tells contributors what `make test` runs
-  - [ ] `make check` still reflects lint + test
-
 ## P2
 
 - [ ] Add resumable grind state so interrupted runs can continue without losing counters
