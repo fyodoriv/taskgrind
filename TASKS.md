@@ -44,17 +44,6 @@
 
 ## P1
 
-- [ ] Stabilize `tests/session.bats` shipped and zero-ship assertions under parallel `make check` (@devin)
-  **ID**: stabilize-parallel-session-tests
-  **Parent**: stabilize-parallel-check-suite
-  **Tags**: test, stability
-  **Details**: Recent parallel `make check` failures included `tests/session.bats` assertions around `shipped=` and zero-ship state. Tighten those assertions so they remain deterministic when other bats files run concurrently.
-  **Files**: tests/session.bats, tests/test_helper.bash
-  **Acceptance**:
-  - [ ] `tests/session.bats` no longer intermittently misses `shipped=` or zero-ship assertions during parallel runs
-  - [ ] The fix preserves the behavioral intent of the current session accounting tests
-  - [ ] Targeted `tests/session.bats` runs still pass
-
 - [ ] Stabilize the parallel bats verification harness and document any remaining limits
   **ID**: stabilize-parallel-check-harness
   **Parent**: stabilize-parallel-check-suite

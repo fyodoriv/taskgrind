@@ -57,7 +57,9 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 
 @test "zero-ship session summary tells next session about the problem" {
   local counter_file="$TEST_DIR/counter"
+  local prompt_dir="$TEST_DIR/prompts"
   echo "0" > "$counter_file"
+  mkdir -p "$prompt_dir"
   local smart_devin="$TEST_DIR/smart-devin"
   cat > "$smart_devin" <<SCRIPT
 #!/bin/bash
@@ -65,6 +67,22 @@ echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 n=\$(cat "$counter_file")
 n=\$((n + 1))
 echo "\$n" > "$counter_file"
+prompt=""
+prev=""
+for arg in "\$@"; do
+  if [ "\$prev" = "-p" ]; then
+    prompt="\$arg"
+    break
+  fi
+  case "\$arg" in
+    -p=*)
+      prompt="\${arg#-p=}"
+      break
+      ;;
+  esac
+  prev="\$arg"
+done
+printf '%s' "\$prompt" > "$prompt_dir/prompt-\$n.txt"
 if [ "\$n" -eq 2 ]; then
   cat > "$TEST_REPO/TASKS.md" <<'EOF'
 # Tasks
@@ -83,7 +101,8 @@ TASKS
   export DVB_DEADLINE=$(( $(date +%s) + 20 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Session 2 prompt should mention the zero-ship from session 1
-  sed -n '2p' "$DVB_GRIND_INVOKE_LOG" | grep -q 'task count did not decrease'
+  [ -f "$prompt_dir/prompt-2.txt" ]
+  grep -q 'task count did not decrease' "$prompt_dir/prompt-2.txt"
 }
 
 @test "skip list warning appears in session 4 prompt after repeated task attempts" {
@@ -784,7 +803,7 @@ TASKS
 
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
-  grep -q 'shipped=1' "$TEST_LOG"
+  assert_session_log_has_shipped 1
 }
 
 @test "ID-based shipped: adding and removing tasks counts correctly" {
@@ -819,7 +838,7 @@ TASKS
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # ID-based: task-a was present before and gone after → shipped=1
-  grep -q 'shipped=1' "$TEST_LOG"
+  assert_session_log_has_shipped 1
 }
 
 @test "ID-based shipped: adding 2 and removing 2 still counts shipped" {
@@ -852,7 +871,7 @@ TASKS
 
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
-  grep -q 'shipped=2' "$TEST_LOG"
+  assert_session_log_has_shipped 2
 }
 
 @test "ID-based shipped: no IDs falls back to count-based" {
@@ -880,7 +899,7 @@ TASKS
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Count-based fallback: 2→1 = shipped=1
-  grep -q 'shipped=1' "$TEST_LOG"
+  assert_session_log_has_shipped 1
 }
 
 @test "ID-based shipped: logs new tasks added during session" {

@@ -85,3 +85,10 @@ setup_network_sentinel() {
     rm -f "$sentinel_path"
   fi
 }
+
+# Assert that at least one session-end log line reports the expected shipped count.
+# This avoids matching unrelated log lines like grind_done totals or timeout notices.
+assert_session_log_has_shipped() {
+  local expected_shipped="$1"
+  grep -Eq "session=[0-9]+ ended .*shipped=${expected_shipped}([[:space:]]|\$)" "$TEST_LOG"
+}
