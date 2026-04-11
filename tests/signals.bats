@@ -104,6 +104,67 @@ SCRIPT
   grep -q 'git.*push.*origin' "$DVB_GRIND"
 }
 
+@test "final_sync surfaces git push stderr in log and terminal warning" {
+  local remote_repo="$TEST_DIR/remote.git"
+  git init --bare "$remote_repo" >/dev/null
+
+  local origin_repo="$TEST_DIR/origin"
+  git clone "$remote_repo" "$origin_repo" >/dev/null 2>&1
+  git -C "$origin_repo" config user.email "test@test.com"
+  git -C "$origin_repo" config user.name "Test"
+  git -C "$origin_repo" config core.hooksPath /dev/null
+  cat > "$origin_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Seed remote
+TASKS
+  git -C "$origin_repo" add -f TASKS.md
+  git -C "$origin_repo" commit -m "seed remote" >/dev/null
+  git -C "$origin_repo" push origin main >/dev/null 2>&1
+
+  local grind_repo="$TEST_DIR/grind-repo"
+  git clone "$remote_repo" "$grind_repo" >/dev/null 2>&1
+  git -C "$grind_repo" config user.email "test@test.com"
+  git -C "$grind_repo" config user.name "Test"
+  git -C "$grind_repo" config core.hooksPath /dev/null
+  cat > "$grind_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+  git -C "$grind_repo" add -f TASKS.md
+  git -C "$grind_repo" commit -m "complete task" >/dev/null
+
+  local hook_dir="$TEST_DIR/git-hooks"
+  mkdir -p "$hook_dir"
+  cat > "$hook_dir/pre-push" <<'SCRIPT'
+#!/bin/bash
+echo "remote rejected push: branch is protected" >&2
+echo "contact your admin" >&2
+exit 1
+SCRIPT
+  chmod +x "$hook_dir/pre-push"
+  git -C "$grind_repo" config core.hooksPath "$hook_dir"
+
+  local fake_devin="$TEST_DIR/fake-devin-real-final-sync"
+  cat > "$fake_devin" <<'SCRIPT'
+#!/bin/bash
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+exit 0
+SCRIPT
+  chmod +x "$fake_devin"
+
+  unset DVB_GRIND_CMD
+  export DVB_DEVIN_PATH="$fake_devin"
+  export DVB_CAFFEINATED=1
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+
+  "$DVB_GRIND" 1 "$grind_repo" >/dev/null 2>&1
+  [ "$?" -eq 0 ]
+  grep -q 'final_sync push_failed error=remote rejected push: branch is protected' "$TEST_LOG"
+  grep -q 'remote rejected push: branch is protected' "$TEST_LOG"
+  grep -q 'Push failed: \$push_first_line' "$DVB_GRIND"
+}
+
 @test "structural: EXIT trap calls final_sync before cleanup" {
   grep -q "trap 'final_sync; cleanup' EXIT" "$DVB_GRIND"
 }

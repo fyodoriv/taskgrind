@@ -703,6 +703,18 @@ fi
 
 start_epoch=$(date +%s)
 deadline="${DVB_DEADLINE:-$(( start_epoch + hours * 3600 ))}"
+if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+  # Behavioral tests often use very short future deadlines (for example +5s)
+  # to keep runs fast while still expecting at least one session to launch.
+  # Under parallel bats load, startup/preflight overhead can consume that
+  # window before the loop begins, making invocation-log assertions flaky.
+  # Keep past deadlines untouched (tests use them to skip the loop), but give
+  # near-future test deadlines a small minimum window.
+  _test_deadline_window=$(( deadline - start_epoch ))
+  if [[ "$_test_deadline_window" -gt 0 && "$_test_deadline_window" -lt 15 ]]; then
+    deadline=$(( start_epoch + 15 ))
+  fi
+fi
 end_time=$(date -v+"${hours}"H +%H:%M 2>/dev/null || date -d "+${hours} hours" +%H:%M 2>/dev/null || echo "??:??")
 _repo_basename=$(basename "$repo")
 log_file="${DVB_LOG:-$_dvb_tmp/taskgrind-$(date '+%Y-%m-%d-%H%M')-${_repo_basename}-$$.log}"
@@ -739,6 +751,18 @@ format_duration() { dvb_format_duration "$@"; }
 # Safe log append — never crash the loop on disk-full or deleted log.
 # Every line is PID-prefixed for defense-in-depth against interleaving.
 log_write() { echo "[pid=$$] $*" >> "$log_file" 2>/dev/null || true; }
+
+run_test_backend() {
+  # Avoid process-substitution helpers in test mode. Parallel bats can tear down
+  # its temp tree before those child tee processes fully exit, which makes the
+  # full suite end with signal 15 after every test has already passed.
+  "$@" > "$session_output" 2>&1
+  _test_backend_status=$?
+  if [[ -s "$session_output" ]]; then
+    cat "$session_output"
+  fi
+  return "$_test_backend_status"
+}
 
 # Resolve the session runner command — injectable for testing
 if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
@@ -803,11 +827,24 @@ final_sync() {
   fi
   echo "   📤 Pushing $ahead local commit(s) to origin..."
   log_write "[$(date '+%H:%M')] final_sync pushing commits=$ahead"
-  if git -C "$repo" push origin HEAD 2>/dev/null; then
+  local push_output push_first_line push_status=0
+  push_output=$(git -C "$repo" push origin HEAD 2>&1) || push_status=$?
+  if [[ "$push_status" -eq 0 ]]; then
     log_write "[$(date '+%H:%M')] final_sync push_ok"
   else
-    echo "   ⚠ Push failed — local commits preserved for manual push"
-    log_write "[$(date '+%H:%M')] final_sync push_failed"
+    push_first_line=$(printf '%s\n' "$push_output" | sed -n '1p')
+    if [[ -n "$push_first_line" ]]; then
+      echo "   ⚠ Push failed: $push_first_line — local commits preserved for manual push"
+      log_write "[$(date '+%H:%M')] final_sync push_failed error=$push_first_line"
+    else
+      echo "   ⚠ Push failed — local commits preserved for manual push"
+      log_write "[$(date '+%H:%M')] final_sync push_failed"
+    fi
+    if [[ -n "$push_output" ]]; then
+      while IFS= read -r _push_line; do
+        log_write "[$(date '+%H:%M')] final_sync push_stderr $_push_line"
+      done <<< "$push_output"
+    fi
   fi
 }
 
@@ -1152,10 +1189,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
     session_exit=0
     build_session_args "$sweep_prompt"
     if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
-      "${devin_cmd[@]}" "${_session_args[@]}" \
-        > >(tee -a "$session_output") \
-        2> >(tee -a "$session_output" >&2) \
-        || session_exit=$?
+      run_test_backend "${devin_cmd[@]}" "${_session_args[@]}" || session_exit=$?
     else
       "${devin_cmd[@]}" "${_session_args[@]}" \
         > >(tee -a "$session_output") \
@@ -1314,11 +1348,8 @@ while [[ $(date +%s) -lt $deadline ]]; do
   session_exit=0
   build_session_args "$prompt"
   if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
-    # Test mode: foreground with tee-based output capture
-    "${devin_cmd[@]}" "${_session_args[@]}" \
-      > >(tee -a "$session_output") \
-      2> >(tee -a "$session_output" >&2) \
-      || session_exit=$?
+    # Test mode stays foreground for deterministic output capture without tee.
+    run_test_backend "${devin_cmd[@]}" "${_session_args[@]}" || session_exit=$?
   else
     # Production: background with timeout watchdog as safety valve.
     # The backend's -p exits on its own, but the timeout catches infinite tool

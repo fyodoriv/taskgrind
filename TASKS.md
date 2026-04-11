@@ -125,16 +125,6 @@
   - [ ] CI workflow updated to use `--jobs` flag
   - [ ] No test relies on ordering between files (each is fully isolated)
 
-- [ ] Surface git push error output in final_sync
-  **ID**: surface-push-errors
-  **Tags**: stability, git
-  **Details**: `final_sync()` at bin/taskgrind:676 discards git push stderr with `2>/dev/null`. When push fails (non-fast-forward, auth, etc.), the log says `final_sync push_failed` but the actual error is lost. Capture stderr to the log so users can debug without re-running manually.
-  **Files**: bin/taskgrind
-  **Acceptance**:
-  - [ ] `git push` stderr is captured and written to the log file
-  - [ ] The user-visible warning message includes the first line of the git error
-  - [ ] Existing final_sync tests still pass
-
 ## P1
 
 - [ ] Test coverage for per-task skip list (attempt tracking)
