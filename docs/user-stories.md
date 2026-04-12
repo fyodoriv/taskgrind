@@ -189,6 +189,7 @@ What happens:
 - The current in-flight session keeps running on its original model
 - When the next session picks up the change, taskgrind writes a live model log entry before the next session banner
 - This is useful when you want deeper reasoning early, then faster turnaround once the queue gets simpler
+- Delete `.taskgrind-model` later to fall back to the startup model without restarting the grind
 
 Sample log:
 ```
@@ -217,6 +218,7 @@ What happens:
 - Taskgrind checks `.taskgrind-prompt` between sessions, so the new focus applies at the next session start
 - Future sessions prepend that prompt to the skill instructions until you edit or remove the file
 - This is useful when production issues or new priorities show up during a long grind
+- Delete `.taskgrind-prompt` to stop injecting the extra focus text and return to the startup prompt only
 
 Sample log:
 ```

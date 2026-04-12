@@ -327,6 +327,10 @@ echo "gpt-5-4" > ~/apps/myrepo/.taskgrind-model
 
 The file is re-read before each session. Overrides `--model` and `TG_MODEL` when present. Short aliases such as `opus`, `sonnet`, `haiku`, `codex`, `gpt`, and `swe` resolve to the current preferred model IDs. Delete the file to revert to the original startup model. Files larger than 1KB are skipped (safety guard).
 
+Both override files are only applied between sessions. The current in-flight
+session keeps its original prompt and model, and the next session picks up the
+updated file content.
+
 ### Concurrent instances on one repo
 
 By default, taskgrind allows two concurrent grinds on the same repo. Raise

@@ -155,6 +155,22 @@ sessions. Re\-read before each session. Overrides \-\-model and TG_MODEL when
 present. Short aliases resolve the same way they do for \-\-model and TG_MODEL.
 Delete the file to revert to the original startup model. Files larger than 1KB
 are skipped.
+.SS LIVE OVERRIDE FILES
+Both repo-local override files are checked between sessions, not during an
+active session. The current session keeps running with its original prompt and
+model, and the next session picks up any file changes.
+.PP
+.B .taskgrind\-prompt
+extends the startup \-\-prompt text for later sessions. Use it for temporary
+focus shifts such as a flaky test, production issue, or audit note without
+restarting the grind. Delete the file to stop injecting those extra
+instructions.
+.PP
+.B .taskgrind\-model
+overrides the startup model chosen by \-\-model or TG_MODEL for later sessions.
+This lets operators start with a stronger model, then switch to a faster one as
+the remaining work gets simpler. Delete the file to fall back to the startup
+model.
 .PP
 By default, taskgrind allows two concurrent grinds on the same repo. Set
 .B TG_MAX_INSTANCES

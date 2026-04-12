@@ -38,12 +38,6 @@
   **Files**: `tests/basics.bats`, `bin/taskgrind`, `README.md`, `man/taskgrind.1`
   **Acceptance**: A structural test fails when any documented CLI flag or `TG_` variable exists in one surface but not the others, and the current tree passes with all three docs sources aligned.
 
-- [ ] Document live `.taskgrind-prompt` and `.taskgrind-model` overrides in the man page
-  **ID**: document-live-override-files-in-man-page
-  **Tags**: docs, ux, discoverability
-  **Details**: `README.md`, `docs/user-stories.md`, `docs/architecture.md`, and `tests/features.bats` all treat `.taskgrind-prompt` and `.taskgrind-model` as first-class features, but `man/taskgrind.1` does not mention either file. Add a dedicated man-page section that explains when the files are read, how they interact with `--prompt` and `--model`, and how operators can remove them to fall back to the startup configuration.
-  **Files**: `man/taskgrind.1`, `README.md`, `docs/user-stories.md`
-  **Acceptance**: `man/taskgrind.1` documents both live override files with concrete usage notes that match the existing README/user-story behavior, and a docs test guards the new man-page text.
 
 ## P2
 ## P3
