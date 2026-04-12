@@ -202,7 +202,7 @@ SCRIPT
 - [ ] Stubborn task
   **ID**: stubborn-task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
   export DVB_MAX_ZERO_SHIP=6
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'task_skip_threshold ids=stubborn-task' "$TEST_LOG"

@@ -1290,6 +1290,29 @@ extract_task_ids() {
   fi
 }
 
+prune_task_attempts_file() {
+  local attempts_file="$1"
+  local tasks_file="$2"
+  local current_ids
+  local pruned_attempts
+
+  [[ -s "$attempts_file" ]] || return 0
+
+  current_ids=$(extract_task_ids "$tasks_file")
+  if [[ -z "$current_ids" ]]; then
+    : > "$attempts_file" 2>/dev/null || true
+    return 0
+  fi
+
+  pruned_attempts="${attempts_file}.pruned"
+  if awk 'NR == FNR { keep[$1] = 1; next } ($1 in keep) { print }' \
+    <(printf '%s\n' "$current_ids") "$attempts_file" > "$pruned_attempts" 2>/dev/null; then
+    mv "$pruned_attempts" "$attempts_file" 2>/dev/null || rm -f "$pruned_attempts" 2>/dev/null || true
+  else
+    rm -f "$pruned_attempts" 2>/dev/null || true
+  fi
+}
+
 # Print the first remaining task context as shell-safe assignments.
 # Output keys:
 #   task_id=<id>
@@ -1819,6 +1842,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
   fi
 
   # Skip list — tasks attempted 3+ times without shipping
+  prune_task_attempts_file "$_task_attempts_file" "$repo/TASKS.md"
   _skip_ids=""
   if [[ -s "$_task_attempts_file" ]]; then
     _skip_ids=$(awk '$2 >= 3 { printf "%s ", $1 }' "$_task_attempts_file" 2>/dev/null)
