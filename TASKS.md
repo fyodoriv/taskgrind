@@ -3,6 +3,13 @@
 ## P0
 
 ## P1
+- [ ] Audit preserved taskgrind logs and refresh follow-up queues across affected repos (@devin)
+  **ID**: audit-preserved-log-follow-up-queues
+  **Tags**: audit, tasks, logs, multi-repo
+  **Details**: Review the preserved 2026-04-12 taskgrind fleet logs, update the matching `TASKS.md` files in the affected repos so the queue reflects the real blockers and shipped work, and record any newly discovered follow-up tasks instead of letting log-only findings rot.
+  **Files**: `TASKS.md`, `/Users/fivanishche/apps/agentbrew/TASKS.md`, `/Users/fivanishche/apps/bosun/TASKS.md`, `/Users/fivanishche/apps/oncall-hub-app/TASKS.md`, `/Users/fivanishche/apps/taskgrind-log-audit-s24/TASKS.md`
+  **Acceptance**: Preserved logs are reviewed; each affected repo queue reflects the latest blocker state or follow-up tasks from those logs; the temporary audit task block is removed once the queue refresh is complete.
+
 - [ ] Add canonical `TG_` environment-variable coverage for prompt and status-file behavior
   **ID**: cover-canonical-tg-env-vars
   **Tags**: tests, env-vars, reliability
