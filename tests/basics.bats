@@ -189,6 +189,19 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   ' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
 }
 
+@test "README usage and man page options document --resume" {
+  run grep -nF 'taskgrind --resume ~/apps/myrepo' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+
+  run awk '
+    /^\.SH OPTIONS$/ { in_options=1; next }
+    /^\.SH / && in_options { exit !found }
+    in_options && /^\.BR \\-\\-resume/ { found=1 }
+    END { exit !found }
+  ' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  [ "$status" -eq 0 ]
+}
+
 @test "--help works in any arg position" {
   run "$DVB_GRIND" 8 --help
   [ "$status" -eq 0 ]

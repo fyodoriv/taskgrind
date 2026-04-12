@@ -61,6 +61,7 @@ taskgrind --prompt "focus on test coverage" 8  # focus prompt
 taskgrind --backend claude-code 8       # use Claude Code backend
 taskgrind --dry-run 8 ~/apps/myrepo    # print config without running
 taskgrind --preflight ~/apps/myrepo    # run health checks only
+taskgrind --resume ~/apps/myrepo       # resume an interrupted grind
 taskgrind --help / -h                  # show usage and environment variables
 taskgrind --version / -V               # print version (commit hash + date)
 TG_MAX_INSTANCES=3 taskgrind 8         # allow three concurrent grinds per repo
