@@ -1880,11 +1880,31 @@ while [[ $(date +%s) -lt $deadline ]]; do
     if [[ -n "$_git_head_after" && "$_git_head_before" != "$_git_head_after" ]]; then
       _productive_zero_ship=1
       _new_commits=$(git -C "$repo" rev-list --count "${_git_head_before}..${_git_head_after}" 2>/dev/null || echo "?")
+      _touched_task_files=$(
+        git -C "$repo" rev-list "${_git_head_before}..${_git_head_after}" 2>/dev/null |
+          while IFS= read -r _commit; do
+            git -C "$repo" diff-tree --no-commit-id --name-only -r "$_commit" 2>/dev/null
+          done | grep 'TASKS\.md$' || true
+      )
+      _nonlocal_removed_task_file=""
+      if [[ -n "$_touched_task_files" ]]; then
+        while IFS= read -r _task_file; do
+          [[ -z "$_task_file" || "$_task_file" == "TASKS.md" ]] && continue
+          if git -C "$repo" log --format= --patch "${_git_head_before}..${_git_head_after}" -- "$_task_file" 2>/dev/null | grep -q '^-- \[ \]'; then
+            _nonlocal_removed_task_file="$_task_file"
+            break
+          fi
+        done <<< "$_touched_task_files"
+      fi
       if [[ "$_tasks_added_during_session" -gt 0 ]]; then
         _productive_zero_ship_reason="queue_delta_offset"
         _productive_zero_ship_stall_exempt=1
         log_write "[$(date '+%H:%M')] productive_zero_ship session=$session commits=$_new_commits reason=$_productive_zero_ship_reason tasks_added=$_tasks_added_during_session (committed code but concurrent task additions kept the queue flat)"
-      elif git -C "$repo" log --format= --name-only "${_git_head_before}..${_git_head_after}" -- TASKS.md 2>/dev/null | grep -q '^TASKS\.md$'; then
+      elif [[ -n "$_nonlocal_removed_task_file" ]]; then
+        _productive_zero_ship_reason="nonlocal_task_removed"
+        _productive_zero_ship_stall_exempt=1
+        log_write "[$(date '+%H:%M')] productive_zero_ship session=$session commits=$_new_commits reason=$_productive_zero_ship_reason task_file=$_nonlocal_removed_task_file (committed code and removed a task outside the active queue, so local TASKS.md stayed flat)"
+      elif echo "$_touched_task_files" | grep -q '^TASKS\.md$'; then
         _productive_zero_ship_reason="local_task_churn"
         _productive_zero_ship_stall_exempt=1
         log_write "[$(date '+%H:%M')] productive_zero_ship session=$session commits=$_new_commits reason=$_productive_zero_ship_reason (committed code but temporary task churn restored the original queue)"

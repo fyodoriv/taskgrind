@@ -1259,7 +1259,7 @@ cat > "$TEST_REPO/TASKS.md" <<'EOF'
 - [ ] Temporary subtask
   **ID**: task-temp
 EOF
-git -C "$TEST_REPO" add TASKS.md
+git -C "$TEST_REPO" add -f TASKS.md
 git -C "$TEST_REPO" commit -q -m "test: add temporary task"
 
 cat > "$TEST_REPO/TASKS.md" <<'EOF'
