@@ -12,7 +12,6 @@
   **Reviewed 2026-04-12 session 31**: Re-reading `taskgrind-2026-04-11-1835-taskgrind-28400.log` still shows the same accounting pattern all the way through session 29 (`productive_zero_ship` after queue-only commits in sessions 23, 25, 26, and 29). The live downstream snapshot got worse rather than better: `agentbrew/.taskgrind-state` now reports `session=38`, `sessions_zero_ship=32`, and `consecutive_zero_ship=32`, so the missing piece is still concrete reason logging inside `taskgrind`, not another downstream queue task.
   **Files**: `bin/taskgrind`, `tests/diagnostics.bats`, `tests/session.bats`
   **Acceptance**: When `productive_zero_ship` fires, the log explains whether the session removed no local task, removed a task in another repo, or lost the task delta because concurrent queue changes offset it; the reason text is specific enough to explain long zero-ship streaks in `.taskgrind-state`; regression coverage locks the new reason text.
-  **Acceptance**: When `productive_zero_ship` fires, the log explains whether the session removed no local task, removed a task in another repo, or lost the task delta because concurrent queue changes offset it; the reason text is specific enough to explain long zero-ship streaks in `.taskgrind-state`; regression coverage locks the new reason text.
 
 - [ ] Stop launching repeated `remaining=0m` sessions after the deadline has already expired
   **ID**: stop-expired-deadline-zero-minute-loop
