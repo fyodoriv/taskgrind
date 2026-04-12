@@ -3,12 +3,6 @@
 ## P0
 
 ## P1
-- [ ] Audit the 2026-04-11 taskgrind logs and refresh downstream repo queues for any still-missing follow-up tasks (@devin)
-  **ID**: audit-2026-04-11-log-queue-refresh
-  **Tags**: audit, tasks, maintenance
-  **Details**: Session 29 is reserved for log review only. Re-scan the 2026-04-11 taskgrind logs, confirm whether earlier downstream follow-up tasks actually landed, and update any repo queues that still reference missing blockers or are missing log-backed follow-up work.
-  **Files**: `TASKS.md`, downstream `TASKS.md` files
-  **Acceptance**: Any still-actionable log-backed queue gaps are reflected in the correct repo `TASKS.md` files, and this tracking block is removed once the audit pass is complete.
 ## P2
 - [ ] Log the concrete cause when `productive_zero_ship` is triggered by queue churn
   **ID**: log-productive-zero-ship-cause
