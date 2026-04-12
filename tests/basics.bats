@@ -151,6 +151,11 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [ "$status" -eq 0 ]
 }
 
+@test "README manual update path uses git pull --rebase" {
+  run grep -nF 'git pull --rebase' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+}
+
 @test "man page documents the current make audit review queue" {
   run grep -nF '.devin/skills/standing-audit-gap-loop/SKILL.md' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
   [ "$status" -eq 0 ]

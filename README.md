@@ -44,7 +44,7 @@ TASKGRIND_INSTALL_DIR=~/tools/taskgrind sh -c "$(curl -fsSL https://raw.githubus
 export PATH="$HOME/apps/taskgrind/bin:$PATH"
 ```
 
-To update: `brew upgrade taskgrind` (Homebrew) or `cd ~/apps/taskgrind && git pull` (manual)
+To update: `brew upgrade taskgrind` (Homebrew) or `cd ~/apps/taskgrind && git pull --rebase` (manual)
 
 Contributor audit shortcut: run `make audit` to reproduce the local repo-audit pass (TODO/FIXME scan, shellcheck, and the core docs review queue, including `README.md`, `CONTRIBUTING.md`, `AGENTS.md`, `Agentfile.yaml`, `docs/architecture.md`, `docs/resume-state.md`, `docs/user-stories.md`, `man/taskgrind.1`, `.devin/skills/standing-audit-gap-loop/SKILL.md`, and `.devin/skills/grind-log-analyze/SKILL.md`) without any network-only dependencies.
 
