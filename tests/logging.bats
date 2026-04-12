@@ -79,6 +79,51 @@ assert data["last_session"]["completed_at"]
 PY
 }
 
+@test "TG_STATUS_FILE writes status snapshots" {
+  local status_file="$TEST_DIR/tg-status.json"
+  export TG_STATUS_FILE="$status_file"
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  python3 - "$status_file" "$TEST_REPO" <<'PY'
+import json
+import sys
+
+path, expected_repo = sys.argv[1], sys.argv[2]
+with open(path, "r", encoding="utf-8") as handle:
+    data = json.load(handle)
+
+assert data["repo"] == expected_repo
+assert data["current_phase"] == "complete"
+assert data["last_session"]["result"] == "success"
+PY
+}
+
+@test "TG_STATUS_FILE takes precedence over DVB_STATUS_FILE" {
+  local tg_status_file="$TEST_DIR/tg-status.json"
+  local legacy_status_file="$TEST_DIR/legacy-status.json"
+  export TG_STATUS_FILE="$tg_status_file"
+  export DVB_STATUS_FILE="$legacy_status_file"
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  [ -f "$tg_status_file" ]
+  [ ! -e "$legacy_status_file" ]
+  python3 - "$tg_status_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    data = json.load(handle)
+
+assert data["current_phase"] == "complete"
+PY
+}
+
 @test "status file with unusable parent path fails before sessions start" {
   local blocked_parent="$TEST_DIR/blocked-parent"
   local status_file="$blocked_parent/status.json"

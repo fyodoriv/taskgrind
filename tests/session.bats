@@ -352,6 +352,22 @@ TASKS
   grep -q 'FOCUS: fix flaky tests' "$DVB_GRIND_INVOKE_LOG"
 }
 
+@test "TG_PROMPT env sets focus prompt" {
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export TG_PROMPT="cover canonical env vars"
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'FOCUS: cover canonical env vars' "$DVB_GRIND_INVOKE_LOG"
+}
+
+@test "TG_PROMPT takes precedence over DVB_PROMPT" {
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_PROMPT="legacy prompt"
+  export TG_PROMPT="canonical prompt"
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'FOCUS: canonical prompt' "$DVB_GRIND_INVOKE_LOG"
+  ! grep -q 'FOCUS: legacy prompt' "$DVB_GRIND_INVOKE_LOG"
+}
+
 @test "--prompt flag overrides DVB_PROMPT env" {
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   export DVB_PROMPT="env prompt"

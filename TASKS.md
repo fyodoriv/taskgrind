@@ -3,13 +3,6 @@
 ## P0
 
 ## P1
-- [ ] Add canonical `TG_` environment-variable coverage for prompt and status-file behavior
-  **ID**: cover-canonical-tg-env-vars
-  **Tags**: tests, env-vars, reliability
-  **Details**: The suite exercises `DVB_PROMPT` and `DVB_STATUS_FILE`, but there are no direct tests for the documented canonical `TG_PROMPT` and `TG_STATUS_FILE` paths. Add red/green coverage for the user-facing prefix and for `TG_` taking precedence over the legacy `DVB_` values so regressions in the startup mapping cannot silently break the documented interface.
-  **Files**: `tests/session.bats`, `tests/logging.bats`, `bin/taskgrind`
-  **Acceptance**: New tests fail before the fix, then pass while proving `TG_PROMPT` injects the focus prompt, `TG_STATUS_FILE` writes status JSON, and both `TG_` variables override conflicting legacy `DVB_` values.
-
 - [ ] Expand status-file phase coverage beyond startup and running-session snapshots
   **ID**: expand-status-phase-coverage
   **Tags**: tests, observability, status-file
