@@ -964,6 +964,53 @@ TASKS
   grep -q 'tasks_added=1' "$TEST_LOG"
 }
 
+@test "ID-based shipped: parent removal survives temporary subtask churn" {
+  # Reproduce a planning-style session that replaces a parent task with
+  # temporary subtasks, then removes those subtasks before finishing with one
+  # surviving follow-up task. The final queue stays flat, but one pre-session
+  # task ID was still shipped and must count.
+  local smart_devin="$TEST_DIR/smart-devin"
+  cat > "$smart_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+- [ ] Peer task that survives
+  **ID**: task-peer
+- [ ] Temporary subtask one
+  **ID**: task-parent-step-1
+- [ ] Temporary subtask two
+  **ID**: task-parent-step-2
+EOF
+cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+- [ ] Peer task that survives
+  **ID**: task-peer
+- [ ] Follow-up task created during the session
+  **ID**: task-followup
+EOF
+SCRIPT
+  chmod +x "$smart_devin"
+  export DVB_GRIND_CMD="$smart_devin"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Parent task to decompose and ship
+  **ID**: task-parent
+- [ ] Peer task that survives
+  **ID**: task-peer
+TASKS
+
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  assert_session_log_has_shipped 1
+  grep -q 'tasks_added=1' "$TEST_LOG"
+  ! grep -q 'productive_zero_ship' "$TEST_LOG"
+}
+
 @test "count-based: tasks_added log written without crash when tasks_after > tasks_before" {
   # Regression test for bash UTF-8 variable name bug:
   # $tasks_before→$tasks_after — the → arrow (\xe2\x86\x92) caused bash to
