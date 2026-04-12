@@ -116,6 +116,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 @test "make audit docs review queue includes resume docs and repo-local skills" {
   run make -C "$BATS_TEST_DIRNAME/.." audit
   [ "$status" -eq 0 ]
+  [[ "$output" == *"SECURITY.md"* ]]
   [[ "$output" == *"docs/resume-state.md"* ]]
   [[ "$output" == *"AGENTS.md"* ]]
   [[ "$output" == *"Agentfile.yaml"* ]]
@@ -124,6 +125,9 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "CONTRIBUTING documents the current make audit review queue" {
+  run grep -nF 'SECURITY.md' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
+  [ "$status" -eq 0 ]
+
   run grep -nF 'AGENTS.md' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
   [ "$status" -eq 0 ]
 
@@ -141,7 +145,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "README documents the full current make audit review queue" {
-  run grep -n 'Contributor audit shortcut:.*README.md.*CONTRIBUTING.md.*AGENTS.md.*Agentfile.yaml.*docs/architecture.md.*docs/resume-state.md.*docs/user-stories.md.*man/taskgrind.1' "$BATS_TEST_DIRNAME/../README.md"
+  run grep -n 'Contributor audit shortcut:.*README.md.*CONTRIBUTING.md.*SECURITY.md.*AGENTS.md.*Agentfile.yaml.*docs/architecture.md.*docs/resume-state.md.*docs/user-stories.md.*man/taskgrind.1' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]
 
   run grep -nF '.devin/skills/standing-audit-gap-loop/SKILL.md' "$BATS_TEST_DIRNAME/../README.md"
@@ -157,6 +161,9 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "man page documents the current make audit review queue" {
+  run grep -nF 'SECURITY.md' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  [ "$status" -eq 0 ]
+
   run grep -nF '.devin/skills/standing-audit-gap-loop/SKILL.md' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
   [ "$status" -eq 0 ]
 

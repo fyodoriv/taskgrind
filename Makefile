@@ -58,7 +58,7 @@ audit:
 	@echo "═══ Audit: shellcheck ═══"
 	@$(MAKE) lint
 	@echo "═══ Audit: docs review queue ═══"
-	@printf '%s\n' README.md CONTRIBUTING.md AGENTS.md Agentfile.yaml docs/architecture.md docs/resume-state.md docs/user-stories.md man/taskgrind.1 .devin/skills/standing-audit-gap-loop/SKILL.md .devin/skills/grind-log-analyze/SKILL.md
+	@printf '%s\n' README.md CONTRIBUTING.md SECURITY.md AGENTS.md Agentfile.yaml docs/architecture.md docs/resume-state.md docs/user-stories.md man/taskgrind.1 .devin/skills/standing-audit-gap-loop/SKILL.md .devin/skills/grind-log-analyze/SKILL.md
 
 install:
 	@echo "Installing taskgrind to $(PREFIX)..."
