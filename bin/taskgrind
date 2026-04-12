@@ -851,6 +851,12 @@ fi
 if [[ -d "$log_file" ]]; then
   echo "Error: DVB_LOG points to a directory: $log_file" >&2; exit 1
 fi
+if [[ -n "$status_file" ]]; then
+  status_dir="$(dirname "$status_file")"
+  if [[ ! -d "$status_dir" ]]; then
+    mkdir -p "$status_dir" 2>/dev/null || { echo "Error: cannot create status directory: $status_dir" >&2; exit 1; }
+  fi
+fi
 if [[ -n "$status_file" ]] && [[ -d "$status_file" ]]; then
   echo "Error: DVB_STATUS_FILE points to a directory: $status_file" >&2; exit 1
 fi

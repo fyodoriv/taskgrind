@@ -79,6 +79,21 @@ assert data["last_session"]["completed_at"]
 PY
 }
 
+@test "status file with unusable parent path fails before sessions start" {
+  local blocked_parent="$TEST_DIR/blocked-parent"
+  local status_file="$blocked_parent/status.json"
+  touch "$blocked_parent"
+  export DVB_STATUS_FILE="$status_file"
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cannot create status directory"* ]]
+  [[ "$output" == *"$blocked_parent"* ]]
+  [ ! -f "$DVB_GRIND_INVOKE_LOG" ]
+}
+
 @test "status file updates while a session is running" {
   local status_file="$TEST_DIR/live-status.json"
   local slow_devin="$TEST_DIR/slow-devin"
