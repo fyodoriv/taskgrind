@@ -280,6 +280,12 @@ Normal completion (deadline reached or queue empty).
 .TP
 .B 1
 Error (invalid args, missing binary, preflight failure).
+.TP
+.B 130
+Interrupted by SIGINT (Ctrl\-C). Waits for running session, pushes commits.
+.TP
+.B 143
+Terminated by SIGTERM. Waits for running session, pushes commits.
 .SH RESUME
 Use
 .B taskgrind \-\-resume
@@ -296,12 +302,25 @@ saved deadline already expired, taskgrind rejects the stale state and tells you
 to start a fresh grind. See
 .I docs/resume-state.md
 for the current field contract and validation rules.
+.SH DEVELOPMENT
+For repo maintenance, the standard local workflow is:
+.RS
 .TP
-.B 130
-Interrupted by SIGINT (Ctrl\-C). Waits for running session, pushes commits.
+.B make lint
+Run shellcheck across the shipped scripts.
 .TP
-.B 143
-Terminated by SIGTERM. Waits for running session, pushes commits.
+.B make test
+Run the bats suite with caching enabled, using the repo's default parallelism.
+.TP
+.B "make test TESTS=tests/bash\-compat.bats"
+Re-run one bats file with its own cache key for tight local loops.
+.TP
+.B "make test TEST_JOBS=4"
+Override the default parallelism when diagnosing local bats scheduling issues.
+.TP
+.B make check
+Run lint plus the cached test flow before committing.
+.RE
 .SH SEE ALSO
 .BR devin (1),
 .BR bats (1),
