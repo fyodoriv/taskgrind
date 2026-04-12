@@ -148,7 +148,30 @@ Preflight checks for: /Users/you/apps/myproject
   ✓ Preflight passed — ready to grind.
 ```
 
-## 7. Switching models mid-grind
+## 7. Resuming an interrupted grind
+
+Your terminal crashes or the machine reboots mid-session, but you want to keep the same deadline and session counters instead of starting from scratch.
+
+```bash
+# Continue the interrupted run in the same repo
+taskgrind --resume ~/apps/myproject
+```
+
+What happens:
+- Taskgrind loads `~/apps/myproject/.taskgrind-state` and validates that it still belongs to the same repo and active run
+- The resumed grind restores the original deadline, session counter, shipped-task totals, zero-ship counters, backend, skill, and model
+- If the saved deadline already expired or the saved state is incompatible, taskgrind exits with a clear reason instead of silently mixing runs
+- On clean completion, taskgrind removes the state file again
+
+Sample output:
+```
+☕ taskgrind: 6h (until 15:00) — backend=devin, skill=next-task, model=gpt-5.4, repo=/Users/you/apps/myproject
+   Resuming: session=3 shipped=2 zero-ship=1
+   Each session runs next-task. Git sync every 5 sessions.
+   Log: ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
+```
+
+## 8. Switching models mid-grind
 
 You start a long grind with a stronger model for ambiguous work, then switch to a faster one once the remaining tasks are mostly straightforward docs or tests.
 
@@ -175,7 +198,7 @@ Sample log:
 [pid=38291] [09:47] session=2 remaining=313m tasks=8 model=claude-sonnet-4.6
 ```
 
-## 7. Redirecting focus mid-grind
+## 9. Redirecting focus mid-grind
 
 You start a grind, then realize the next few sessions should focus on a specific bug or subsystem. Instead of stopping the run, you drop a `.taskgrind-prompt` file into the repo so the next session picks up the new direction.
 

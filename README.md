@@ -408,6 +408,7 @@ Extracted from [dotfiles](https://github.com/cbrwizard/dotfiles) where it lived 
 
 - [User Stories](docs/user-stories.md) — real usage patterns with commands and sample output
 - [Architecture](docs/architecture.md) — design decisions and rationale
+- [Resume State](docs/resume-state.md) — saved-state fields, validation rules, and restore behavior
 
 ## License
 

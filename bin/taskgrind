@@ -1759,16 +1759,20 @@ while [[ $(date +%s) -lt $deadline ]]; do
     tasks_shipped=$((tasks_shipped + session_shipped))
   fi
 
+  _tasks_added_during_session=0
+
   # Log when new tasks were injected during the session (ID-based detection)
   if [[ -n "$_ids_after" && -n "${_ids_before:-}" ]]; then
     _ids_added=$(comm -13 <(echo "$_ids_before") <(echo "$_ids_after") | wc -l)
     _ids_added=$(( _ids_added + 0 ))
     if [[ $_ids_added -gt 0 ]]; then
+      _tasks_added_during_session=$_ids_added
       log_write "[$(date '+%H:%M')] tasks_added=$_ids_added (ids added during session)"
     fi
   elif [[ "$tasks_after" -gt "$tasks_before" ]]; then
     # Count-based fallback for task addition detection
     _tasks_added=$(( tasks_after - tasks_before ))
+    _tasks_added_during_session=$_tasks_added
     log_write "[$(date '+%H:%M')] tasks_added=$_tasks_added (external injection: ${tasks_before}→${tasks_after})"
   fi
 
@@ -1826,7 +1830,11 @@ while [[ $(date +%s) -lt $deadline ]]; do
     if [[ -n "$_git_head_after" && "$_git_head_before" != "$_git_head_after" ]]; then
       _productive_zero_ship=1
       _new_commits=$(git -C "$repo" rev-list --count "${_git_head_before}..${_git_head_after}" 2>/dev/null || echo "?")
-      log_write "[$(date '+%H:%M')] productive_zero_ship session=$session commits=$_new_commits (committed code but task count unchanged)"
+      if [[ "$_tasks_added_during_session" -gt 0 ]]; then
+        log_write "[$(date '+%H:%M')] productive_zero_ship session=$session commits=$_new_commits tasks_added=$_tasks_added_during_session (committed code but concurrent task additions kept the queue flat)"
+      else
+        log_write "[$(date '+%H:%M')] productive_zero_ship session=$session commits=$_new_commits (committed code but task count unchanged)"
+      fi
     fi
   fi
 
