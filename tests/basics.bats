@@ -117,12 +117,16 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   run make -C "$BATS_TEST_DIRNAME/.." audit
   [ "$status" -eq 0 ]
   [[ "$output" == *"docs/resume-state.md"* ]]
+  [[ "$output" == *"AGENTS.md"* ]]
   [[ "$output" == *"Agentfile.yaml"* ]]
   [[ "$output" == *".devin/skills/standing-audit-gap-loop/SKILL.md"* ]]
   [[ "$output" == *".devin/skills/grind-log-analyze/SKILL.md"* ]]
 }
 
 @test "CONTRIBUTING documents the current make audit review queue" {
+  run grep -nF 'AGENTS.md' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
+  [ "$status" -eq 0 ]
+
   run grep -nF 'Agentfile.yaml' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
   [ "$status" -eq 0 ]
 

@@ -62,7 +62,7 @@ Use `make audit` when you want the same lightweight local audit loop that empty-
 
 - Scans the repo for `TODO` and `FIXME` markers
 - Runs shellcheck through `make lint`
-- Prints the core docs review queue (`README.md`, `CONTRIBUTING.md`, `Agentfile.yaml`, `docs/architecture.md`, `docs/resume-state.md`, `docs/user-stories.md`, `man/taskgrind.1`, `.devin/skills/standing-audit-gap-loop/SKILL.md`, `.devin/skills/grind-log-analyze/SKILL.md`)
+- Prints the core docs review queue (`README.md`, `CONTRIBUTING.md`, `AGENTS.md`, `Agentfile.yaml`, `docs/architecture.md`, `docs/resume-state.md`, `docs/user-stories.md`, `man/taskgrind.1`, `.devin/skills/standing-audit-gap-loop/SKILL.md`, `.devin/skills/grind-log-analyze/SKILL.md`)
 
 The target is intentionally local-only, so it works offline and does not depend on external services.
 
