@@ -330,6 +330,21 @@ Re-run one bats file with its own cache key for tight local loops.
 .B "make test TEST_JOBS=4"
 Override the default parallelism when diagnosing local bats scheduling issues.
 .TP
+.B make audit
+Run the offline repo-audit loop: scan for TODO/FIXME markers, run shellcheck,
+and print the core docs review queue including
+.I README.md ,
+.I CONTRIBUTING.md ,
+.I AGENTS.md ,
+.I Agentfile.yaml ,
+.I docs/architecture.md ,
+.I docs/resume-state.md ,
+.I docs/user-stories.md ,
+.I man/taskgrind.1 ,
+and the repo-local
+.I .devin
+skill docs.
+.TP
 .B make check
 Run lint plus the cached test flow before committing.
 .RE
