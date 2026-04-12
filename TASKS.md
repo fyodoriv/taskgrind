@@ -3,13 +3,6 @@
 ## P0
 
 ## P1
-- [ ] Detect each repo's real sync base instead of assuming `main`
-  **ID**: detect-sync-base-without-main
-  **Tags**: bug, git, branch, multi-agent
-  **Details**: Log review found repeated sync cleanup failures in `/Users/fivanishche/apps/ideas`, where `/var/folders/vp/xnc0myyn4dsb7trvmq61j4hw0000gp/T/taskgrind-2026-04-12-0806-ideas-17272.log` hit `git_sync checkout_failed: error: pathspec 'main' did not match any file(s) known to git` in sessions 5, 10, 15, 20, and 25. That repo currently tracks `standing-ideas-gap-loop`, and `git remote show origin` reports `HEAD branch: (unknown)`, so taskgrind cannot safely assume every repo has a local `main` branch when it returns to the base branch for sync or cleanup.
-  **Reviewed 2026-04-12 session 31**: Re-checking the live repo confirms the failure is still actionable, not just preserved log noise. `/Users/fivanishche/apps/ideas` is still on `standing-ideas-gap-loop`, its `origin` remote still reports `HEAD branch: (unknown)`, and the preserved log still shows five `pathspec 'main'` checkout failures spread across the 08:06 fan-out. Taskgrind needs a first-class fallback to the repo's configured upstream or current branch so non-`main` repos do not keep skipping sync cleanup.
-  **Files**: `bin/taskgrind`, `tests/git-sync.bats`, `tests/resume.bats`
-  **Acceptance**: Add a failing test first; git sync chooses a valid base branch in repos without a local `main`; cleanup no longer logs `pathspec 'main' did not match any file(s) known to git`; logs explain which branch taskgrind selected when the remote HEAD is unavailable.
 ## P2
 - [ ] Drop stale skip-threshold history when task IDs disappear from the queue
   **ID**: prune-stale-skipped-task-attempts
