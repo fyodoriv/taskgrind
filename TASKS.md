@@ -3,6 +3,31 @@
 ## P0
 
 ## P1
+- [ ] Avoid double final-sync pushes during signal shutdown
+  **ID**: dedupe-final-sync-on-signal-shutdown
+  **Tags**: bug, git, shutdown, logging
+  **Details**: Recent logs also show duplicate `final_sync pushing...` and `final_sync push_ok` lines on SIGINT/SIGTERM shutdown. The signal path should perform one final push/log cycle, not one from `graceful_shutdown` and another from the EXIT trap.
+  **Files**: `bin/taskgrind`, `tests/git-sync.bats`, `tests/signals.bats`
+  **Acceptance**: Add a failing test first; signal-driven shutdown emits at most one `final_sync` block per run; pending commits are still pushed before exit.
+- [ ] Sync repos whose primary branch is not named main
+  **ID**: support-nonmain-primary-branch-during-sync
+  **Tags**: bug, git, multi-repo
+  **Details**: Log review found `/Users/fivanishche/apps/ideas` hitting `git_sync checkout_failed: error: pathspec 'main' did not match any file(s) known to git` even though the session itself completed normally. The sync path should detect the repo's real primary branch (current branch, origin HEAD, or another safe fallback) instead of assuming `main`.
+  **Files**: `bin/taskgrind`, `tests/git-sync.bats`
+  **Acceptance**: Add a failing test first; git sync succeeds in a repo whose primary branch is `master` or another non-`main` name; logs no longer emit `checkout_failed ... pathspec 'main'` for that case.
+- [ ] Recover cleanly from TASKS.md-only rebase conflicts during git sync
+  **ID**: recover-from-tasks-md-sync-conflicts
+  **Tags**: bug, git, tasks, multi-agent
+  **Details**: Log review found `/Users/fivanishche/apps/oncall-hub-app` hitting `git_sync rebase_failed` because concurrent agents both edited `TASKS.md`. Taskgrind should treat queue-file conflicts as a common multi-agent case and recover without leaving the repo mid-rebase or silently degrading future sessions.
+  **Files**: `bin/taskgrind`, `tests/git-sync.bats`, `tests/resume.bats`
+  **Acceptance**: Add a failing test first; a rebase conflict isolated to `TASKS.md` is either auto-resolved safely or aborted with a clean recovery path; later sessions start from a healthy git state and the logs explain what happened.
+- [ ] Align GitHub Actions test caching with the current Makefile cache files
+  **ID**: align-github-actions-test-cache
+  **Tags**: ci, performance, maintenance
+  **Details**: `.github/workflows/check.yml` still caches `.test-passed`, but `make test` now reads and writes per-target `.test-cache-*` files. Update CI so cache hits warm the files the Makefile actually uses and invalidate when shared test inputs change.
+  **Files**: `.github/workflows/check.yml`, `Makefile`
+  **Acceptance**: The workflow caches the active `.test-cache-*` files instead of stale paths, the cache key matches the current test inputs, and comments/docs reference only the live cache behavior.
+
 ## P2
 - [ ] Stop launching repeated `remaining=0m` sessions after the deadline has already expired
   **ID**: stop-expired-deadline-zero-minute-loop
