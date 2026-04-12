@@ -10,13 +10,6 @@
   **Files**: `tests/resume.bats`, `bin/taskgrind`
   **Acceptance**: New tests fail before the fix and pass afterward; each documented rejection path in `bin/taskgrind` has an executable regression test.
 
-- [ ] Add executable coverage for the installer flow
-  **ID**: test-install-script-flow
-  **Tags**: tests, install, distribution
-  **Details**: `install.sh` is user-facing but has no dedicated bats coverage. Add tests for missing `git`, existing-install short-circuit behavior, clone destination handling, executable-bit repair, and the final PATH/install instructions so install regressions are caught before release.
-  **Files**: `install.sh`, `tests/install.bats`, `tests/test_helper.bash`
-  **Acceptance**: A new bats suite exercises the happy path and key failure paths for `install.sh` without touching the network; `make test` includes the suite.
-
 - [ ] Distinguish real zero-ship sessions from task-count races in multi-agent runs
   **ID**: reconcile-productive-zero-ship-accounting
   **Tags**: reliability, metrics, concurrency

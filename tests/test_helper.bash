@@ -20,7 +20,7 @@ remove_with_retries() {
   done
 }
 
-setup() {
+taskgrind_test_setup() {
   TEST_DIR="$(mktemp -d)"
   TEST_HOME="$TEST_DIR/home"
   TEST_DOTFILES="$TEST_DIR/dotfiles"
@@ -55,6 +55,14 @@ SCRIPT
   export DVB_GRIND_INVOKE_LOG="$TEST_DIR/invocations.log"
 }
 
+setup() {
+  taskgrind_test_setup "$@"
+}
+
+_taskgrind_original_setup() {
+  taskgrind_test_setup "$@"
+}
+
 teardown() {
   remove_with_retries "$TEST_DIR"
 }
@@ -78,6 +86,13 @@ create_fake_devin() {
   local fake_devin_path="$1"
   cat > "$fake_devin_path"
   chmod +x "$fake_devin_path"
+}
+
+# Helper: create an executable fake git-style binary from stdin.
+create_fake_git() {
+  local fake_git_path="$1"
+  cat > "$fake_git_path"
+  chmod +x "$fake_git_path"
 }
 
 # Helper: initialize a test git repo with a default branch and initial commit.
