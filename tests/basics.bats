@@ -99,6 +99,15 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [[ $(echo "$output" | wc -l) -le 1 ]]
 }
 
+@test "man page synopsis includes --resume" {
+  awk '
+    /^\.SH SYNOPSIS$/ { in_synopsis=1; next }
+    /^\.SH / && in_synopsis { exit !found }
+    in_synopsis && /\\fB\\-\\-resume\\fR/ { found=1 }
+    END { exit !found }
+  ' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+}
+
 @test "--help works in any arg position" {
   run "$DVB_GRIND" 8 --help
   [ "$status" -eq 0 ]
