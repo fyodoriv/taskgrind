@@ -491,6 +491,55 @@ TASKS
   grep -q 'concurrent task additions kept the queue flat' "$TEST_LOG"
 }
 
+@test "productive zero-ship log explains temporary task churn" {
+  git -C "$TEST_REPO" init -q
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+  git -C "$TEST_REPO" add TASKS.md
+  git -C "$TEST_REPO" commit -q -m "initial"
+
+  local commit_devin="$TEST_DIR/commit-devin"
+  cat > "$commit_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+- [ ] Persistent task
+  **ID**: task-a
+- [ ] Temporary subtask
+  **ID**: task-temp
+EOF
+git -C "$TEST_REPO" add TASKS.md
+git -C "$TEST_REPO" commit -q -m "test: add temporary task"
+
+cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+- [ ] Persistent task
+  **ID**: task-a
+EOF
+echo "new work" >> "$TEST_REPO/code.txt"
+git -C "$TEST_REPO" add -A
+git -C "$TEST_REPO" commit -q -m "fix: session work after task churn"
+SCRIPT
+  chmod +x "$commit_devin"
+  export DVB_GRIND_CMD="$commit_devin"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Persistent task
+  **ID**: task-a
+TASKS
+
+  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_MAX_ZERO_SHIP=5
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'productive_zero_ship' "$TEST_LOG"
+  grep -q 'temporary task churn restored the original queue' "$TEST_LOG"
+}
+
 @test "productive zero-ship escalation appears in prompt after 2 zero-ship sessions with commits" {
   git -C "$TEST_REPO" init -q
   git -C "$TEST_REPO" config user.email "test@test.com"

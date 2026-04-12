@@ -1832,6 +1832,8 @@ while [[ $(date +%s) -lt $deadline ]]; do
       _new_commits=$(git -C "$repo" rev-list --count "${_git_head_before}..${_git_head_after}" 2>/dev/null || echo "?")
       if [[ "$_tasks_added_during_session" -gt 0 ]]; then
         log_write "[$(date '+%H:%M')] productive_zero_ship session=$session commits=$_new_commits tasks_added=$_tasks_added_during_session (committed code but concurrent task additions kept the queue flat)"
+      elif git -C "$repo" log --format= --name-only "${_git_head_before}..${_git_head_after}" -- TASKS.md 2>/dev/null | grep -q '^TASKS\.md$'; then
+        log_write "[$(date '+%H:%M')] productive_zero_ship session=$session commits=$_new_commits (committed code but temporary task churn restored the original queue)"
       else
         log_write "[$(date '+%H:%M')] productive_zero_ship session=$session commits=$_new_commits (committed code but task count unchanged)"
       fi
