@@ -31,13 +31,5 @@
   **Files**: `tests/network.bats`, `tests/signals.bats`, `tests/resume.bats`, `tests/session.bats`, `tests/test_helper.bash`, `CONTRIBUTING.md`
   **Acceptance**: The highest-risk timing tests use polling helpers instead of fixed sleeps, the known-flaky note in `CONTRIBUTING.md` is updated to match reality, and repeated targeted reruns of the touched suites pass without intermittent failures.
 
-- [ ] Add a docs-parity check for CLI options and `TG_` environment variables across help, README, and man page
-  **ID**: guard-cli-doc-parity
-  **Tags**: tests, docs, cli
-  **Details**: The repo has point checks for a few options like `--resume`, but there is no single guard that compares the authoritative help header in `bin/taskgrind` against `README.md` and `man/taskgrind.1`. Add a focused structural test so newly added flags or `TG_` variables cannot land without all three documentation surfaces being updated together.
-  **Files**: `tests/basics.bats`, `bin/taskgrind`, `README.md`, `man/taskgrind.1`
-  **Acceptance**: A structural test fails when any documented CLI flag or `TG_` variable exists in one surface but not the others, and the current tree passes with all three docs sources aligned.
-
-
 ## P2
 ## P3

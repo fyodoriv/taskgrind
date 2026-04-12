@@ -202,6 +202,56 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [ "$status" -eq 0 ]
 }
 
+@test "CLI docs parity keeps help, README, and man page in sync" {
+  run python3 - "$BATS_TEST_DIRNAME/.." <<'PY'
+import pathlib
+import re
+import subprocess
+import sys
+
+root = pathlib.Path(sys.argv[1])
+help_text = subprocess.check_output([str(root / "bin" / "taskgrind"), "--help"], text=True)
+readme = (root / "README.md").read_text()
+man = (root / "man" / "taskgrind.1").read_text()
+
+help_flags = set(re.findall(r"--[a-z0-9][a-z0-9-]*", help_text))
+help_vars = set(re.findall(r"TG_[A-Z0-9_]+", help_text))
+
+readme_usage = re.search(r"## Usage\n\n```bash\n(.*?)\n```", readme, re.S)
+if not readme_usage:
+    raise SystemExit("README usage block not found")
+readme_flags = set(re.findall(r"--[a-z0-9][a-z0-9-]*", readme_usage.group(1)))
+
+readme_env = re.search(r"## Environment Variables\n\n.*?\n((?:\| `TG_[A-Z0-9_]+`.*\n)+)", readme, re.S)
+if not readme_env:
+    raise SystemExit("README environment table not found")
+readme_vars = set(re.findall(r"TG_[A-Z0-9_]+", readme_env.group(1)))
+
+man_flags = set()
+for raw_line in man.splitlines():
+    if raw_line.startswith(".BR \\-\\-"):
+        man_flags.update("--" + flag.replace("\\-", "-") for flag in re.findall(r"\\-\\-([a-z0-9\\-]+)", raw_line))
+
+man_vars = set(re.findall(r"^\.B (TG_[A-Z0-9_]+)$", man, re.M))
+
+failures = []
+for label, left, right in [
+    ("README usage flags vs --help", readme_flags, help_flags),
+    ("man options flags vs --help", man_flags, help_flags),
+    ("README TG_ vars vs --help", readme_vars, help_vars),
+    ("man TG_ vars vs --help", man_vars, help_vars),
+]:
+    if left != right:
+        failures.append(
+            f"{label}: missing={sorted(right - left)} extra={sorted(left - right)}"
+        )
+
+if failures:
+    raise SystemExit("\n".join(failures))
+PY
+  [ "$status" -eq 0 ]
+}
+
 @test "--help works in any arg position" {
   run "$DVB_GRIND" 8 --help
   [ "$status" -eq 0 ]
