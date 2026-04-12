@@ -50,6 +50,37 @@ SCRIPT
   grep -q "Grind complete\|sessions" "$TEST_DIR/signal-output.txt"
 }
 
+@test "interrupt summary keeps queued tasks in remaining count" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] First queued task
+- [ ] Second queued task
+TASKS
+
+  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  local started_file="$TEST_DIR/session-started"
+  local slow_devin="$TEST_DIR/slow-devin"
+  cat > "$slow_devin" <<SCRIPT
+#!/bin/bash
+trap '' INT
+printf '%s\n' started > "$started_file"
+sleep 3
+SCRIPT
+  chmod +x "$slow_devin"
+  export DVB_GRIND_CMD="$slow_devin"
+  export DVB_SHUTDOWN_GRACE=10
+
+  "$DVB_GRIND" 1 "$TEST_REPO" > "$TEST_DIR/signal-remaining-output.txt" 2>&1 &
+  local grind_pid=$!
+  _wait_for_file_pattern "$started_file" 'started'
+  kill -INT "$grind_pid" 2>/dev/null || true
+  wait "$grind_pid" 2>/dev/null || true
+
+  grep -q 'Remaining: 2' "$TEST_DIR/signal-remaining-output.txt"
+  grep -q 'grind_done.*remaining=2' "$TEST_LOG"
+}
+
 # ── Graceful shutdown ────────────────────────────────────────────────
 
 @test "INT signal waits for running session before exiting" {
@@ -144,6 +175,12 @@ SCRIPT
 @test "structural: _productive_zero_ship initialized before loop" {
   # Must be initialized before the while loop to avoid set -u crash
   grep -q '_productive_zero_ship=0' "$DVB_GRIND"
+}
+
+@test "structural: cleanup uses shutdown-safe remaining-task snapshot" {
+  grep -q 'tasks_remaining_snapshot=' "$DVB_GRIND"
+  grep -q 'Remaining: ${tasks_remaining_snapshot}' "$DVB_GRIND"
+  grep -q 'grind_done.*remaining=\$tasks_remaining_snapshot' "$DVB_GRIND"
 }
 
 @test "structural: final_sync pushes local commits" {

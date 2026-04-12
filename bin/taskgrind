@@ -859,6 +859,7 @@ session=0
 tasks_shipped=0
 tasks_starting=0
 tasks_remaining=0
+tasks_remaining_snapshot=0
 sessions_zero_ship=0
 _recent_shipped=()  # rolling window of per-session shipped counts
 _dvb_finalizing=0
@@ -1160,11 +1161,11 @@ cleanup() {
   echo "──────────────────────────────────────────"
   echo "  Grind complete: $session sessions, ${tasks_shipped}+ tasks, ${duration}"
   echo "  Rate: ${rate}/h  Avg session: ${avg_session}  Zero-ship: ${sessions_zero_ship}"
-  echo "  Ship rate: ${ship_rate} (${tasks_shipped}/${tasks_starting})  Remaining: ${tasks_remaining}"
+  echo "  Ship rate: ${ship_rate} (${tasks_shipped}/${tasks_starting})  Remaining: ${tasks_remaining_snapshot}"
   echo "  Log: $log_file"
   echo "──────────────────────────────────────────"
   local _done_line
-  _done_line="[pid=$$] [$(date '+%H:%M')] grind_done sessions=$session shipped=$tasks_shipped remaining=$tasks_remaining ship_rate=$ship_rate avg_session=$avg_session elapsed=${elapsed}s duration=$duration rate=${rate}/h sessions_zero_ship=$sessions_zero_ship"
+  _done_line="[pid=$$] [$(date '+%H:%M')] grind_done sessions=$session shipped=$tasks_shipped remaining=$tasks_remaining_snapshot ship_rate=$ship_rate avg_session=$avg_session elapsed=${elapsed}s duration=$duration rate=${rate}/h sessions_zero_ship=$sessions_zero_ship"
   if [[ -n "${extra_prompt:-}" ]]; then
     _done_line+=" prompt=$extra_prompt"
   fi
@@ -1368,6 +1369,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
   remaining_m=$(( remaining_min % 60 ))
 
   tasks_before=$(count_tasks "$repo/TASKS.md")
+  tasks_remaining_snapshot=$tasks_before
   _ids_before=$(extract_task_ids "$repo/TASKS.md")
   # Capture git HEAD before session — used to detect commits during session
   _git_head_before=$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)
@@ -1553,6 +1555,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
     log_write "[$(date '+%H:%M')] tasks_unblocked tasks=$(count_tasks "$repo/TASKS.md") — resuming"
     set_phase "queue_refilled"
     tasks_before=$(count_tasks "$repo/TASKS.md")
+    tasks_remaining_snapshot=$tasks_before
     _ids_before=$(extract_task_ids "$repo/TASKS.md")
   fi
 
@@ -1760,6 +1763,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
 
   tasks_after=$(count_tasks "$repo/TASKS.md")
   tasks_remaining=$tasks_after
+  tasks_remaining_snapshot=$tasks_after
   _ids_after=$(extract_task_ids "$repo/TASKS.md")
 
   # Tasks shipped = IDs that existed BEFORE the session and are now gone.
