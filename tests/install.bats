@@ -24,11 +24,22 @@ setup() {
 }
 
 @test "install.sh short-circuits when the install directory already exists" {
-  mkdir -p "$INSTALL_TARGET"
+  mkdir -p "$INSTALL_TARGET/bin"
+  touch "$INSTALL_TARGET/bin/taskgrind"
   run sh "$INSTALL_SCRIPT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"taskgrind is already installed at $INSTALL_TARGET"* ]]
   [[ "$output" == *"To update: cd \"$INSTALL_TARGET\" && git pull"* ]]
+}
+
+@test "install.sh fails clearly when the destination already exists but is unrelated" {
+  mkdir -p "$INSTALL_TARGET"
+  touch "$INSTALL_TARGET/notes.txt"
+
+  run sh "$INSTALL_SCRIPT"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"already exists but does not look like a taskgrind install"* ]]
 }
 
 @test "install.sh clones into the requested destination and prints next steps" {

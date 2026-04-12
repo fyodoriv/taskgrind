@@ -4,13 +4,6 @@
 
 ## P1
 ## P2
-- [ ] Fail install.sh clearly when the destination directory is unrelated
-  **ID**: guard-install-dir-collision
-  **Tags**: install, ux, tests
-  **Details**: `install.sh` currently exits early whenever `TASKGRIND_INSTALL_DIR` already exists, even if that directory is unrelated to a prior taskgrind install. Add a focused regression test and tighten the guard so users get a clear error instead of a false "already installed" success when the target path is occupied by something else.
-  **Files**: `install.sh`, `tests/install.bats`
-  **Acceptance**: The installer still short-circuits for a real existing taskgrind checkout, but exits non-zero with a clear message when the requested destination exists without looking like a taskgrind install.
-
 - [ ] Add behavioral tests for macOS priority boosting and Linux no-op fallback
   **ID**: cover-fullpower-runtime
   **Tags**: tests, macos, runtime

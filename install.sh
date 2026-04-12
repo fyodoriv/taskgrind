@@ -13,9 +13,15 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 if [ -d "$INSTALL_DIR" ]; then
-  echo "taskgrind is already installed at $INSTALL_DIR"
-  echo "To update: cd \"$INSTALL_DIR\" && git pull"
-  exit 0
+  if [ -x "$INSTALL_DIR/bin/taskgrind" ] || [ -f "$INSTALL_DIR/bin/taskgrind" ]; then
+    echo "taskgrind is already installed at $INSTALL_DIR"
+    echo "To update: cd \"$INSTALL_DIR\" && git pull"
+    exit 0
+  fi
+
+  echo "Error: $INSTALL_DIR already exists but does not look like a taskgrind install." >&2
+  echo "Move it aside or set TASKGRIND_INSTALL_DIR to a different path and retry." >&2
+  exit 1
 fi
 
 echo "Installing taskgrind to $INSTALL_DIR..."
