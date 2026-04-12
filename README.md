@@ -124,7 +124,7 @@ Use `**Blocked by**` only when another task or external dependency truly prevent
 - **Productive timeout warning** — detects when timeout kills sessions that were shipping
 - **Unique log names** — includes repo basename + PID to prevent collisions
 - **External injection detection** — logs when other processes add tasks mid-run
-- **Graceful shutdown** — SIGINT/SIGTERM waits for running session, pushes commits, then exits
+- **Graceful shutdown** — SIGINT/SIGTERM waits for running session, pushes commits, ignores duplicate shutdown signals, then exits
 
 ## Security
 

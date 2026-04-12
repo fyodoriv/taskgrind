@@ -31,7 +31,7 @@ _wait_for_file_pattern() {
 }
 
 @test "taskgrind prints summary on interrupt (INT/TERM)" {
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 180 ))
   local started_file="$TEST_DIR/session-started"
   local slow_devin="$TEST_DIR/slow-devin"
   cat > "$slow_devin" <<SCRIPT
@@ -58,7 +58,7 @@ SCRIPT
 - [ ] Second queued task
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 180 ))
   local started_file="$TEST_DIR/session-started"
   local slow_devin="$TEST_DIR/slow-devin"
   cat > "$slow_devin" <<SCRIPT
@@ -162,7 +162,7 @@ SCRIPT
   grep -q '_git_pid=0' "$DVB_GRIND"
   grep -q '_git_timer=0' "$DVB_GRIND"
   # graceful_shutdown kills git processes
-  grep -A40 'graceful_shutdown()' "$DVB_GRIND" | grep -q '_git_pid'
+  grep -A80 'graceful_shutdown()' "$DVB_GRIND" | grep -q '_git_pid'
   # cleanup also kills git processes
   grep -A90 'cleanup()' "$DVB_GRIND" | grep -q '_git_pid'
 }
@@ -284,9 +284,15 @@ TASKS
   local fake_devin="$TEST_DIR/fake-devin-real-final-sync"
   cat > "$fake_devin" <<SCRIPT
 #!/bin/bash
-trap 'echo interrupted >> "$TEST_DIR/session-lifecycle.log"; exit 0' INT
-printf '%s\n' started > "$started_file"
-sleep 30
+for arg in "\$@"; do
+  if [ "\$arg" = "-p" ]; then
+    trap 'echo interrupted >> "$TEST_DIR/session-lifecycle.log"; exit 0' INT
+    printf '%s\n' started > "$started_file"
+    sleep 30
+    exit 0
+  fi
+done
+exit 0
 SCRIPT
   chmod +x "$fake_devin"
 
@@ -300,6 +306,71 @@ SCRIPT
   local grind_pid=$!
   _wait_for_file_pattern "$started_file" 'started'
   kill -INT "$grind_pid" 2>/dev/null || true
+  wait "$grind_pid" 2>/dev/null || true
+
+  [ "$(grep -c 'final_sync pushing commits=1' "$TEST_LOG")" -eq 1 ]
+  [ "$(grep -c 'final_sync push_ok' "$TEST_LOG")" -eq 1 ]
+}
+
+@test "repeated shutdown signals do not push the same final-sync snapshot twice" {
+  local remote_repo="$TEST_DIR/remote.git"
+  git init --bare "$remote_repo" >/dev/null
+
+  local origin_repo="$TEST_DIR/origin"
+  git clone "$remote_repo" "$origin_repo" >/dev/null 2>&1
+  git -C "$origin_repo" config user.email "test@test.com"
+  git -C "$origin_repo" config user.name "Test"
+  git -C "$origin_repo" config core.hooksPath /dev/null
+  cat > "$origin_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Seed remote
+TASKS
+  git -C "$origin_repo" add -f TASKS.md
+  git -C "$origin_repo" commit -m "seed remote" >/dev/null
+  git -C "$origin_repo" push origin main >/dev/null 2>&1
+
+  local grind_repo="$TEST_DIR/grind-repo"
+  git clone "$remote_repo" "$grind_repo" >/dev/null 2>&1
+  git -C "$grind_repo" config user.email "test@test.com"
+  git -C "$grind_repo" config user.name "Test"
+  git -C "$grind_repo" config core.hooksPath /dev/null
+  cat > "$grind_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Complete queued task
+TASKS
+  git -C "$grind_repo" add -f TASKS.md
+  git -C "$grind_repo" commit -m "local task commit" >/dev/null
+
+  local started_file="$TEST_DIR/session-started"
+  local fake_devin="$TEST_DIR/fake-devin-repeated-signal-final-sync"
+  cat > "$fake_devin" <<SCRIPT
+#!/bin/bash
+for arg in "\$@"; do
+  if [ "\$arg" = "-p" ]; then
+    trap 'echo interrupted >> "$TEST_DIR/session-lifecycle.log"; exit 0' INT TERM
+    printf '%s\n' started > "$started_file"
+    sleep 30
+    exit 0
+  fi
+done
+exit 0
+SCRIPT
+  chmod +x "$fake_devin"
+
+  unset DVB_GRIND_CMD
+  export DVB_DEVIN_PATH="$fake_devin"
+  export DVB_CAFFEINATED=1
+  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_SHUTDOWN_GRACE=10
+
+  "$DVB_GRIND" 1 "$grind_repo" > "$TEST_DIR/repeated-signal-final-sync-output.txt" 2>&1 &
+  local grind_pid=$!
+  _wait_for_file_pattern "$started_file" 'started'
+  kill -INT "$grind_pid" 2>/dev/null || true
+  sleep 0.2
+  kill -TERM "$grind_pid" 2>/dev/null || true
   wait "$grind_pid" 2>/dev/null || true
 
   [ "$(grep -c 'final_sync pushing commits=1' "$TEST_LOG")" -eq 1 ]
@@ -400,7 +471,7 @@ TASKS
 ## P0
 - [ ] Stubborn task that never completes
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
   export DVB_MAX_ZERO_SHIP=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]

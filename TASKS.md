@@ -17,13 +17,6 @@
   **Files**: `bin/taskgrind`, `tests/git-sync.bats`, `tests/session.bats`, `README.md`, `docs/resume-state.md`
   **Acceptance**: A targeted sync test reproduces concurrent `TASKS.md` edits and shows taskgrind preserving local queue changes without leaving the repo mid-rebase; logs explain the recovery path; normal non-conflict sync behavior remains unchanged.
 
-- [ ] Avoid running final git push twice during shutdown cleanup
-  **ID**: dedupe-final-sync-on-signal-shutdown
-  **Tags**: shutdown, git-sync, reliability
-  **Details**: The 2026-04-12 logs for `oncall-hub-app` (`taskgrind-2026-04-12-0806-oncall-hub-app-21210.log`, `taskgrind-2026-04-12-0806-oncall-hub-app-21543.log`) and `bosun` (`taskgrind-2026-04-12-0806-bosun-18073.log`) show `final_sync pushing` being logged twice for the same commit set during shutdown. One run even surfaced a misleading `push_failed` line before the second push succeeded. Guard cleanup so final sync is idempotent per process and only emits one push attempt/result pair unless new commits appear after the first push.
-  **Files**: `bin/taskgrind`, `tests/signals.bats`, `tests/git-sync.bats`, `README.md`
-  **Acceptance**: Shutdown paths log at most one final-sync push for an unchanged commit set; tests cover both normal exit and signal-driven cleanup; misleading duplicate push failure/success pairs no longer appear in the log.
-
 - [ ] Classify git-sync rebase conflicts consistently in operator logs
   **ID**: classify-git-sync-rebase-conflicts
   **Tags**: git-sync, logging, reliability

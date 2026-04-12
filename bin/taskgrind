@@ -871,6 +871,9 @@ sessions_zero_ship=0
 _recent_shipped=()  # rolling window of per-session shipped counts
 _dvb_finalizing=0
 _dvb_skip_exit_final_sync=0
+_dvb_shutting_down=0
+_dvb_final_sync_attempted_head=""
+_dvb_final_sync_attempted_ahead=""
 session_output=$(mktemp "$_dvb_tmp/taskgrind-ses-XXXXXX") || { echo "Error: cannot create temp file in $_dvb_tmp" >&2; exit 1; }
 _task_attempts_file=$(mktemp "$_dvb_tmp/taskgrind-att-XXXXXX") || { echo "Error: cannot create temp file in $_dvb_tmp" >&2; exit 1; }
 _git_out=""
@@ -1047,13 +1050,24 @@ final_sync() {
   fi
   # Only push if there are local commits ahead of origin
   local _default_branch
-  _default_branch=$(detect_default_branch "$repo")
+  local _default_branch_source
+  local _current_head
+  read -r _default_branch _default_branch_source < <(detect_default_branch "$repo")
+  _current_head=$(git -C "$repo" rev-parse HEAD 2>/dev/null) || _current_head=""
   local ahead
   ahead=$(git -C "$repo" rev-list --count "origin/$_default_branch..HEAD" 2>/dev/null) || ahead=0
   if [[ "$ahead" -eq 0 ]]; then
     log_write "[$(date '+%H:%M')] final_sync nothing_to_push"
     return 0
   fi
+  # Shutdown can re-enter via repeated signals or overlapping exit paths. Only
+  # push a given local commit snapshot once per process.
+  if [[ -n "$_current_head" ]] && [[ "$_dvb_final_sync_attempted_head" == "$_current_head" ]] && [[ "$_dvb_final_sync_attempted_ahead" == "$ahead" ]]; then
+    log_write "[$(date '+%H:%M')] final_sync skipped_duplicate commits=$ahead head=$_current_head"
+    return 0
+  fi
+  _dvb_final_sync_attempted_head="$_current_head"
+  _dvb_final_sync_attempted_ahead="$ahead"
   echo "   📤 Pushing $ahead local commit(s) to origin..."
   log_write "[$(date '+%H:%M')] final_sync pushing commits=$ahead"
   local push_output push_first_line push_status=0
@@ -1084,6 +1098,11 @@ _shutdown_grace="${DVB_SHUTDOWN_GRACE:-120}"
 
 graceful_shutdown() {
   local sig_exit="$1"
+  if [[ ${_dvb_shutting_down:-0} -eq 1 ]]; then
+    log_write "[$(date '+%H:%M')] graceful_shutdown duplicate_signal exit=$sig_exit ignored"
+    return 0
+  fi
+  _dvb_shutting_down=1
   # If a session is running, give it time to commit and exit
   if [[ $_dvb_pid -gt 0 ]] && kill -0 "$_dvb_pid" 2>/dev/null; then
     echo ""
