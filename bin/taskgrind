@@ -1356,18 +1356,29 @@ skip_session_loop_if_deadline_expired() {
   return 0
 }
 
+prepare_next_session_start() {
+  local now remaining_secs
+  now=$(date +%s)
+  remaining_secs=$((deadline - now))
+  if [[ "$remaining_secs" -le 0 ]]; then
+    log_write "[$(date '+%H:%M')] deadline_expired_before_session_start deadline=$deadline now=$now"
+    set_phase "deadline_expired"
+    return 1
+  fi
+
+  session=$((session + 1))
+  remaining_min=$(( remaining_secs / 60 ))
+  [[ $remaining_min -lt 0 ]] && remaining_min=0
+  remaining_h=$(( remaining_min / 60 ))
+  remaining_m=$(( remaining_min % 60 ))
+  return 0
+}
+
 if skip_session_loop_if_deadline_expired; then
   set_phase "complete"
 fi
 
 while [[ $(date +%s) -lt $deadline ]]; do
-  session=$((session + 1))
-  now=$(date +%s)
-  remaining_min=$(( (deadline - now) / 60 ))
-  [[ $remaining_min -lt 0 ]] && remaining_min=0
-  remaining_h=$(( remaining_min / 60 ))
-  remaining_m=$(( remaining_min % 60 ))
-
   tasks_before=$(count_tasks "$repo/TASKS.md")
   tasks_remaining_snapshot=$tasks_before
   _ids_before=$(extract_task_ids "$repo/TASKS.md")
@@ -1444,6 +1455,9 @@ while [[ $(date +%s) -lt $deadline ]]; do
       continue
     fi
     _sweep_done=1
+    if ! prepare_next_session_start; then
+      break
+    fi
     echo "🔍 Queue empty — running sweep to find work..."
     log_write "[$(date '+%H:%M')] queue_empty tasks=0 — launching sweep session"
     set_phase "running_sweep"
@@ -1519,7 +1533,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
       set_phase "queue_empty_wait"
     fi
     # Re-enter loop — next iteration will pick up the new tasks.
-    # session already incremented at top of loop; sweep counts as session $session.
+    # Sweeps claim a session slot only once they are actually about to start.
     continue
   fi
 
@@ -1560,6 +1574,10 @@ while [[ $(date +%s) -lt $deadline ]]; do
   fi
 
   # ── Build the session prompt ──────────────────────────────────────
+  if ! prepare_next_session_start; then
+    break
+  fi
+
   # Re-read prompt and model files for live updates between sessions
   _refresh_prompt
   _refresh_model

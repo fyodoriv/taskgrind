@@ -382,6 +382,50 @@ TASKS
   [ ! -f "$DVB_GRIND_INVOKE_LOG" ]
 }
 
+@test "does not launch another session after the deadline expires during pre-session setup" {
+  local fake_bin="$TEST_DIR/fake-bin"
+  local git_counter="$TEST_DIR/git-rev-parse-head-count"
+  local fake_devin="$fake_bin/devin"
+  mkdir -p "$fake_bin"
+  echo "0" > "$git_counter"
+
+  init_test_repo
+
+  cat > "$fake_devin" <<'SCRIPT'
+#!/bin/bash
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+exit 0
+SCRIPT
+  chmod +x "$fake_devin"
+
+  cat > "$fake_bin/git" <<'SCRIPT'
+#!/bin/bash
+if [[ "${1:-}" == "-C" && "${3:-}" == "rev-parse" && "${4:-}" == "HEAD" ]]; then
+  count=$(cat "$GIT_HEAD_COUNTER")
+  count=$((count + 1))
+  echo "$count" > "$GIT_HEAD_COUNTER"
+  if [[ "$count" -eq 3 ]]; then
+    sleep 20
+  fi
+fi
+exec /usr/bin/git "$@"
+SCRIPT
+  chmod +x "$fake_bin/git"
+
+  export PATH="$fake_bin:$PATH"
+  export GIT_HEAD_COUNTER="$git_counter"
+  unset DVB_GRIND_CMD
+  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
+
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  [ -f "$DVB_GRIND_INVOKE_LOG" ]
+  [ "$(grep -c 'Run the next-task skill' "$DVB_GRIND_INVOKE_LOG")" -eq 1 ]
+  grep -q 'Session 1' "$DVB_GRIND_INVOKE_LOG"
+  ! grep -q 'Session 2' "$DVB_GRIND_INVOKE_LOG"
+}
+
 @test "continues loop when devin exits non-zero" {
   # Fake devin that fails
   local bad_devin="$TEST_DIR/bad-devin"

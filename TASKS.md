@@ -29,6 +29,25 @@
   **Acceptance**: The workflow caches the active `.test-cache-*` files instead of stale paths, the cache key matches the current test inputs, and comments/docs reference only the live cache behavior.
 
 ## P2
+- [ ] Bring the task-format docs up to the full tasks.md spec
+  **ID**: document-full-tasks-md-metadata
+  **Tags**: docs, onboarding, tasks
+  **Details**: The README task-format example only shows `**ID**` and `**Details**`, even though this repo requires `**Tags**`, `**Files**`, and `**Acceptance**` metadata too. Update the docs so contributors can copy a valid task block without checking external rules first.
+  **Files**: `README.md`, `CONTRIBUTING.md`, `man/taskgrind.1`
+  **Acceptance**: The primary docs include a valid tasks.md example with the required metadata fields and explain optional `**Blocked by**` usage without contradicting the repo rules.
+- [ ] Make the local audit workflow match the advertised empty-queue sweep
+  **ID**: align-audit-target-with-sweep-contract
+  **Tags**: audit, docs, dx
+  **Details**: `README.md` and `CONTRIBUTING.md` describe `make audit` as the local version of the empty-queue audit, but the target only scans TODO/FIXME markers, runs shellcheck, and prints a docs queue. Either expand the target or narrow the docs so contributors know exactly which audit checks it reproduces.
+  **Files**: `Makefile`, `README.md`, `CONTRIBUTING.md`, `docs/architecture.md`
+  **Acceptance**: `make audit` output and repo docs describe the same checklist, and the documented local audit path is accurate for the empty-queue sweep behavior taskgrind advertises.
+- [ ] Log the concrete cause when `productive_zero_ship` is triggered by queue churn
+  **ID**: log-productive-zero-ship-cause
+  **Tags**: logging, queue, reliability
+  **Details**: Recent cross-repo log-audit sessions show `productive_zero_ship` still fires for normal queue maintenance when a task block was removed in another repo or sibling queue churn masked the local task delta. `taskgrind-2026-04-11-1835-taskgrind-28400.log` session 1 and session 23 both recorded `productive_zero_ship` despite real commits and task removals elsewhere, which keeps sending later sessions back to the same audit loop without telling the operator whether the zero-ship came from a local queue miss, a cross-repo task removal, or concurrent task injection. Split the old stuck accounting task into a smaller slice that only improves the classification and logging path.
+  **Reviewed 2026-04-12 session 27**: `taskgrind-2026-04-11-1835-taskgrind-28400.log` session 26 still ended as `productive_zero_ship` immediately after a tasks-only audit refresh, and the current queue evidence no longer points to a forgotten task removal. The stale signal is still the shared shipped-session accounting path misclassifying productive queue maintenance, so keep the fix centralized in `taskgrind`.
+  **Files**: `bin/taskgrind`, `tests/diagnostics.bats`, `tests/session.bats`
+  **Acceptance**: When `productive_zero_ship` fires, the log explains whether the session removed no local task, removed a task in another repo, or lost the task delta because concurrent queue changes offset it; the reason text is specific enough to explain long zero-ship streaks in `.taskgrind-state`; regression coverage locks the new reason text.
 - [ ] Stop launching repeated `remaining=0m` sessions after the deadline has already expired
   **ID**: stop-expired-deadline-zero-minute-loop
   **Tags**: deadline, runtime, reliability
@@ -37,7 +56,6 @@
   **Reviewed 2026-04-12 session 31**: The same three persisted temp logs still show pure startup churn with no intervening useful work — exactly five `remaining=0m` launches in `repo-60489`, three in `repo-18279`, and four in `repo-31627`. This remains a repo-local runtime bug, so no downstream queue changes were added.
   **Files**: `bin/taskgrind`, `tests/session.bats`, `tests/diagnostics.bats`
   **Acceptance**: If the deadline is already in the past when a session would start, taskgrind exits cleanly without launching the backend or incrementing the session counter, and tests cover both startup-time and post-session expiry edges.
-
 - [ ] Stop counting cross-repo task-only audit sessions as zero-ship stalls
   **ID**: stop-cross-repo-audit-zero-ship-stalls
   **Tags**: queue, audit, accounting, reliability
@@ -46,6 +64,7 @@
   **Reviewed 2026-04-12 session 31**: The downstream ownership check still says "keep it centralized." `agentbrew`, `bosun`, and `ideas` all have active dirty worktrees, and the newest persisted `taskgrind` log keeps pointing at centralized accounting drift rather than a missing repo-local follow-up. `agentbrew/.taskgrind-state` climbing to `consecutive_zero_ship=32` while work continues is the clearest current reproduction.
   **Files**: `bin/taskgrind`, `.taskgrind-state`, `tests/session.bats`, `tests/diagnostics.bats`
   **Acceptance**: Taskgrind distinguishes a true local zero-ship stall from a productive cross-repo task-only audit cycle; `.taskgrind-state` no longer accumulates misleading consecutive zero-ship counts for that case; regression tests cover the new accounting path and preserve real stall detection.
+
 ## P3
 - [ ] Add a small audit helper target for repository sweeps
   **ID**: add-audit-helper-target
