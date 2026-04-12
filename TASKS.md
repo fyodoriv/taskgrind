@@ -20,20 +20,6 @@
   **Files**: `bin/taskgrind`, `tests/session.bats`, `tests/diagnostics.bats`
   **Acceptance**: If the deadline is already in the past when a session would start, taskgrind exits cleanly without launching the backend or incrementing the session counter, and tests cover both startup-time and post-session expiry edges.
 
-- [ ] Harden parallel bats tempdir cleanup so cached and full-suite runs do not end with `signal 15`
-  **ID**: harden-bats-tempdir-cleanup
-  **Tags**: testing, bats, reliability
-  **Details**: The log audit previously added this follow-up, but it is missing from the live queue again even though the evidence is still in the persisted artifacts. `taskgrind-2026-04-11-1835-taskgrind-28400.log` session 7 explicitly re-added this ID, and the earlier suite history still points at parallel bats temp directories and cleanup timing as the source of post-pass `signal 15` flakes under heavier local load. Tighten the tempdir lifecycle around `RUN_BATS`, cached reruns, and cleanup retries so finishing test workers do not leave the parent make path stuck long enough to get terminated after the suite has already passed.
-  **Files**: `Makefile`, `tests/test_helper.bash`, `tests/makefile-cleanup.bats`
-  **Acceptance**: Repeated `make test` and `make check` runs no longer end in a spurious `signal 15` after bats has already reported passing tests, and regression coverage locks the tempdir cleanup behavior that keeps the parent process alive just long enough to finish cleanly.
-
-- [ ] Stabilize the repo-deletion abort path so the marathon exits cleanly when the working tree disappears mid-session
-  **ID**: stabilize-repo-deletion-abort-test
-  **Tags**: runtime, testing, reliability
-  **Details**: The persisted log audit also re-added this task in `taskgrind-2026-04-11-1835-taskgrind-28400.log` session 7, then session 9 immediately showed it hitting the skip threshold again. The existing `repo deletion mid-marathon aborts gracefully` coverage in `tests/session.bats` is not yet strong enough to stop flakes when the repo vanishes between session teardown, logging, and the next `cd` guard. Audit the current abort path and make the test deterministic so repo removal is classified as a clean stop instead of a flaky zero-ship or post-session crash.
-  **Files**: `bin/taskgrind`, `tests/session.bats`
-  **Acceptance**: When the repo disappears mid-marathon, taskgrind logs one clean abort path, avoids launching another session, and the repo-deletion regression test passes reliably without intermittent hangs or false zero-ship fallout.
-
 ## P3
 - [ ] Add a small audit helper target for repository sweeps
   **ID**: add-audit-helper-target
