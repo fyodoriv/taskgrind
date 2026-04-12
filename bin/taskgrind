@@ -1339,48 +1339,62 @@ extract_first_task_context() {
 
 detect_default_branch() {
   local repo_path="$1"
-  local default_branch current_branch
+  local default_branch current_branch upstream_branch upstream_ref
+  local source="fallback"
 
   default_branch=$(git -C "$repo_path" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@.*/@@') || true
   if [[ -n "$default_branch" ]]; then
-    printf '%s\n' "$default_branch"
+    printf '%s %s\n' "$default_branch" "origin_head"
     return 0
   fi
 
   default_branch=$(git -C "$repo_path" ls-remote --symref origin HEAD 2>/dev/null \
     | awk '/^ref:/ { sub("refs/heads/", "", $2); print $2; exit }') || true
   if [[ -n "$default_branch" ]]; then
-    printf '%s\n' "$default_branch"
+    printf '%s %s\n' "$default_branch" "ls_remote_head"
     return 0
   fi
 
   current_branch=$(git -C "$repo_path" symbolic-ref --short HEAD 2>/dev/null) || true
+  upstream_ref=$(git -C "$repo_path" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) || true
+  upstream_branch="${upstream_ref#origin/}"
+  if [[ -n "$upstream_branch" && "$upstream_branch" != "$upstream_ref" ]]; then
+    printf '%s %s\n' "$upstream_branch" "upstream"
+    return 0
+  fi
+
   if [[ -n "$current_branch" ]] && git -C "$repo_path" show-ref --verify --quiet "refs/remotes/origin/$current_branch"; then
-    printf '%s\n' "$current_branch"
+    printf '%s %s\n' "$current_branch" "current_branch"
     return 0
   fi
 
   if git -C "$repo_path" show-ref --verify --quiet refs/heads/main; then
-    printf 'main\n'
+    printf '%s %s\n' "main" "local_main"
     return 0
   fi
 
   if git -C "$repo_path" show-ref --verify --quiet refs/heads/master; then
-    printf 'master\n'
+    printf '%s %s\n' "master" "local_master"
     return 0
   fi
 
   if git -C "$repo_path" show-ref --verify --quiet refs/remotes/origin/main; then
-    printf 'main\n'
+    printf '%s %s\n' "main" "origin_main"
     return 0
   fi
 
   if git -C "$repo_path" show-ref --verify --quiet refs/remotes/origin/master; then
-    printf 'master\n'
+    printf '%s %s\n' "master" "origin_master"
     return 0
   fi
 
-  printf '%s\n' "${current_branch:-main}"
+  default_branch="${current_branch:-main}"
+  if [[ -n "$current_branch" ]]; then
+    source="current_branch_fallback"
+  else
+    source="hardcoded_main"
+  fi
+  printf '%s %s\n' "$default_branch" "$source"
 }
 
 extract_rebase_conflict_paths() {
@@ -2188,9 +2202,10 @@ while [[ $(date +%s) -lt $deadline ]]; do
       [[ -n "${_git_out:-}" ]] && rm -f "$_git_out"
       _git_out=$(mktemp "$_dvb_tmp/taskgrind-gsy-XXXXXX")
       _git_sync_timeout="${DVB_GIT_SYNC_TIMEOUT:-30}"
-      # Detect default branch — don't hardcode "main"; repos may use master/develop/etc.
-      _default_branch=$(detect_default_branch "$repo")
+      # Detect sync base branch — don't hardcode "main"; repos may use master/develop/etc.
+      read -r _default_branch _default_branch_source < <(detect_default_branch "$repo")
       (
+        echo "git_sync selected_branch branch=$_default_branch source=$_default_branch_source"
         # Handle dirty working tree — stash uncommitted changes before switching
         _dirty=0
         if ! git -C "$repo" diff --quiet 2>/dev/null || ! git -C "$repo" diff --cached --quiet 2>/dev/null; then
@@ -2237,6 +2252,10 @@ while [[ $(date +%s) -lt $deadline ]]; do
         _rebase_conflict_paths="$(extract_rebase_conflict_paths "$_git_out")"
         _rebase_conflict_class="$(classify_rebase_conflicts "$_rebase_conflict_paths")"
         _rebase_conflict_paths_log="$(format_conflict_paths_for_log "$_rebase_conflict_paths")"
+        _selected_branch_log="$(grep 'git_sync selected_branch ' "$_git_out" 2>/dev/null | head -1 | tr -cd '[:print:]' | head -c 200)"
+        if [[ -n "$_selected_branch_log" ]]; then
+          log_write "[$(date '+%H:%M')] $_selected_branch_log"
+        fi
         if grep -q 'stash_failed' "$_git_out" 2>/dev/null; then
           _git_fail=$(grep 'stash_failed' "$_git_out" 2>/dev/null | head -1 | sed 's/^git_sync stash_failed: //' | tr -cd '[:print:]' | head -c 500)
           echo "   ⚠ git stash failed: $_git_fail"

@@ -616,10 +616,60 @@ EOF
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
 
+  grep -Eq 'git_sync selected_branch branch=master source=(ls_remote_head|upstream|current_branch|current_branch_fallback)' "$TEST_LOG"
   ! grep -q 'git_sync checkout_failed: .*pathspec .main.' "$TEST_LOG"
   ! grep -q 'git_sync rebase_failed' "$TEST_LOG"
   grep -q 'git_sync ok' "$TEST_LOG"
   [ "$(git -C "$TEST_REPO" symbolic-ref --short HEAD 2>/dev/null)" = "master" ]
+}
+
+@test "git sync falls back to the configured upstream before main" {
+  local real_git
+  real_git="$(command -v git)"
+  mkdir -p "$TEST_DIR/bin"
+  cat > "$TEST_DIR/bin/git" <<EOF
+#!/bin/bash
+if [ "\${1:-}" = "-C" ]; then
+  repo_path="\$2"
+  shift 2
+fi
+if [ "\${1:-}" = "symbolic-ref" ] && [ "\${2:-}" = "refs/remotes/origin/HEAD" ]; then
+  exit 1
+fi
+if [ "\${1:-}" = "ls-remote" ] && [ "\${2:-}" = "--symref" ] && [ "\${3:-}" = "origin" ] && [ "\${4:-}" = "HEAD" ]; then
+  exit 1
+fi
+if [ "\${1:-}" = "show-ref" ] && [ "\${2:-}" = "--verify" ] && [ "\${3:-}" = "--quiet" ] && [ "\${4:-}" = "refs/remotes/origin/master" ]; then
+  exit 1
+fi
+if [ -n "\${repo_path:-}" ]; then
+  exec "$real_git" -C "\$repo_path" "\$@"
+fi
+exec "$real_git" "\$@"
+EOF
+  chmod +x "$TEST_DIR/bin/git"
+  export PATH="$TEST_DIR/bin:$PATH"
+
+  init_test_repo "$TEST_REPO" release
+  echo "init" > "$TEST_REPO/README.md"
+  git -C "$TEST_REPO" add README.md
+  git -C "$TEST_REPO" commit -q --amend --no-edit
+
+  local bare="$TEST_DIR/bare.git"
+  git init -q --bare --initial-branch=release "$bare"
+  git -C "$TEST_REPO" remote add origin "$bare"
+  git -C "$TEST_REPO" push -q -u origin release 2>/dev/null
+
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_SYNC_INTERVAL=0
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+
+  grep -q 'git_sync selected_branch branch=release source=upstream' "$TEST_LOG"
+  ! grep -q "git_sync checkout_failed: .*pathspec 'main'" "$TEST_LOG"
+  ! grep -q 'git_sync rebase_failed' "$TEST_LOG"
+  grep -q 'git_sync ok' "$TEST_LOG"
+  [ "$(git -C "$TEST_REPO" symbolic-ref --short HEAD 2>/dev/null)" = "release" ]
 }
 
 @test "git sync falls back to local default branches before assuming main" {
