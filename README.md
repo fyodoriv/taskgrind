@@ -46,7 +46,7 @@ export PATH="$HOME/apps/taskgrind/bin:$PATH"
 
 To update: `brew upgrade taskgrind` (Homebrew) or `cd ~/apps/taskgrind && git pull` (manual)
 
-Contributor audit shortcut: run `make audit` to reproduce the local repo-audit pass (TODO/FIXME scan, shellcheck, and the core docs review queue, including `man/taskgrind.1`, `docs/resume-state.md`, and the repo-local `.devin` skills) without any network-only dependencies.
+Contributor audit shortcut: run `make audit` to reproduce the local repo-audit pass (TODO/FIXME scan, shellcheck, and the core docs review queue, including `Agentfile.yaml`, `man/taskgrind.1`, `docs/resume-state.md`, and the repo-local `.devin` skills) without any network-only dependencies.
 
 ## Usage
 
