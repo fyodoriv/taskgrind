@@ -303,6 +303,8 @@ echo "focus on test coverage" > ~/apps/myrepo/.taskgrind-prompt
 ```
 
 The file is re-read before each session. Combined with `--prompt` if both are set. Delete the file to stop injecting.
+Files larger than 10KB are skipped as a safety guard to avoid accidentally
+injecting generated output or other large blobs.
 
 ### Live model switching
 
