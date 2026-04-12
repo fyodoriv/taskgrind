@@ -580,6 +580,24 @@ EOF
   grep -q 'show-ref --verify --quiet refs/remotes/origin/master' "$DVB_GRIND"
 }
 
+@test "git sync honors an explicit test override before auto-detecting the default branch" {
+  init_test_repo "$TEST_REPO" main
+  echo "init" > "$TEST_REPO/README.md"
+  git -C "$TEST_REPO" add README.md
+  git -C "$TEST_REPO" commit -q --amend --no-edit
+
+  local bare="$TEST_DIR/bare.git"
+  git init -q --bare --initial-branch=main "$bare"
+  git -C "$TEST_REPO" remote add origin "$bare"
+  git -C "$TEST_REPO" push -q -u origin main 2>/dev/null
+
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_SYNC_INTERVAL=0
+  run env DVB_DEFAULT_BRANCH=release "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  grep -q 'git_sync selected_branch branch=release source=env_override' "$TEST_LOG"
+}
+
 @test "git sync falls back to the current branch when origin HEAD is missing" {
   local real_git
   real_git="$(command -v git)"

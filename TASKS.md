@@ -3,13 +3,6 @@
 ## P0
 
 ## P1
-- [ ] Detect the repo's real default branch during git sync instead of assuming `main`
-  **ID**: detect-default-branch-during-sync
-  **Tags**: git-sync, reliability, multi-repo
-  **Details**: The 2026-04-12 `ideas` grind log (`taskgrind-2026-04-12-0806-ideas-17272.log`) kept hitting `git_sync checkout_failed: error: pathspec 'main' did not match any file(s) known to git` throughout the day, not just during the early sessions: the same failure kept recurring through the afternoon all the way to the 15:05 entry, and the companion `taskgrind` log (`taskgrind-2026-04-12-0806-taskgrind-19844.log`) recorded the same hard-coded-branch failure when an empty-queue recovery pass tried to bounce back onto the repo default branch after queue churn. Taskgrind still hard-codes `main` in at least one sync or recovery path, which breaks repos whose primary branch is something else. Teach sync to resolve the repo's default branch from git metadata or the current upstream branch before checkout/rebase, while preserving explicit overrides for tests.
-  **Files**: `bin/taskgrind`, `tests/git-sync.bats`, `README.md`, `docs/architecture.md`
-  **Acceptance**: Git sync succeeds in a repo whose primary branch is not `main`; targeted tests cover auto-detecting the branch name; docs describe the branch-selection behavior and any override escape hatch.
-
 - [ ] Recover cleanly when git sync rebases across concurrent `TASKS.md` edits
   **ID**: recover-from-tasks-md-sync-conflicts
   **Tags**: git-sync, tasks-md, reliability
