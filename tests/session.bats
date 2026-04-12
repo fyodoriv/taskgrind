@@ -1210,6 +1210,125 @@ TASKS
   ! grep -q 'productive_zero_ship' "$TEST_LOG"
 }
 
+@test "inferred shipped: local successor rollover counts despite flat queue" {
+  local commit_devin="$TEST_DIR/commit-devin"
+  cat > "$commit_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+- [ ] Peer task that survives
+- [ ] Follow-up task created during the session
+EOF
+echo "new work" >> "$TEST_REPO/code.txt"
+git -C "$TEST_REPO" add -A
+git -C "$TEST_REPO" commit -q -m "fix: roll queue forward"
+SCRIPT
+  chmod +x "$commit_devin"
+  export DVB_GRIND_CMD="$commit_devin"
+
+  init_test_repo
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Parent task to complete
+- [ ] Peer task that survives
+TASKS
+  git -C "$TEST_REPO" add TASKS.md
+  git -C "$TEST_REPO" commit -q -m "chore: seed queue"
+
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  assert_session_log_has_shipped 1
+  grep -q 'shipped_inferred session=1 count=1 reason=local_task_churn' "$TEST_LOG"
+}
+
+@test "inferred shipped: concurrent additions do not hide local task completion" {
+  local commit_devin="$TEST_DIR/commit-devin"
+  cat > "$commit_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+- [ ] Peer task that survives
+  **ID**: task-peer
+- [ ] Follow-up task created during the session
+  **ID**: task-followup
+- [ ] External task injected during the session
+  **ID**: task-external
+EOF
+echo "new work" >> "$TEST_REPO/code.txt"
+git -C "$TEST_REPO" add -A
+git -C "$TEST_REPO" commit -q -m "fix: ship work despite queue churn"
+SCRIPT
+  chmod +x "$commit_devin"
+  export DVB_GRIND_CMD="$commit_devin"
+
+  init_test_repo
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Parent task to complete
+  **ID**: task-parent
+- [ ] Peer task that survives
+  **ID**: task-peer
+TASKS
+  git -C "$TEST_REPO" add TASKS.md
+  git -C "$TEST_REPO" commit -q -m "chore: seed queue"
+
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  assert_session_log_has_shipped 1
+  grep -q 'tasks_added=2' "$TEST_LOG"
+}
+
+@test "inferred shipped: non-local task removal counts as shipped" {
+  local commit_devin="$TEST_DIR/commit-devin"
+  cat > "$commit_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+cat > "$TEST_REPO/other/TASKS.md" <<'EOF'
+# Tasks
+## P0
+EOF
+echo "new work" >> "$TEST_REPO/code.txt"
+git -C "$TEST_REPO" add -A
+git -C "$TEST_REPO" commit -q -m "fix: clear non-local queue item"
+SCRIPT
+  chmod +x "$commit_devin"
+  export DVB_GRIND_CMD="$commit_devin"
+
+  init_test_repo
+  mkdir -p "$TEST_REPO/other"
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Persistent local task
+  **ID**: local-task
+TASKS
+  cat > "$TEST_REPO/other/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Remote task to remove
+  **ID**: remote-task
+TASKS
+  git -C "$TEST_REPO" add TASKS.md other/TASKS.md
+  git -C "$TEST_REPO" commit -q -m "chore: seed local and non-local queues"
+
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  assert_session_log_has_shipped 1
+  grep -q 'shipped_inferred session=1 count=1 reason=nonlocal_task_removed' "$TEST_LOG"
+}
+
 @test "count-based: tasks_added log written without crash when tasks_after > tasks_before" {
   # Regression test for bash UTF-8 variable name bug:
   # $tasks_before→$tasks_after — the → arrow (\xe2\x86\x92) caused bash to

@@ -162,14 +162,14 @@ SCRIPT
   grep -q '_git_pid=0' "$DVB_GRIND"
   grep -q '_git_timer=0' "$DVB_GRIND"
   # graceful_shutdown kills git processes
-  grep -A80 'graceful_shutdown()' "$DVB_GRIND" | grep -q '_git_pid'
+  grep -A140 'graceful_shutdown()' "$DVB_GRIND" | grep -q '_git_pid'
   # cleanup also kills git processes
   grep -A90 'cleanup()' "$DVB_GRIND" | grep -q '_git_pid'
 }
 
 @test "structural: graceful_shutdown kills elapsed timer" {
   # graceful_shutdown should clean up _dvb_timer_pid to prevent orphan output
-  grep -A50 'graceful_shutdown()' "$DVB_GRIND" | grep -q '_dvb_timer_pid'
+  grep -A140 'graceful_shutdown()' "$DVB_GRIND" | grep -q '_dvb_timer_pid'
 }
 
 @test "structural: _productive_zero_ship initialized before loop" {

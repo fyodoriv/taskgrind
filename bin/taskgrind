@@ -2165,18 +2165,13 @@ while [[ $(date +%s) -lt $deadline ]]; do
     : > "$_task_attempts_file" 2>/dev/null || true
   fi
 
-  # Build per-session summary for the next session's prompt
-  last_session_summary="session $session shipped $session_shipped tasks (exit=$session_exit, $(format_duration "$session_elapsed")), queue now $tasks_after"
-  if [[ "$session_shipped" -eq 0 ]]; then
-    last_session_summary+=". NOTE: task count did not decrease — did previous session forget to remove the completed task from TASKS.md or merge the PR?"
-  fi
-
   # ── Productive zero-ship detection ────────────────────────────────
   # Detect sessions where the agent committed code but didn't remove
   # completed tasks from TASKS.md. This is the #1 failure mode.
   _productive_zero_ship=0
   _productive_zero_ship_reason=""
   _productive_zero_ship_stall_exempt=0
+  _inferred_shipped=0
   if [[ "$session_shipped" -eq 0 && -n "$_git_head_before" ]]; then
     _git_head_after=$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)
     if [[ -n "$_git_head_after" && "$_git_head_before" != "$_git_head_after" ]]; then
@@ -2237,7 +2232,30 @@ while [[ $(date +%s) -lt $deadline ]]; do
         fi
         log_write "[$(date '+%H:%M')] productive_zero_ship session=$session commits=$_new_commits reason=$_productive_zero_ship_reason${_productive_zero_ship_context} (committed code but task count unchanged)"
       fi
+
+      # Some productive zero-ship sessions did remove a completed task, but
+      # queue churn, successor rollover, or non-local queue edits hid it from
+      # the raw before/after count. Count those as shipped work.
+      if [[ -n "$_nonlocal_removed_task_file" ]]; then
+        _inferred_shipped=1
+      elif [[ "$_local_task_signatures_removed" -gt 0 ]] \
+        || [[ "${_local_task_removed:-0}" -eq 1 && "${_local_task_added:-0}" -eq 0 ]]; then
+        _inferred_shipped=1
+      fi
+
+      if [[ "$_inferred_shipped" -gt 0 ]]; then
+        session_shipped=$((session_shipped + _inferred_shipped))
+        tasks_shipped=$((tasks_shipped + _inferred_shipped))
+        _productive_zero_ship_stall_exempt=0
+        log_write "[$(date '+%H:%M')] shipped_inferred session=$session count=$_inferred_shipped reason=$_productive_zero_ship_reason (counted shipped work from task-removal evidence despite flat queue delta)"
+      fi
     fi
+  fi
+
+  # Build per-session summary for the next session's prompt
+  last_session_summary="session $session shipped $session_shipped tasks (exit=$session_exit, $(format_duration "$session_elapsed")), queue now $tasks_after"
+  if [[ "$session_shipped" -eq 0 ]]; then
+    last_session_summary+=". NOTE: task count did not decrease — did previous session forget to remove the completed task from TASKS.md or merge the PR?"
   fi
 
   last_session_exit="$session_exit"

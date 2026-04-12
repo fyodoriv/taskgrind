@@ -114,13 +114,13 @@ Use `**Blocked by**` only when another task or external dependency truly prevent
 - **Slot-based per-repo locking** — `TG_MAX_INSTANCES` allows multiple concurrent grinds on the same repo; slot 0 owns between-session git sync, higher slots get conflict-avoidance prompt guidance
 - **Blocked-queue detection** — exits early when all remaining tasks have `**Blocked by**:` metadata
 - **Caffeinate integration** — prevents system sleep on macOS (`caffeinate`) and Linux (`systemd-inhibit`)
-- **Git sync with stash/rebase** — between-session sync stashes dirty work, auto-detects the repo default branch from `origin/HEAD`, remote HEAD probes, upstream tracking, or local branch fallbacks, then rebases there and cleans merged branches; tests can force the branch with `DVB_DEFAULT_BRANCH`
+- **Git sync with stash/rebase** — between-session sync stashes dirty work, auto-detects the repo default branch from `origin/HEAD`, remote HEAD probes, upstream tracking, or local branch fallbacks, then rebases there and cleans merged branches; tests can force the branch with `DVB_DEFAULT_BRANCH`. If stash creation fails, taskgrind logs the original git error and skips `stash pop`; if `stash pop` fails after a successful stash, it leaves the stash intact for manual recovery.
 - **Empty-queue sweep** — when `TASKS.md` is empty, launches a sweep session to find work, then waits for external task injection before exiting
 - **Network resilience** — pauses on network loss, extends deadline on recovery
 - **Stall detection** — bails after consecutive zero-ship sessions (configurable via `TG_MAX_ZERO_SHIP`)
 - **Per-task retry cap** — skips tasks attempted 3+ times without shipping
 - **Fast-failure backoff** — linear backoff with cap when sessions crash quickly
-- **Ship-rate tracking** — logs cumulative effectiveness in `grind_done` summary
+- **Ship-rate tracking** — logs cumulative effectiveness in `grind_done` summary, including inferred shipped work when a session removes a completed task but concurrent queue churn keeps the raw task count flat
 - **Productive timeout warning** — detects when timeout kills sessions that were shipping
 - **Unique log names** — includes repo basename + PID to prevent collisions
 - **External injection detection** — logs when other processes add tasks mid-run
@@ -177,7 +177,7 @@ tail -f "${TMPDIR:-/tmp}"/taskgrind-*.log   # watch live progress
 cat "${TMPDIR:-/tmp}"/taskgrind-*.log       # review completed sessions
 ```
 
-Each session logs: start time, remaining minutes, task count, exit code, duration, and shipped count. The `grind_done` summary includes ship rate, remaining tasks, and average session duration.
+Each session logs: start time, remaining minutes, task count, exit code, duration, and shipped count. When a session removes a completed task but concurrent additions, rollover, or non-local queue churn hide that work from the raw before/after task count, taskgrind logs both `productive_zero_ship` and `shipped_inferred` so operators can see why the session still counted as shipped. The `grind_done` summary includes ship rate, remaining tasks, and average session duration.
 
 For machine-readable monitoring, set `TG_STATUS_FILE` to a JSON file path:
 
