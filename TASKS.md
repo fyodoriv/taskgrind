@@ -23,10 +23,4 @@
   **Reviewed 2026-04-12 session 26**: Another threshold audit keeps the stale-history repro narrow but still active. `/var/folders/vp/xnc0myyn4dsb7trvmq61j4hw0000gp/T/taskgrind-2026-04-12-0806-ideas-17272.log` still no longer qualifies as stale because its warned IDs (`control-tower-receipt-history` and `control-tower-refresh-node-types`) are still present in `/Users/fivanishche/apps/ideas/TASKS.md`, but both preserved `agentbrew` logs still emit removed `watch-skills-cli-mcp-may-2026`, and the preserved `taskgrind` logs still emit removed IDs including `align-audit-target-with-sweep-contract`, `document-full-tasks-md-metadata`, and `log-productive-zero-ship-cause`. The attempt ledger is still outliving queue reality in at least `agentbrew` and `taskgrind`.
   **Files**: `bin/taskgrind`, `tests/resume.bats`, `tests/logging.bats`
   **Acceptance**: Add a failing test first; removed task IDs stop contributing to future `task_skip_threshold` output; active long-lived skipped tasks still retain their attempt history; logs stay focused on currently actionable queue items.
-- [ ] Refresh CONTRIBUTING audit docs to match the current make audit queue (@instance-1)
-  **ID**: refresh-contributing-audit-docs
-  **Tags**: docs, audit, contributor-experience
-  **Details**: `CONTRIBUTING.md` still describes the older `make audit` docs review queue and omits `Agentfile.yaml`, `docs/resume-state.md`, and the repo-local `.devin` skills that the target now prints. Contributors using the docs as their audit checklist can miss files the command actually expects them to review.
-  **Files**: `CONTRIBUTING.md`, `tests/basics.bats`
-  **Acceptance**: Add a failing test first; `CONTRIBUTING.md` lists the current `make audit` review queue, including `Agentfile.yaml`, `docs/resume-state.md`, and the repo-local `.devin` skills; targeted tests pass.
 ## P3
