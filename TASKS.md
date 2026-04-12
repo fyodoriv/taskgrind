@@ -13,14 +13,6 @@
   **Files**: `bin/taskgrind`, `tests/diagnostics.bats`, `tests/session.bats`
   **Acceptance**: When `productive_zero_ship` fires, the log explains whether the session removed no local task, removed a task in another repo, or lost the task delta because concurrent queue changes offset it; the reason text is specific enough to explain long zero-ship streaks in `.taskgrind-state`; regression coverage locks the new reason text.
 
-- [ ] Stop counting cross-repo task-only audit sessions as zero-ship stalls
-  **ID**: stop-cross-repo-audit-zero-ship-stalls
-  **Tags**: queue, audit, accounting, reliability
-  **Details**: The latest log audit shows taskgrind's state accounting still treats some productive audit cycles as consecutive zero-ship sessions even when the operator is intentionally updating another repo's `TASKS.md` or running a standing queue-filling loop outside the local repo. During the latest review, `agentbrew/.taskgrind-state` still reported `status=running`, `session=30`, `tasks_shipped=5`, `sessions_zero_ship=25`, and `consecutive_zero_ship=23` while the shared audit flow was still producing queue work. Logging alone will help diagnosis, but taskgrind also needs a behavior change so cross-repo task-only sessions do not poison stall detection or keep replaying the same audit forever.
-  **Reviewed 2026-04-12 session 27**: The downstream repos implicated by the logs are currently bad handoff targets for more queue churn, not new owners of the bug: `agentbrew`, `bosun`, and `ideas` all have live dirty worktrees, and the earlier repo-local log-audit task IDs are absent from their current `TASKS.md` snapshots. Keep the behavior fix centralized in `taskgrind` until the shipped-session accounting stops poisoning cross-repo audit runs.
-  **Files**: `bin/taskgrind`, `.taskgrind-state`, `tests/session.bats`, `tests/diagnostics.bats`
-  **Acceptance**: Taskgrind distinguishes a true local zero-ship stall from a productive cross-repo task-only audit cycle; `.taskgrind-state` no longer accumulates misleading consecutive zero-ship counts for that case; regression tests cover the new accounting path and preserve real stall detection.
-
 ## P3
 - [ ] Add a small audit helper target for repository sweeps
   **ID**: add-audit-helper-target

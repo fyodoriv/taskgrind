@@ -1180,6 +1180,125 @@ TASKS
   # The key assertion: session 3 reset the counter (shipped=1 proves it).
 }
 
+@test "productive queue churn does not increment zero-ship stall counters" {
+  init_test_repo
+
+  local state_file="$TEST_DIR/state"
+  export DVB_STATE_FILE="$state_file"
+  local counter_file="$TEST_DIR/churn-counter"
+  echo "0" > "$counter_file"
+
+  local churn_devin="$TEST_DIR/churn-devin"
+  cat > "$churn_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+n=\$(cat "$counter_file")
+n=\$((n + 1))
+echo "\$n" > "$counter_file"
+if [ "\$n" -eq 1 ]; then
+cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+- [ ] Persistent task
+  **ID**: task-a
+- [ ] New task injected during session
+  **ID**: task-b
+EOF
+echo "new work" >> "$TEST_REPO/code.txt"
+git -C "$TEST_REPO" add -A
+git -C "$TEST_REPO" commit -q -m "fix: session work"
+else
+cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+EOF
+fi
+SCRIPT
+  chmod +x "$churn_devin"
+  export DVB_GRIND_CMD="$churn_devin"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Persistent task
+  **ID**: task-a
+TASKS
+
+  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_MAX_ZERO_SHIP=5
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  grep -q 'productive_zero_ship' "$TEST_LOG"
+  grep -q 'zero_ship_stall_ignored session=1 reason=queue_delta_offset' "$TEST_LOG"
+  grep -q 'grind_done.*sessions_zero_ship=0' "$TEST_LOG"
+  ! grep -q 'stall_warning' "$TEST_LOG"
+}
+
+@test "temporary local task churn does not increment zero-ship stall counters" {
+  init_test_repo
+
+  local state_file="$TEST_DIR/state"
+  export DVB_STATE_FILE="$state_file"
+  local counter_file="$TEST_DIR/churn-counter"
+  echo "0" > "$counter_file"
+
+  local churn_devin="$TEST_DIR/churn-devin"
+  cat > "$churn_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+n=\$(cat "$counter_file")
+n=\$((n + 1))
+echo "\$n" > "$counter_file"
+if [ "\$n" -eq 1 ]; then
+cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+- [ ] Persistent task
+  **ID**: task-a
+- [ ] Temporary subtask
+  **ID**: task-temp
+EOF
+git -C "$TEST_REPO" add TASKS.md
+git -C "$TEST_REPO" commit -q -m "test: add temporary task"
+
+cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+- [ ] Persistent task
+  **ID**: task-a
+EOF
+echo "new work" >> "$TEST_REPO/code.txt"
+git -C "$TEST_REPO" add -A
+git -C "$TEST_REPO" commit -q -m "fix: session work after task churn"
+else
+cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+EOF
+fi
+SCRIPT
+  chmod +x "$churn_devin"
+  export DVB_GRIND_CMD="$churn_devin"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Persistent task
+  **ID**: task-a
+TASKS
+
+  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_MAX_ZERO_SHIP=5
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  grep -q 'productive_zero_ship' "$TEST_LOG"
+  grep -q 'zero_ship_stall_ignored session=1 reason=local_task_churn' "$TEST_LOG"
+  grep -q 'grind_done.*sessions_zero_ship=0' "$TEST_LOG"
+  ! grep -q 'stall_warning' "$TEST_LOG"
+}
+
 @test "counts nested/indented task checkboxes" {
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
