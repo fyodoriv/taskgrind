@@ -304,3 +304,55 @@ SCRIPT
   [ "$status" -ne 0 ]
   [[ "$output" == *"Preflight FAILED"* ]] || [[ "$output" == *"not found"* ]]
 }
+
+@test "startup probe aborts before session 1 when backend exits immediately with no output" {
+  local stub_devin="$TEST_DIR/stub-devin"
+  unset DVB_VALIDATE_MODEL
+  unset DVB_DEVIN_PATH
+  cat > "$stub_devin" <<'SCRIPT'
+#!/bin/bash
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+exit 0
+SCRIPT
+  chmod +x "$stub_devin"
+  export DVB_GRIND_CMD="$stub_devin"
+  export DVB_VALIDATE_BACKEND_STARTUP=1
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"backend binary may be a stub or broken"* ]]
+  [[ "$output" == *"reinstall or roll back"* ]]
+  grep -q 'backend_probe_failed exit=0 duration=0s backend=devin' "$TEST_LOG"
+
+  local invoke_count
+  invoke_count=$(wc -l < "$DVB_GRIND_INVOKE_LOG" | tr -d ' ')
+  [ "$invoke_count" -eq 1 ]
+  grep -q -- '--version' "$DVB_GRIND_INVOKE_LOG"
+}
+
+@test "startup probe allows normal sessions when backend returns version output" {
+  local versioned_devin="$TEST_DIR/versioned-devin"
+  unset DVB_VALIDATE_MODEL
+  unset DVB_DEVIN_PATH
+  cat > "$versioned_devin" <<'SCRIPT'
+#!/bin/bash
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+if [[ "${1:-}" == "--version" ]]; then
+  echo "Devin CLI 2026.4.9"
+fi
+exit 0
+SCRIPT
+  chmod +x "$versioned_devin"
+  export DVB_GRIND_CMD="$versioned_devin"
+  export DVB_VALIDATE_BACKEND_STARTUP=1
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  ! grep -q 'backend_probe_failed' "$TEST_LOG"
+  grep -q -- '--version' "$DVB_GRIND_INVOKE_LOG"
+  grep -q 'session=1 ended' "$TEST_LOG"
+}

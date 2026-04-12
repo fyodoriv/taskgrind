@@ -2,13 +2,6 @@
 
 ## P0
 
-- [ ] Detect and surface backend binary failures (stub/exit-0) early in grind startup
-  **ID**: detect-backend-stub-exit
-  **Tags**: reliability, devin, startup, logging
-  **Details**: On 2026-04-12 a Devin CLI update (`2026.4.9-0`) shipped a stub binary (`#!/bin/bash\nexit 0`) instead of a real executable. Taskgrind ran 4 sessions — each lasting 0s with `exit=0` and `shipped=0` — before triggering `fast_fail` and giving up. No diagnostic was emitted to explain the root cause; the operator log just showed `session ended exit=0 duration=0s`. The fix was to roll back the devin symlink manually. Taskgrind should detect this class of silent backend failure at startup: run a quick sanity probe (e.g. `devin --version`) before the first session and abort with a clear, actionable error message if the backend exits in under 1 second with no output. This prevents wasting an entire grind budget on a broken backend.
-  **Files**: `bin/taskgrind`, `lib/backend.sh`, `tests/backend.bats`
-  **Acceptance**: When the backend binary is a stub that exits immediately, taskgrind aborts before session 1 with a log line like `backend_probe_failed exit=0 duration=0s backend=devin` and a human-readable message suggesting reinstall or rollback; existing passing probe behavior is unchanged; a bats test covers both passing and failing probe paths.
-
 ## P1
 - [ ] Recover cleanly when git sync rebases across concurrent `TASKS.md` edits
   **ID**: recover-from-tasks-md-sync-conflicts

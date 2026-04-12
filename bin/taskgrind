@@ -500,6 +500,31 @@ build_session_args() {
   esac
 }
 
+_backend_probe_error=""
+_backend_probe_summary=""
+
+run_backend_probe() {
+  local probe_start probe_output probe_status probe_elapsed probe_output_clean
+
+  _backend_probe_error=""
+  _backend_probe_summary=""
+
+  probe_start=$(date +%s)
+  probe_output=$("${devin_cmd[@]}" --version 2>&1) || probe_status=$?
+  probe_status=${probe_status:-0}
+  probe_elapsed=$(( $(date +%s) - probe_start ))
+  probe_output_clean=$(printf '%s\n' "$probe_output" | sed '/^[[:space:]]*$/d')
+
+  if [[ "$probe_status" -eq 0 && "$probe_elapsed" -lt 1 && -z "$probe_output_clean" ]]; then
+    _backend_probe_summary="backend_probe_failed exit=$probe_status duration=${probe_elapsed}s backend=$backend"
+    _backend_probe_error="backend binary may be a stub or broken: '$backend' exited in ${probe_elapsed}s with no output when running --version. reinstall or roll back the backend CLI before starting another grind."
+    return 1
+  fi
+
+  _backend_probe_summary="backend_probe_ok exit=$probe_status duration=${probe_elapsed}s backend=$backend"
+  return 0
+}
+
 _model_validation_error=""
 _test_backend_error=""
 _resolved_test_backend_cmd=()
@@ -1059,6 +1084,16 @@ else
     exit 1
   fi
   devin_cmd=("$_backend_binary")
+fi
+
+if [[ "$preflight_only" -eq 0 && ( -z "${DVB_GRIND_CMD:-}" || -n "${DVB_VALIDATE_BACKEND_STARTUP:-}" ) ]]; then
+  if ! run_backend_probe; then
+    echo "Error: $_backend_probe_error" >&2
+    log_write "[$(date '+%H:%M')] $_backend_probe_summary"
+    set_phase "failed"
+    exit 1
+  fi
+  log_write "[$(date '+%H:%M')] $_backend_probe_summary"
 fi
 
 # Prevent sleep for the entire grind loop, not just individual sessions.
