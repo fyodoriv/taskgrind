@@ -55,6 +55,39 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   grep -q "Do not leave tasks saying 'requires manual work'" "$DVB_GRIND_INVOKE_LOG"
 }
 
+@test "startup sources fullpower helper and boosts the taskgrind pid" {
+  local fake_bin="$TEST_DIR/fake-bin"
+  local taskpolicy_log="$TEST_DIR/taskpolicy.log"
+  local devin_parent_log="$TEST_DIR/devin-parent.log"
+  mkdir -p "$fake_bin"
+
+  create_fake_git "$fake_bin/taskpolicy" <<'SCRIPT'
+#!/bin/bash
+printf '%s\n' "$*" >> "$TASKPOLICY_LOG"
+SCRIPT
+
+  create_fake_devin "$TEST_DIR/fake-devin-with-ppid" <<'SCRIPT'
+#!/bin/bash
+printf '%s\n' "$PPID" > "$DEVIN_PARENT_LOG"
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+exit 0
+SCRIPT
+
+  export PATH="$fake_bin:$PATH"
+  export TASKPOLICY_LOG="$taskpolicy_log"
+  export DEVIN_PARENT_LOG="$devin_parent_log"
+  export DVB_GRIND_CMD="$TEST_DIR/fake-devin-with-ppid"
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ -f "$taskpolicy_log" ]
+  [ -f "$devin_parent_log" ]
+  local expected_pid
+  expected_pid="$(cat "$devin_parent_log")"
+  grep -q -- "^-B -t 0 -l 0 -p $expected_pid\$" "$taskpolicy_log"
+}
+
 @test "zero-ship session summary tells next session about the problem" {
   local counter_file="$TEST_DIR/counter"
   local prompt_dir="$TEST_DIR/prompts"
