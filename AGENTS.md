@@ -11,9 +11,11 @@ taskgrind/
 ├── bin/taskgrind           Main script (runs AI sessions in a loop)
 ├── lib/constants.sh        Shared constants (model, backend path, caffeinate flags)
 ├── lib/fullpower.sh        Priority boosting (taskpolicy for macOS)
-├── tests/taskgrind.bats    Test suite (384 tests)
+├── tests/*.bats            Focused bats suites by subsystem (session, git-sync, logging, network, ...)
 ├── tests/test_helper.bash  Shared test helpers
+├── tests/verify-bash32-compat.sh  Bash 3.2 compatibility guard used by the bats suite
 ├── docs/user-stories.md    Core usage patterns
+├── docs/resume-state.md    Resume-file lifecycle and stale-state notes
 ├── docs/architecture.md    Design decision rationales
 ├── man/taskgrind.1         Man page
 ├── install.sh              One-liner install script
@@ -32,8 +34,10 @@ taskgrind/
 ```bash
 make install    # symlink to /usr/local/bin + install man page
 make lint       # shellcheck (run from bin/ with -x for source resolution)
-make test       # bats test suite (392 tests)
+make test       # bats suite across tests/*.bats (cached, skips when unchanged)
+make test-force # bats suite without cache
 make test TESTS=tests/bash-compat.bats  # targeted rerun with its own cache key
+make test TEST_JOBS=4                   # override the auto-capped parallelism for diagnostics
 make check      # lint + test (run before committing)
 make uninstall  # remove symlink and man page
 ```
@@ -46,13 +50,15 @@ make uninstall  # remove symlink and man page
 4. **Source paths are relative** — `$TASKGRIND_DIR/lib/constants.sh`, derived from script location
 5. **Test with `DVB_GRIND_CMD`** — all tests use a fake devin stub, never the real binary
 6. **Use `TESTS=...` for tight loops** — `make test TESTS=tests/bash-compat.bats` or another file reruns just that selection and caches it separately from the full suite
-7. **Timing-sensitive tests** — a handful of network recovery and branch cleanup tests may fail intermittently under load; pre-existing, not a regression
+7. **Parallel bats is auto-capped** — `make test` / `make check` now cap `TEST_JOBS` at 6 by default to avoid local full-suite `signal 15` terminations from `bats --jobs 9`; set `TEST_JOBS=<n>` when you need to probe a different level
 8. **Keep runtime files `/bin/bash` 3.2 compatible** — `tests/bash-compat.bats` smokes `/bin/bash bin/taskgrind --dry-run` and rejects common Bash-4-only syntax in sourced runtime files
 
-## Local Test Timing Notes
+## Local Test Notes
 
-- Baseline during `improve-test-speed`: `make test-force` reached the current suite failure point in about 34s, `make check` reached the same point in about 36s, and a direct `bats tests/bash-compat.bats` rerun took about 14s.
-- After the `TESTS=...` Makefile path landed, `make test TESTS=tests/bash-compat.bats` ran the file in about 4s on a warm cache, while the default full-suite parallel path stayed unchanged.
+- The suite now lives in many focused `tests/*.bats` files instead of a single monolithic bats file; when you touch one subsystem, prefer `make test TESTS=tests/<file>.bats` before the full `make check` gate.
+- Avoid hardcoding suite counts in docs. The total bats count changes as focused files land, so agents should treat `tests/*.bats` plus the current `make test` output as the source of truth.
+- `make test` caches passing results per `TESTS` target and `TEST_JOBS` value, while `make test-force` always reruns the selected suite from scratch.
+- `make test` and `make check` auto-cap `TEST_JOBS` at 6 unless you override it explicitly for diagnostics.
 
 ## Architecture
 

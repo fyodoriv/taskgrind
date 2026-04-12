@@ -3,13 +3,6 @@
 ## P0
 
 ## P1
-- [ ] Refresh AGENTS.md so the repo layout and test-count guidance match the current tree
-  **ID**: refresh-agents-md-inventory
-  **Tags**: docs, onboarding, maintenance
-  **Details**: `AGENTS.md` still describes a non-existent `tests/taskgrind.bats` file and stale suite sizes (`384` and `392` tests), even though the repo now has many focused `tests/*.bats` files and `make check` currently runs `525` bats tests. Update the layout, command comments, and local timing notes so agents do not plan work from stale repo metadata.
-  **Files**: `AGENTS.md`
-  **Acceptance**: `AGENTS.md` references the current focused bats layout instead of `tests/taskgrind.bats`, removes stale test-count claims, and its command guidance matches the current `Makefile` and `tests/` tree.
-
 - [ ] Add canonical `TG_` environment-variable coverage for prompt and status-file behavior
   **ID**: cover-canonical-tg-env-vars
   **Tags**: tests, env-vars, reliability

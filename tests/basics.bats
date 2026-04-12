@@ -82,8 +82,8 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   run "$DVB_GRIND" --version
   [ "$status" -eq 0 ]
   [[ "$output" == "taskgrind "* ]]
-  # Should contain a short git hash (7+ hex chars)
-  [[ "$output" =~ [0-9a-f]{7} ]]
+  # Bash 3.2 regex handling is more reliable without interval quantifiers here.
+  [[ "$output" =~ [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f] ]]
 }
 
 @test "-V is alias for --version" {

@@ -78,11 +78,12 @@ resolve_script_path() {
 }
 
 TASKGRIND_SCRIPT_PATH="${TASKGRIND_SCRIPT_PATH:-$(resolve_script_path "$0")}"
-TASKGRIND_DIR="${TASKGRIND_DIR:-$(cd "$(dirname "$TASKGRIND_SCRIPT_PATH")/.." && pwd)}"
-export TASKGRIND_SCRIPT_PATH TASKGRIND_DIR
+TASKGRIND_REPO_DIR="${TASKGRIND_REPO_DIR:-$(cd "$(dirname "$TASKGRIND_SCRIPT_PATH")/.." && pwd)}"
+TASKGRIND_DIR="${TASKGRIND_DIR:-$TASKGRIND_REPO_DIR}"
+export TASKGRIND_SCRIPT_PATH TASKGRIND_REPO_DIR TASKGRIND_DIR
 
 [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]] && { sed -n '/^#!/d; /^$/q; /^[^#]/q; /^# shellcheck/d; s/^# \{0,1\}//p' "$TASKGRIND_SCRIPT_PATH"; exit 0; }
-[[ "${1:-}" == "--version" || "${1:-}" == "-V" ]] && { echo "taskgrind $(git -C "$TASKGRIND_DIR" log -1 --format='%h %ci' 2>/dev/null || echo 'unknown')"; exit 0; }
+[[ "${1:-}" == "--version" || "${1:-}" == "-V" ]] && { echo "taskgrind $(git -C "$TASKGRIND_REPO_DIR" log -1 --format='%h %ci' 2>/dev/null || echo 'unknown')"; exit 0; }
 
 # Respect TMPDIR for all temp files (macOS default: /tmp)
 _dvb_tmp="${TMPDIR:-/tmp}"
@@ -100,6 +101,7 @@ if [[ -z "${_DVB_SELF_COPY:-}" ]]; then
   chmod +x "$_dvb_copy"
   export _DVB_SELF_COPY="$_dvb_copy"
   export TASKGRIND_SCRIPT_PATH
+  export TASKGRIND_REPO_DIR
   export TASKGRIND_DIR
   exec "$_dvb_copy" "$@"
 fi

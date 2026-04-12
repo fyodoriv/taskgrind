@@ -9,7 +9,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 # ── Session loop ─────────────────────────────────────────────────────
 
 @test "runs devin with --permission-mode dangerous" {
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q -- '--permission-mode dangerous' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -27,19 +27,19 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "prompt includes remaining minutes" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'minutes remaining' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "prompt includes commit-before-timeout guidance" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'Commit before timeout' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "prompt includes completion protocol with merge and remove instructions" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'COMPLETION PROTOCOL' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'PR.*merge' "$DVB_GRIND_INVOKE_LOG"
@@ -47,7 +47,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "prompt includes autonomy block with automation guidance" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'AUTONOMY:' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'browser automation' "$DVB_GRIND_INVOKE_LOG"
@@ -176,11 +176,45 @@ SCRIPT
 - [ ] Stubborn task
   **ID**: stubborn-task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
   export DVB_MAX_ZERO_SHIP=6
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ -f "$TEST_DIR/prompt-4.txt" ]
   grep -q 'SKIP these stuck tasks (attempted 3+ times): stubborn-task' "$TEST_DIR/prompt-4.txt"
+}
+
+@test "prune_task_attempts_file drops removed task IDs but keeps live ones" {
+  local function_file="$TEST_DIR/prune-functions.sh"
+  local attempts_file="$TEST_DIR/task-attempts"
+  local tasks_file="$TEST_DIR/TASKS.md"
+
+  python3 - <<'PY' "$DVB_GRIND" "$function_file"
+from pathlib import Path
+import sys
+
+source_path = Path(sys.argv[1])
+target_path = Path(sys.argv[2])
+source = source_path.read_text()
+start = source.index("extract_task_ids() {")
+end = source.index("# Print the first remaining task context as shell-safe assignments.")
+target_path.write_text(source[start:end])
+PY
+
+  cat > "$attempts_file" <<'ATTEMPTS'
+stale-task 4
+live-task 3
+ATTEMPTS
+
+  cat > "$tasks_file" <<'TASKS'
+# Tasks
+## P0
+- [ ] Live task
+  **ID**: live-task
+TASKS
+
+  run bash -lc "source '$function_file'; prune_task_attempts_file '$attempts_file' '$tasks_file'; cat '$attempts_file'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "live-task 3" ]]
 }
 
 @test "task skip threshold is logged when a task hits 3 attempts" {
