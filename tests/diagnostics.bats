@@ -595,6 +595,58 @@ TASKS
   [[ "$output" == *"binary not found"* ]]
 }
 
+@test "backend sanity probe blocks silent stub binaries before session 1" {
+  local silent_stub="$TEST_DIR/silent-stub-devin"
+  create_fake_devin "$silent_stub" <<'SCRIPT'
+#!/bin/bash
+if [[ "$1" == "--version" ]]; then
+  exit 0
+fi
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+exit 0
+SCRIPT
+
+  unset DVB_GRIND_CMD
+  export DVB_DEVIN_PATH="$silent_stub"
+  export DVB_CAFFEINATED=1
+  export _DVB_SELF_COPY="/dev/null"
+  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
+
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"backend binary may be a stub or broken"* ]]
+  grep -q 'backend_probe_failed exit=0 duration=0s backend=devin' "$TEST_LOG"
+  ! [ -f "$DVB_GRIND_INVOKE_LOG" ]
+}
+
+@test "backend sanity probe allows versioned binaries to reach session 1" {
+  local versioned_devin="$TEST_DIR/versioned-devin"
+  create_fake_devin "$versioned_devin" <<'SCRIPT'
+#!/bin/bash
+if [[ "$1" == "--version" ]]; then
+  echo "Devin CLI 2026.4.9"
+  exit 0
+fi
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+exit 0
+SCRIPT
+
+  unset DVB_GRIND_CMD
+  export DVB_DEVIN_PATH="$versioned_devin"
+  export DVB_CAFFEINATED=1
+  export _DVB_SELF_COPY="/dev/null"
+  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
+  export DVB_MAX_ZERO_SHIP=1
+
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  grep -Eq 'backend_probe_ok exit=0 duration=[0-9]+s backend=devin' "$TEST_LOG"
+  [ -f "$DVB_GRIND_INVOKE_LOG" ]
+  grep -q 'Run the next-task skill' "$DVB_GRIND_INVOKE_LOG"
+}
+
 @test "devin binary validation uses -x check (executable)" {
   grep -q '\-x "$_backend_binary"' "$DVB_GRIND"
 }

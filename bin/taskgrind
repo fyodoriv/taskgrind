@@ -1086,16 +1086,6 @@ else
   devin_cmd=("$_backend_binary")
 fi
 
-if [[ "$preflight_only" -eq 0 && ( -z "${DVB_GRIND_CMD:-}" || -n "${DVB_VALIDATE_BACKEND_STARTUP:-}" ) ]]; then
-  if ! run_backend_probe; then
-    echo "Error: $_backend_probe_error" >&2
-    log_write "[$(date '+%H:%M')] $_backend_probe_summary"
-    set_phase "failed"
-    exit 1
-  fi
-  log_write "[$(date '+%H:%M')] $_backend_probe_summary"
-fi
-
 # Prevent sleep for the entire grind loop, not just individual sessions.
 # macOS: re-exec under caffeinate. Linux: re-exec under systemd-inhibit (if available).
 # Skip in test mode.
@@ -1364,6 +1354,16 @@ chmod 600 "$log_file" 2>/dev/null || true
 export TG_INSTANCE_ID="$_dvb_slot"
 write_resume_state "running"
 write_status_file
+
+if [[ "$preflight_only" -eq 0 && ( -z "${DVB_GRIND_CMD:-}" || -n "${DVB_VALIDATE_BACKEND_STARTUP:-}" ) ]]; then
+  if ! run_backend_probe; then
+    echo "Error: $_backend_probe_error" >&2
+    log_write "[$(date '+%H:%M')] $_backend_probe_summary"
+    set_phase "failed"
+    exit 1
+  fi
+  log_write "[$(date '+%H:%M')] $_backend_probe_summary"
+fi
 
 # Run preflight checks before entering the main loop
 if [[ "${DVB_SKIP_PREFLIGHT:-0}" != "1" ]]; then
@@ -1691,6 +1691,48 @@ $paths
 EOF
 
   printf '%s\n' "${joined:-unknown}"
+}
+
+rebase_in_progress() {
+  local repo="$1"
+  local git_dir
+  git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)" || git_dir=""
+  [[ -n "$git_dir" && ( -d "$git_dir/rebase-merge" || -d "$git_dir/rebase-apply" ) ]]
+}
+
+auto_resolve_tasks_rebase_conflicts() {
+  local repo="$1"
+  local conflict_paths
+  local conflict_class
+  local path
+  local continue_err
+
+  while rebase_in_progress "$repo"; do
+    conflict_paths="$(git -C "$repo" diff --name-only --diff-filter=U 2>/dev/null || true)"
+    conflict_class="$(classify_rebase_conflicts "$conflict_paths")"
+    if [[ "$conflict_class" != "queue_only" ]]; then
+      return 1
+    fi
+
+    while IFS= read -r path; do
+      [[ -n "$path" ]] || continue
+      if ! git -C "$repo" checkout --theirs -- "$path" >/dev/null 2>&1; then
+        return 1
+      fi
+      if ! git -C "$repo" add -- "$path" >/dev/null 2>&1; then
+        return 1
+      fi
+    done <<EOF
+$conflict_paths
+EOF
+
+    if ! continue_err=$(GIT_EDITOR=: git -C "$repo" rebase --continue 2>&1); then
+      printf '%s\n' "$continue_err"
+      return 1
+    fi
+  done
+
+  return 0
 }
 
 # Check if all tasks in TASKS.md are blocked.
@@ -2525,12 +2567,23 @@ while [[ $(date +%s) -lt $deadline ]]; do
           echo "git_sync fetch_failed: $_err"
         fi
         if ! _err=$(git -C "$repo" rebase "origin/$_default_branch" 2>&1); then
-          echo "git_sync rebase_failed: $_err"
+          _rebase_conflict_paths="$(git -C "$repo" diff --name-only --diff-filter=U 2>/dev/null || true)"
+          _rebase_conflict_class="$(classify_rebase_conflicts "$_rebase_conflict_paths")"
+          _rebase_conflict_paths_log="$(format_conflict_paths_for_log "$_rebase_conflict_paths")"
+          if [[ "$_rebase_conflict_class" == "queue_only" ]]; then
+            if _resolve_err=$(auto_resolve_tasks_rebase_conflicts "$repo" 2>&1); then
+              echo "git_sync rebase_autoresolved class=$_rebase_conflict_class paths=$_rebase_conflict_paths_log strategy=local_theirs"
+            else
+              echo "git_sync rebase_failed: $_err"
+              [[ -n "$_resolve_err" ]] && printf '%s\n' "$_resolve_err"
+            fi
+          else
+            echo "git_sync rebase_failed: $_err"
+          fi
         fi
         # Abort broken rebase — a conflicted rebase leaves the repo in a
         # "rebase in progress" state that breaks every subsequent session.
-        _git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)"
-        if [[ -n "$_git_dir" && ( -d "$_git_dir/rebase-merge" || -d "$_git_dir/rebase-apply" ) ]]; then
+        if rebase_in_progress "$repo"; then
           git -C "$repo" rebase --abort 2>/dev/null || true
           echo "git_sync rebase_aborted"
         fi
@@ -2577,6 +2630,10 @@ while [[ $(date +%s) -lt $deadline ]]; do
           _git_fail=$(grep 'stash_failed' "$_git_out" 2>/dev/null | head -1 | tr -cd '[:print:]' | head -c 500)
           echo "   ⚠ git sync: $_git_fail"
           log_write "[$(date '+%H:%M')] $_git_fail"
+        elif grep -q 'rebase_autoresolved' "$_git_out" 2>/dev/null; then
+          _git_resolved=$(grep 'rebase_autoresolved' "$_git_out" 2>/dev/null | head -1 | tr -cd '[:print:]' | head -c 500)
+          log_write "[$(date '+%H:%M')] $_git_resolved"
+          log_write "[$(date '+%H:%M')] git_sync ok (auto-resolved TASKS.md rebase conflict)"
         elif grep -q 'rebase_aborted' "$_git_out" 2>/dev/null; then
           if grep -q 'rebase_failed' "$_git_out" 2>/dev/null; then
             _git_fail=$(awk '
