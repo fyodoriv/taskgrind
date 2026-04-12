@@ -387,6 +387,7 @@ for arg in "\$@"; do
   prev="\$arg"
 done
 printf '%s' "\$prompt" > "$TEST_DIR/prompt-\$n.txt"
+printf '%s\n' "\$prompt" >> "$TEST_DIR/prompts.log"
 if [ "\$n" -eq 4 ]; then
   cat > "$TEST_REPO/TASKS.md" <<'EOF'
 # Tasks
@@ -467,6 +468,7 @@ TASKS
   local commit_devin="$TEST_DIR/commit-devin"
   cat > "$commit_devin" <<SCRIPT
 #!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 echo "fix something" >> "$TEST_REPO/code.txt"
 git -C "$TEST_REPO" add -A
@@ -608,6 +610,7 @@ for arg in "\$@"; do
   prev="\$arg"
 done
 printf '%s' "\$prompt" > "$TEST_DIR/prompt-\$n.txt"
+printf '%s\n' "\$prompt" >> "$TEST_DIR/prompts.log"
 echo "work" >> "$TEST_REPO/code.txt"
 git -C "$TEST_REPO" add -A
 git -C "$TEST_REPO" commit -q -m "fix: do work"
@@ -631,7 +634,7 @@ TASKS
   export DVB_MAX_ZERO_SHIP=5
   export DVB_SKIP_SWEEP_ON_EMPTY=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
-  grep -q 'URGENT.*committed code.*did NOT remove' "$TEST_DIR/prompt-3.txt"
+  grep -q 'productive_zero_ship session=2 commits=1 reason=no_local_task_removed' "$TEST_LOG"
 }
 
 @test "no productive zero-ship when no commits and no ships" {
