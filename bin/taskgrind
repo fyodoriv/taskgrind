@@ -868,6 +868,7 @@ tasks_remaining_snapshot=0
 sessions_zero_ship=0
 _recent_shipped=()  # rolling window of per-session shipped counts
 _dvb_finalizing=0
+_dvb_skip_exit_final_sync=0
 session_output=$(mktemp "$_dvb_tmp/taskgrind-ses-XXXXXX") || { echo "Error: cannot create temp file in $_dvb_tmp" >&2; exit 1; }
 _task_attempts_file=$(mktemp "$_dvb_tmp/taskgrind-att-XXXXXX") || { echo "Error: cannot create temp file in $_dvb_tmp" >&2; exit 1; }
 _git_out=""
@@ -1124,9 +1125,18 @@ graceful_shutdown() {
     kill "$_git_timer" 2>/dev/null || true
     wait "$_git_timer" 2>/dev/null || true
   fi
+  # Hand off final sync to this signal path so the EXIT trap does not re-run it.
+  _dvb_skip_exit_final_sync=1
   final_sync
   cleanup
   exit "$sig_exit"
+}
+
+handle_exit_trap() {
+  if [[ ${_dvb_skip_exit_final_sync:-0} -eq 0 ]]; then
+    final_sync
+  fi
+  cleanup
 }
 
 # Clean up on exit — always shows duration, even on Ctrl+C
@@ -1206,7 +1216,7 @@ cleanup() {
 # INT/TERM → graceful shutdown (wait for session, push, then exit)
 trap 'graceful_shutdown 130' INT
 trap 'graceful_shutdown 143' TERM
-trap 'final_sync; cleanup' EXIT
+trap 'handle_exit_trap' EXIT
 
 echo "☕ taskgrind: ${hours}h (until ${end_time}) — backend=$backend, skill=$skill, model=$model, repo=$repo"
 if [[ "$max_instances" -gt 1 ]]; then

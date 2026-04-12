@@ -3,13 +3,6 @@
 ## P0
 
 ## P1
-- [ ] Guard EXIT-trap final sync after graceful shutdown
-  **ID**: guard-exit-final-sync-after-graceful-shutdown
-  **Tags**: bug, git, shutdown, logging
-  **Details**: The open shutdown gap is now narrow enough to target directly: the preserved repro in `/var/folders/vp/xnc0myyn4dsb7trvmq61j4hw0000gp/T/taskgrind-2026-04-12-0806-bosun-18073.log` shows `graceful_shutdown session_finished after=1s` immediately followed by two `final_sync pushing commits=7` / `final_sync push_ok` pairs. Replace the broad audit task with a focused fix that adds an explicit handoff guard between `graceful_shutdown` and the EXIT trap so only one final-sync path runs per signal-driven exit.
-  **Reviewed 2026-04-12 session 27**: Re-checking the preserved 08:06/08:07 fleet logs still leaves the same single shutdown repro and no competing sample. `/var/folders/vp/xnc0myyn4dsb7trvmq61j4hw0000gp/T/taskgrind-2026-04-12-0806-bosun-18073.log` is still the only log in that slice with `graceful_shutdown session_finished`, and it still records two `final_sync pushing commits=7` / `final_sync push_ok` pairs for the same one-session shutdown. That keeps the bug scoped to taskgrind's signal/EXIT final-sync handoff rather than to downstream repo push behavior.
-  **Files**: `bin/taskgrind`, `tests/signals.bats`
-  **Acceptance**: Add a failing test first; a SIGINT/SIGTERM shutdown that lets the session finish logs at most one `final_sync pushing` / `final_sync push_ok` block; the final push still happens before exit.
 - [ ] Recover cleanly from TASKS.md-only rebase conflicts during git sync
   **ID**: recover-from-tasks-md-sync-conflicts
   **Tags**: bug, git, tasks, multi-agent
