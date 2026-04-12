@@ -24,5 +24,12 @@
   **Files**: `bin/taskgrind`, `tests/signals.bats`, `tests/git-sync.bats`, `README.md`
   **Acceptance**: Shutdown paths log at most one final-sync push for an unchanged commit set; tests cover both normal exit and signal-driven cleanup; misleading duplicate push failure/success pairs no longer appear in the log.
 
+- [ ] Stop test-mode session overrides from hard-coding a missing `/bin/true` backend
+  **ID**: resolve-test-backend-command-portably
+  **Tags**: test-mode, backend, portability, reliability
+  **Details**: The unanalyzed 2026-04-12 temp-repo logs (`taskgrind-2026-04-12-1404-repo-70059.log`, `taskgrind-2026-04-12-1410-repo-94203.log`) both burned every session on `/Users/fivanishche/apps/taskgrind/bin/taskgrind: line 986: /bin/true: No such file or directory`, so the grind never made progress even with a one-task queue. Taskgrind currently trusts `DVB_GRIND_CMD` as a literal executable path in test mode; some harnesses still inject `/bin/true`, which is not present on every host. Make the test backend override resolve commands portably (or normalize the built-in smoke harnesses to a portable `true` path) so synthetic grinds do not fail before the agent even starts.
+  **Files**: `bin/taskgrind`, `tests/basics.bats`, `tests/session.bats`, `tests/test_helper.bash`, `README.md`
+  **Acceptance**: A targeted test reproduces a `DVB_GRIND_CMD=/bin/true` or equivalent PATH-only override on a host without `/bin/true` and shows taskgrind resolving it cleanly; temp-repo smoke runs no longer spin through zero-second fast failures for this reason; docs clarify any portability constraint for test backends.
+
 ## P2
 ## P3
