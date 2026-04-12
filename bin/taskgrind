@@ -1373,6 +1373,65 @@ detect_default_branch() {
   printf '%s\n' "${current_branch:-main}"
 }
 
+extract_rebase_conflict_paths() {
+  local git_output_file="$1"
+  [[ -f "$git_output_file" ]] || return 0
+  awk '
+    /CONFLICT .* in / {
+      path = $0
+      sub(/^.* in /, "", path)
+      sub(/\r$/, "", path)
+      if (!(path in seen)) {
+        seen[path] = 1
+        print path
+      }
+    }
+  ' "$git_output_file" 2>/dev/null || true
+}
+
+classify_rebase_conflicts() {
+  local paths="$1"
+  local path
+  local only_tasks=1
+  local has_paths=0
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    has_paths=1
+    case "$path" in
+      TASKS.md|*/TASKS.md) ;;
+      *) only_tasks=0 ;;
+    esac
+  done <<EOF
+$paths
+EOF
+
+  if [[ $has_paths -eq 0 ]]; then
+    printf 'unknown\n'
+  elif [[ $only_tasks -eq 1 ]]; then
+    printf 'queue_only\n'
+  else
+    printf 'repo\n'
+  fi
+}
+
+format_conflict_paths_for_log() {
+  local paths="$1"
+  local joined=""
+  local path
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    if [[ -n "$joined" ]]; then
+      joined="${joined},${path}"
+    else
+      joined="$path"
+    fi
+  done <<EOF
+$paths
+EOF
+
+  printf '%s\n' "${joined:-unknown}"
+}
+
 # Check if all tasks in TASKS.md are blocked.
 # Returns 0 (true) if every task has **Blocked by**: metadata, 1 otherwise.
 # A task with **Blocked by**: is considered blocked regardless of whether
@@ -2165,6 +2224,9 @@ while [[ $(date +%s) -lt $deadline ]]; do
       _git_timer=$!
       if wait "$_git_pid" 2>/dev/null; then
         dvb_spinner_stop
+        _rebase_conflict_paths="$(extract_rebase_conflict_paths "$_git_out")"
+        _rebase_conflict_class="$(classify_rebase_conflicts "$_rebase_conflict_paths")"
+        _rebase_conflict_paths_log="$(format_conflict_paths_for_log "$_rebase_conflict_paths")"
         if grep -q 'stash_failed' "$_git_out" 2>/dev/null; then
           _git_fail=$(grep 'stash_failed' "$_git_out" 2>/dev/null | head -1 | sed 's/^git_sync stash_failed: //' | tr -cd '[:print:]' | head -c 500)
           echo "   ⚠ git stash failed: $_git_fail"
@@ -2192,8 +2254,15 @@ while [[ $(date +%s) -lt $deadline ]]; do
             ' "$_git_out" 2>/dev/null | tr -cd '[:print:]\n' | tr '\n' ' ' | head -c 500)
             echo "   ⚠ git sync: $_git_fail"
             log_write "[$(date '+%H:%M')] $_git_fail"
+            if [[ "$_rebase_conflict_class" != "unknown" ]]; then
+              log_write "[$(date '+%H:%M')] git_sync rebase_conflicts class=$_rebase_conflict_class paths=$_rebase_conflict_paths_log"
+            fi
           fi
-          log_write "[$(date '+%H:%M')] git_sync rebase_aborted"
+          if [[ "$_rebase_conflict_class" != "unknown" ]]; then
+            log_write "[$(date '+%H:%M')] git_sync rebase_aborted class=$_rebase_conflict_class paths=$_rebase_conflict_paths_log"
+          else
+            log_write "[$(date '+%H:%M')] git_sync rebase_aborted"
+          fi
         elif grep -q 'rebase_failed' "$_git_out" 2>/dev/null; then
           _git_fail=$(awk '
             /rebase_failed:/ { capture=1 }
@@ -2201,6 +2270,9 @@ while [[ $(date +%s) -lt $deadline ]]; do
           ' "$_git_out" 2>/dev/null | tr -cd '[:print:]\n' | tr '\n' ' ' | head -c 500)
           echo "   ⚠ git sync: $_git_fail"
           log_write "[$(date '+%H:%M')] $_git_fail"
+          if [[ "$_rebase_conflict_class" != "unknown" ]]; then
+            log_write "[$(date '+%H:%M')] git_sync rebase_conflicts class=$_rebase_conflict_class paths=$_rebase_conflict_paths_log"
+          fi
         elif grep -q 'git_sync stashed' "$_git_out" 2>/dev/null; then
           log_write "[$(date '+%H:%M')] git_sync ok (stashed dirty tree)"
         else

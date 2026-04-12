@@ -447,6 +447,106 @@ EOF
   grep -q 'CONFLICT' "$TEST_LOG"
 }
 
+@test "TASKS-only rebase conflicts are labeled distinctly in logs" {
+  git -C "$TEST_REPO" init -q -b main
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+  cat <<'EOF' > "$TEST_REPO/TASKS.md"
+# Tasks
+
+## P0
+
+## P1
+- [ ] Shared queue task
+  **ID**: shared-queue-task
+
+## P2
+
+## P3
+EOF
+  git -C "$TEST_REPO" add TASKS.md
+  git -C "$TEST_REPO" commit -q --no-verify -m "init"
+
+  local bare="$TEST_DIR/bare.git"
+  local remote_worktree="$TEST_DIR/remote-worktree"
+  git init -q --bare "$bare"
+  git -C "$TEST_REPO" remote add origin "$bare"
+  git -C "$TEST_REPO" push -q -u origin main 2>/dev/null
+
+  git clone -q "$bare" "$remote_worktree"
+  git -C "$remote_worktree" config user.email "test@test.com"
+  git -C "$remote_worktree" config user.name "Test"
+  cat <<'EOF' > "$remote_worktree/TASKS.md"
+# Tasks
+
+## P0
+
+## P1
+- [ ] Remote queue task
+  **ID**: remote-queue-task
+
+## P2
+
+## P3
+EOF
+  git -C "$remote_worktree" commit -qam "remote queue change"
+  git -C "$remote_worktree" push -q origin main 2>/dev/null
+
+  cat <<'EOF' > "$TEST_REPO/TASKS.md"
+# Tasks
+
+## P0
+
+## P1
+- [ ] Local queue task
+  **ID**: local-queue-task
+
+## P2
+
+## P3
+EOF
+  git -C "$TEST_REPO" commit -qam "local queue change"
+
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_SYNC_INTERVAL=0
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  grep -q 'git_sync rebase_conflicts class=queue_only paths=TASKS.md' "$TEST_LOG"
+  grep -q 'git_sync rebase_aborted class=queue_only' "$TEST_LOG"
+}
+
+@test "general rebase conflicts log conflicted paths and class" {
+  git -C "$TEST_REPO" init -q -b main
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+  printf 'shared\n' > "$TEST_REPO/README.md"
+  git -C "$TEST_REPO" add README.md
+  git -C "$TEST_REPO" commit -q --no-verify -m "init"
+
+  local bare="$TEST_DIR/bare.git"
+  local remote_worktree="$TEST_DIR/remote-worktree"
+  git init -q --bare "$bare"
+  git -C "$TEST_REPO" remote add origin "$bare"
+  git -C "$TEST_REPO" push -q -u origin main 2>/dev/null
+
+  git clone -q "$bare" "$remote_worktree"
+  git -C "$remote_worktree" config user.email "test@test.com"
+  git -C "$remote_worktree" config user.name "Test"
+  printf 'remote-change\n' > "$remote_worktree/README.md"
+  git -C "$remote_worktree" commit -qam "remote change"
+  git -C "$remote_worktree" push -q origin main 2>/dev/null
+
+  printf 'local-change\n' > "$TEST_REPO/README.md"
+  git -C "$TEST_REPO" commit -qam "local change"
+
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_SYNC_INTERVAL=0
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  grep -q 'git_sync rebase_conflicts class=repo paths=README.md' "$TEST_LOG"
+  grep -q 'git_sync rebase_aborted class=repo' "$TEST_LOG"
+}
+
 @test "git checkout failure is logged with checkout_failed marker" {
   git -C "$TEST_REPO" init -q -b main
   git -C "$TEST_REPO" config user.email "test@test.com"
