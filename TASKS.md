@@ -3,18 +3,12 @@
 ## P0
 
 ## P1
-- [ ] Avoid double final-sync pushes during signal shutdown
-  **ID**: dedupe-final-sync-on-signal-shutdown
+- [ ] Guard EXIT-trap final sync after graceful shutdown
+  **ID**: guard-exit-final-sync-after-graceful-shutdown
   **Tags**: bug, git, shutdown, logging
-  **Details**: Recent logs also show duplicate `final_sync pushing...` and `final_sync push_ok` lines on SIGINT/SIGTERM shutdown. The signal path should perform one final push/log cycle, not one from `graceful_shutdown` and another from the EXIT trap.
-  **Reviewed 2026-04-12 session 7**: `taskgrind-2026-04-12-0806-bosun-18073.log` still captures the same duplicate shutdown pattern in a fresh one-session run: a single `graceful_shutdown session_finished` is followed by repeated `final_sync pushing commits=7` and `final_sync push_ok` pairs. The repro is still isolated to `taskgrind`'s shutdown/final-sync interaction, not repo-local Bosun behavior.
-  **Reviewed 2026-04-12 session 21**: Re-reading `/var/folders/vp/xnc0myyn4dsb7trvmq61j4hw0000gp/T/taskgrind-2026-04-12-0806-bosun-18073.log` still shows the duplicate shutdown block with no newer conflicting evidence: after `graceful_shutdown session_finished after=1s`, the log immediately emits two consecutive `final_sync pushing commits=7` / `final_sync push_ok` pairs. That keeps this squarely in the signal/EXIT trap handoff, not in downstream repo push behavior.
-  **Reviewed 2026-04-12 session 23**: The full preserved-log pass still shows only one fresh signal-shutdown repro, but it remains definitive. `/var/folders/vp/xnc0myyn4dsb7trvmq61j4hw0000gp/T/taskgrind-2026-04-12-0806-bosun-18073.log` is unchanged: one `graceful_shutdown session_finished after=1s` is immediately followed by two `final_sync pushing commits=7` / `final_sync push_ok` pairs, so the duplicate push still lives in the taskgrind shutdown handoff rather than in any downstream repo behavior.
-  **Reviewed 2026-04-12 session 24**: Another full grep across every preserved `taskgrind-2026-04-12-08*.log` still finds exactly one signal-shutdown repro and no counterexample. `/var/folders/vp/xnc0myyn4dsb7trvmq61j4hw0000gp/T/taskgrind-2026-04-12-0806-bosun-18073.log` remains the only log with `graceful_shutdown session_finished`, and that block still emits two `final_sync pushing commits=7` / `final_sync push_ok` pairs back to back, so the duplicate final push remains a real shutdown-handoff bug rather than a noisy multi-repo pattern.
-  **Reviewed 2026-04-12 session 25**: Re-running the preserved-log sweep still leaves exactly one clean signal-shutdown repro and no offsetting example. `/var/folders/vp/xnc0myyn4dsb7trvmq61j4hw0000gp/T/taskgrind-2026-04-12-0806-bosun-18073.log` remains the only `graceful_shutdown session_finished` hit across the 08:06/08:07 log set, and that same block still contains two `final_sync pushing commits=7` / `final_sync push_ok` pairs, so the duplicate final push remains an unresolved taskgrind shutdown-handoff bug.
-  **Reviewed 2026-04-12 session 26**: Another preserved-log pass still finds only the same single shutdown repro and no contradictory signal-run sample. `/var/folders/vp/xnc0myyn4dsb7trvmq61j4hw0000gp/T/taskgrind-2026-04-12-0806-bosun-18073.log` remains the lone `graceful_shutdown session_finished` hit in the 08:06/08:07 fleet slice, and that block still logs two back-to-back `final_sync pushing commits=7` lines before the matching `final_sync push_ok` pair, so the duplicate final push bug is still live in the shutdown handoff.
-  **Files**: `bin/taskgrind`, `tests/git-sync.bats`, `tests/signals.bats`
-  **Acceptance**: Add a failing test first; signal-driven shutdown emits at most one `final_sync` block per run; pending commits are still pushed before exit.
+  **Details**: The open shutdown gap is now narrow enough to target directly: the preserved repro in `/var/folders/vp/xnc0myyn4dsb7trvmq61j4hw0000gp/T/taskgrind-2026-04-12-0806-bosun-18073.log` shows `graceful_shutdown session_finished after=1s` immediately followed by two `final_sync pushing commits=7` / `final_sync push_ok` pairs. Replace the broad audit task with a focused fix that adds an explicit handoff guard between `graceful_shutdown` and the EXIT trap so only one final-sync path runs per signal-driven exit.
+  **Files**: `bin/taskgrind`, `tests/signals.bats`
+  **Acceptance**: Add a failing test first; a SIGINT/SIGTERM shutdown that lets the session finish logs at most one `final_sync pushing` / `final_sync push_ok` block; the final push still happens before exit.
 - [ ] Recover cleanly from TASKS.md-only rebase conflicts during git sync
   **ID**: recover-from-tasks-md-sync-conflicts
   **Tags**: bug, git, tasks, multi-agent
