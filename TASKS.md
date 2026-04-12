@@ -3,6 +3,13 @@
 ## P0
 
 ## P1
+- [ ] Fix false-positive `no_local_task_removed` warnings after audit-style queue refresh sessions
+  **ID**: fix-false-positive-no-local-task-removed
+  **Tags**: reliability, logging, tasks, audits
+  **Details**: The 2026-04-12 preserved fleet logs still show `productive_zero_ship ... reason=no_local_task_removed` in sessions whose transcripts explicitly say the completed task block was removed, especially when the session temporarily adds audit or decomposition tasks before deleting them again. Examples include `/var/folders/vp/xnc0myyn4dsb7trvmq61j4hw0000gp/T/taskgrind-2026-04-12-0806-agentbrew-19576.log`, `/var/folders/vp/xnc0myyn4dsb7trvmq61j4hw0000gp/T/taskgrind-2026-04-12-0806-bosun-18484.log`, and `/var/folders/vp/xnc0myyn4dsb7trvmq61j4hw0000gp/T/taskgrind-2026-04-12-1109-oncall-hub-app-32431.log`. Tighten the local queue-delta accounting so audit refresh sessions that remove the completed task block no longer get classified as completion-protocol misses, while genuine misses still keep the warning.
+  **Files**: `bin/taskgrind`, `tests/logging.bats`, `tests/taskgrind.bats`
+  **Acceptance**: A failing test first reproduces the false positive; sessions that add and later remove temporary audit tasks do not emit `reason=no_local_task_removed`; true completion-protocol misses still emit the warning.
+
 - [ ] Add canonical `TG_` environment-variable coverage for prompt and status-file behavior
   **ID**: cover-canonical-tg-env-vars
   **Tags**: tests, env-vars, reliability
