@@ -25,11 +25,4 @@
   **Acceptance**: Shutdown paths log at most one final-sync push for an unchanged commit set; tests cover both normal exit and signal-driven cleanup; misleading duplicate push failure/success pairs no longer appear in the log.
 
 ## P2
-- [ ] Document the uncached `make test-force` rerun path in contributor docs (@devin)
-  **ID**: document-test-force-rerun-path
-  **Tags**: docs, tests, developer-experience
-  **Details**: `Makefile` exposes `make test-force`, but the contributor-facing docs only mention `make test` and targeted `TESTS=...` runs. Add a regression test that enforces docs parity for the uncached rerun path, then update the relevant docs so maintainers can discover the command from the usual development references.
-  **Files**: `tests/basics.bats`, `README.md`, `CONTRIBUTING.md`, `man/taskgrind.1`, `TASKS.md`
-  **Acceptance**: The docs mention `make test-force` alongside the standard test workflow, and a repo test fails if that parity drifts again.
-
 ## P3

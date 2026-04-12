@@ -343,6 +343,9 @@ Run shellcheck across the shipped scripts.
 .B make test
 Run the bats suite with caching enabled, using the repo's default parallelism.
 .TP
+.B make test-force
+Re-run the selected bats suite from scratch without using the cached result.
+.TP
 .B "make test TESTS=tests/bash\-compat.bats"
 Re-run one bats file with its own cache key for tight local loops.
 .TP

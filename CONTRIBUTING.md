@@ -7,6 +7,7 @@ git clone https://github.com/cbrwizard/taskgrind.git
 cd taskgrind
 make check   # runs shellcheck + bats test suite
 make audit   # runs the local repo audit workflow
+make test-force TESTS=tests/bash-compat.bats  # rerun a suite without cache
 make test TESTS=tests/bash-compat.bats  # targeted rerun with its own cache key
 make install # symlink to /usr/local/bin + install man page
 ```
@@ -96,6 +97,7 @@ When adding a new env var:
 - Use `DVB_DEADLINE` to control loop duration — set in the past for immediate exit (tests that validate args), or a few seconds ahead to run 1-2 sessions
 - Use `DVB_GRIND_CMD` to point at a stub script (never the real binary)
 - Use `make test TESTS=tests/<file>.bats` for tight local reruns before falling back to the full suite
+- Use `make test-force TESTS=tests/<file>.bats` when you need to bypass the cache and re-run the suite from scratch
 - `make test` auto-caps `TEST_JOBS` at 6 to avoid local `bats --jobs 9` terminations; set `TEST_JOBS=<n>` when you need to probe a different level
 - Structural tests (`grep -q` on the script) are fine for verifying code patterns
 

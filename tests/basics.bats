@@ -160,6 +160,17 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [ "$status" -eq 0 ]
 }
 
+@test "developer docs mention make test-force for uncached reruns" {
+  run grep -nF 'make test-force' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'make test-force' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'make test-force' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  [ "$status" -eq 0 ]
+}
+
 @test "man page documents the current make audit review queue" {
   run grep -nF 'SECURITY.md' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
   [ "$status" -eq 0 ]
