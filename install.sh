@@ -14,7 +14,7 @@ fi
 
 if [ -d "$INSTALL_DIR" ]; then
   echo "taskgrind is already installed at $INSTALL_DIR"
-  echo "To update: cd $INSTALL_DIR && git pull"
+  echo "To update: cd \"$INSTALL_DIR\" && git pull"
   exit 0
 fi
 
@@ -37,7 +37,7 @@ echo "  export PATH=\"$INSTALL_DIR/bin:\$PATH\""
 echo ""
 echo "Or install system-wide with man page:"
 echo ""
-echo "  make -C $INSTALL_DIR install"
+echo "  make -C \"$INSTALL_DIR\" install"
 echo ""
 echo "Then run:"
 echo "  taskgrind --help"
