@@ -501,6 +501,46 @@ build_session_args() {
 }
 
 _model_validation_error=""
+_test_backend_error=""
+_resolved_test_backend_cmd=()
+
+resolve_test_backend_command() {
+  local requested_cmd="${DVB_GRIND_CMD:-}"
+  local resolved_cmd=""
+  local fallback_name=""
+
+  _test_backend_error=""
+  _resolved_test_backend_cmd=()
+
+  if [[ -z "$requested_cmd" ]]; then
+    _test_backend_error="Test backend command is empty"
+    return 1
+  fi
+
+  if [[ "$requested_cmd" =~ [[:space:]] ]]; then
+    _test_backend_error="Test backend command must be a single executable path; wrap complex commands in a helper script: $requested_cmd"
+    return 1
+  fi
+
+  if [[ "$requested_cmd" == */* ]]; then
+    if [[ -x "$requested_cmd" ]]; then
+      resolved_cmd="$requested_cmd"
+    else
+      fallback_name="${requested_cmd##*/}"
+      resolved_cmd=$(type -P "$fallback_name" 2>/dev/null || true)
+    fi
+  else
+    resolved_cmd=$(type -P "$requested_cmd" 2>/dev/null || true)
+  fi
+
+  if [[ -z "$resolved_cmd" || ! -x "$resolved_cmd" ]]; then
+    _test_backend_error="Test backend command is not executable: $requested_cmd"
+    return 1
+  fi
+
+  _resolved_test_backend_cmd=("$resolved_cmd")
+}
+
 validate_model() {
   local validation_cmd=()
   local validation_output=""
@@ -508,7 +548,11 @@ validate_model() {
 
   _model_validation_error=""
   if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
-    validation_cmd=("$DVB_GRIND_CMD")
+    if ! resolve_test_backend_command; then
+      _model_validation_error="$_test_backend_error"
+      return 1
+    fi
+    validation_cmd=("${_resolved_test_backend_cmd[@]}")
   else
     resolve_backend_binary
     validation_cmd=("$_backend_binary")
@@ -572,8 +616,12 @@ preflight_check() {
 
   # 1. Backend binary — required to run sessions
   if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
-    # Test mode — skip binary check
-    preflight_pass "Backend binary (test mode: DVB_GRIND_CMD set)"
+    if resolve_test_backend_command; then
+      preflight_pass "Backend binary (test mode: DVB_GRIND_CMD set)"
+    else
+      preflight_fail "$_test_backend_error"
+      backend_available=0
+    fi
   else
     resolve_backend_binary
     if [[ -x "$_backend_binary" ]]; then
@@ -999,7 +1047,11 @@ run_test_backend() {
 
 # Resolve the session runner command — injectable for testing
 if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
-  devin_cmd=("$DVB_GRIND_CMD")
+  if ! resolve_test_backend_command; then
+    echo "Error: $_test_backend_error" >&2
+    exit 1
+  fi
+  devin_cmd=("${_resolved_test_backend_cmd[@]}")
 else
   resolve_backend_binary
   if [[ ! -x "$_backend_binary" ]]; then

@@ -598,3 +598,24 @@ TASKS
 @test "devin binary validation uses -x check (executable)" {
   grep -q '\-x "$_backend_binary"' "$DVB_GRIND"
 }
+
+@test "test backend normalizes simple injected commands like /bin/true" {
+  export DVB_GRIND_CMD="/bin/true"
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  ! grep -q 'No such file or directory' "$TEST_LOG"
+}
+
+@test "invalid test backend command exits with actionable error" {
+  local missing_backend="$TEST_DIR/missing-backend"
+  export DVB_GRIND_CMD="$missing_backend"
+
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Test backend command is not executable"* ]]
+  [[ "$output" == *"$missing_backend"* ]]
+}

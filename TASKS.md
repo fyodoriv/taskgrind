@@ -17,12 +17,5 @@
   **Files**: `bin/taskgrind`, `tests/git-sync.bats`, `tests/session.bats`, `README.md`
   **Acceptance**: Rebase-failure logs always include a stable conflict class plus the conflicting paths; tests cover both `TASKS.md`-only conflicts and non-queue file conflicts; pre-session recovery and regular git-sync reuse the same logging format.
 
-- [ ] Keep test backend execution working when audit helpers inject non-executable commands
-  **ID**: harden-test-backend-command-resolution
-  **Tags**: testing, audit, reliability
-  **Details**: The audit-helper logs `taskgrind-2026-04-12-1404-repo-70059.log` and `taskgrind-2026-04-12-1410-repo-94203.log` both hard-fail every session with `/Users/fivanishche/apps/taskgrind/bin/taskgrind: line 986: /bin/true: No such file or directory`. Those runs execute against temporary repos under `/var/folders/.../repo`, so a bad `DVB_GRIND_CMD` or helper command is being passed straight into `run_test_backend()` without any preflight or normalization. Harden the test-backend path so audit and check helpers can safely inject simple commands without collapsing the whole grind into an instant zero-ship loop.
-  **Files**: `bin/taskgrind`, `tests/session.bats`, `tests/diagnostics.bats`, `README.md`
-  **Acceptance**: A failing test reproduces the temporary-repo helper path with a non-executable or malformed injected command; taskgrind reports a clear actionable error instead of spinning through repeated `/bin/true` launch failures; valid `DVB_GRIND_CMD` test flows still behave exactly as before.
-
 ## P2
 ## P3

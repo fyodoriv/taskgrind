@@ -96,7 +96,7 @@ When adding a new env var:
 - Tests live in focused `tests/*.bats` files with shared helpers in `tests/test_helper.bash`
 - Each test gets a fresh `$TEST_DIR` via `setup()` — no shared state between tests
 - Use `DVB_DEADLINE` to control loop duration — set in the past for immediate exit (tests that validate args), or a few seconds ahead to run 1-2 sessions
-- Use `DVB_GRIND_CMD` to point at a stub script (never the real binary)
+- Use `DVB_GRIND_CMD` to point at a single stub executable path (never the real binary); if a helper needs a compound command, wrap it in a script first
 - Use `make test TESTS=tests/<file>.bats` for tight local reruns before falling back to the full suite
 - Use `make test-force TESTS=tests/<file>.bats` when you need to bypass the cache and re-run the suite from scratch
 - `make test` auto-caps `TEST_JOBS` at 6 to avoid local `bats --jobs 9` terminations; set `TEST_JOBS=<n>` when you need to probe a different level
