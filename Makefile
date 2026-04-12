@@ -58,7 +58,7 @@ audit:
 	@echo "═══ Audit: shellcheck ═══"
 	@$(MAKE) lint
 	@echo "═══ Audit: docs review queue ═══"
-	@printf '%s\n' README.md CONTRIBUTING.md docs/architecture.md docs/user-stories.md
+	@printf '%s\n' README.md CONTRIBUTING.md docs/architecture.md docs/user-stories.md man/taskgrind.1
 
 install:
 	@echo "Installing taskgrind to $(PREFIX)..."

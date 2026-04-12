@@ -110,6 +110,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Audit: TODO/FIXME scan"* ]]
   [[ "$output" == *"Audit: docs review queue"* ]]
+  [[ "$output" == *"man/taskgrind.1"* ]]
 }
 
 @test "GitHub Actions caches the active make test cache files" {
