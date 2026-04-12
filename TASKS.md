@@ -3,6 +3,13 @@
 ## P0
 
 ## P1
+- [ ] Count shipped work correctly when task removal is masked by concurrent queue churn
+  **ID**: detect-shipped-work-beyond-queue-delta
+  **Tags**: accounting, logging, reliability, multi-session
+  **Details**: Multiple 2026-04-12 slot-1 logs still classified clearly productive sessions as `productive_zero_ship`, which means the queue accounting is leaning too hard on local task-count deltas instead of the actual completion evidence. In `taskgrind-2026-04-12-0806-agentbrew-19576.log`, session 1 says it "removed the completed `real-e2e-commands-and-drift-scenario` block from `TASKS.md`" but still logs `productive_zero_ship ... reason=local_task_churn`; session 4 says it removed the completed legal/license task block yet still logs `reason=no_local_task_removed`; and `taskgrind-2026-04-12-0806-agentbrew-19027.log` session 9 says it replaced the recurring competition-refresh block with the next-cycle prompt but still logs `reason=no_local_task_removed`. The same pattern shows up in `taskgrind-2026-04-12-1109-oncall-hub-app-37140.log`, where session 3 says the `stabilize-deploy-status-quick-audit` block is gone from `TASKS.md` and session 5 says it removed one blocker task and replaced it with two narrower P0 tasks, yet both sessions still count as zero shipped because churn or rollover hid the local queue delta. Tighten shipped-work detection so completed-task removal, rollover, or replacement still counts as shipped work even when concurrent additions or recurring-task refreshes keep the raw task count flat.
+  **Files**: `bin/taskgrind`, `tests/signals.bats`, `tests/session.bats`, `docs/architecture.md`, `README.md`
+  **Acceptance**: Targeted tests cover a session that removes a task and re-adds a rolled-over successor, a session whose task removal is offset by concurrent task additions, and a session that completes work via a merged PR or other non-local queue churn path; shipped accounting and stall detection no longer classify those sessions as ordinary zero-ship failures; logs explain why the session counted as shipped.
+
 - [ ] Recover cleanly when git sync rebases across concurrent `TASKS.md` edits
   **ID**: recover-from-tasks-md-sync-conflicts
   **Tags**: git-sync, tasks-md, reliability
