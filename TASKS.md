@@ -3,13 +3,6 @@
 ## P0
 
 ## P1
-- [ ] Restore the dry-run test-backend smoke path used by the Bash 3.2 guard
-  **ID**: restore-dry-run-test-backend-smoke
-  **Tags**: tests, bash-compat, dry-run, reliability
-  **Details**: The fresh preserved repo smoke log `/var/folders/vp/xnc0myyn4dsb7trvmq61j4hw0000gp/T/taskgrind-2026-04-12-1404-repo-70059.log` shows the current Bash-compat dry-run path stalling out before any work happens: every session dies at `bin/taskgrind:986` with `/bin/true: No such file or directory` even though `tests/verify-bash32-compat.sh` still sets `DVB_GRIND_CMD=/bin/true`. Add a focused regression task so the lightweight dry-run/test-backend path keeps working for command overrides used by the compatibility smoke checks instead of silently looping into three zero-ship failures.
-  **Files**: `bin/taskgrind`, `tests/verify-bash32-compat.sh`, `tests/`
-  **Acceptance**: A failing regression test first reproduces the preserved `/bin/true` dry-run failure; the Bash-compat smoke path completes cleanly with a bare test-backend command override; and the preserved log no longer reproduces the repeated `line 986` zero-ship failure.
-
 - [ ] Add canonical `TG_` environment-variable coverage for prompt and status-file behavior
   **ID**: cover-canonical-tg-env-vars
   **Tags**: tests, env-vars, reliability
