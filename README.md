@@ -97,10 +97,18 @@ taskgrind --preflight ~/apps/myrepo    # run health checks only
 taskgrind --resume ~/apps/myrepo       # resume an interrupted grind
 taskgrind --help / -h                  # show usage and environment variables
 taskgrind --version / -V               # print version (commit hash + date)
+TG_MODEL=sonnet taskgrind 8            # pick a model alias without changing shell history
+TG_BACKEND=codex taskgrind 8           # make a wrapper or terminal default use Codex
 TG_MAX_INSTANCES=3 taskgrind 8         # allow three concurrent grinds per repo
 ```
 
 Arguments can appear in any order. Hours is any bare integer 1-24.
+
+Env vars are especially useful when you wrap taskgrind in `launchd`, cron,
+shell aliases, or a small supervisor script. Use flags when you want a
+one-off override in your shell history; use `TG_BACKEND` or `TG_MODEL` when
+you want restarts and helper scripts to inherit the same defaults without
+retyping them on every launch.
 
 ## How It Works
 

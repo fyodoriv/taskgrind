@@ -22,3 +22,19 @@
   run grep -nF "rebase immediately before" "$BATS_TEST_DIRNAME/../man/taskgrind.1"
   [ "$status" -eq 0 ]
 }
+
+@test "operator docs explain env-based backend and model startup defaults" {
+  run grep -nF 'TG_MODEL=sonnet taskgrind 8' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+  run grep -nF 'Use flags when you want a' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+  run grep -nF 'one-off override in your shell history; use `TG_BACKEND` or `TG_MODEL` when' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF '## 2a. Reusable backend and model defaults via environment' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
+  [ "$status" -eq 0 ]
+  run grep -nF 'TG_BACKEND=codex TG_MODEL=o3 taskgrind ~/apps/myproject 6' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
+  [ "$status" -eq 0 ]
+  run grep -nF 'This is useful for reusable automation because a restart can inherit the same baseline choices without editing the wrapper command itself' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
+  [ "$status" -eq 0 ]
+}

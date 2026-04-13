@@ -58,6 +58,28 @@ Sample banner:
    Log: ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
 ```
 
+## 2a. Reusable backend and model defaults via environment
+
+You restart the same grind pattern often from a shell wrapper, `launchd` job,
+or watchdog script. You want those restarts to keep the same backend or model
+without repeating long flag lists every time.
+
+```bash
+TG_BACKEND=codex TG_MODEL=o3 taskgrind ~/apps/myproject 6
+
+# Or keep the defaults in a wrapper and launch with a short command later
+export TG_BACKEND=claude-code
+export TG_MODEL=sonnet
+taskgrind ~/apps/myproject 6
+```
+
+What happens:
+- Taskgrind reads `TG_BACKEND` and `TG_MODEL` before session 1, so the startup banner and preflight checks use those defaults exactly as if you had passed `--backend` and `--model`
+- This is useful for reusable automation because a restart can inherit the same baseline choices without editing the wrapper command itself
+- Model aliases such as `sonnet` still resolve to the current preferred concrete model ID at launch time
+- If you need a one-off run with different settings, pass flags on that command; explicit flags stay the clearest option for ad hoc overrides you want visible in shell history
+- Repo-local `.taskgrind-model` still wins later between sessions, so you can start with an env default and then steer a long-running grind without restarting it
+
 ## 3. Multi-repo grind
 
 You have tasks spread across two repos. Run one grind per repo, either sequentially or in separate terminals.
