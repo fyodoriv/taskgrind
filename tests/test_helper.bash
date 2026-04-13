@@ -143,6 +143,7 @@ backend=devin
 skill=next-task
 model=gpt-5.4
 startup_model=gpt-5.4
+startup_prompt=
 EOF
 
   local entry key value

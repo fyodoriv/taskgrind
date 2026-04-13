@@ -36,6 +36,7 @@ Current keys:
 - `skill` — saved skill name
 - `model` — active model to resume with
 - `startup_model` — original startup model baseline shown to the operator
+- `startup_prompt` — original `--prompt` / `TG_PROMPT` baseline for resumed focus
 
 Example:
 
@@ -52,6 +53,7 @@ backend=devin
 skill=next-task
 model=gpt-5.4
 startup_model=gpt-5.4
+startup_prompt=focus on reliability
 ```
 
 ## What `--resume` restores
@@ -66,9 +68,14 @@ When validation succeeds, taskgrind restores:
 - skill
 - model
 - startup model baseline
+- startup focus prompt baseline
 
 Resume does not restore every startup flag. In particular, taskgrind does not
-persist prompt text, git-sync cadence, or retry maps in the state file today.
+persist git-sync cadence or retry maps in the state file. Repo-local
+`.taskgrind-prompt` edits also remain live-only: taskgrind restores the saved
+startup prompt baseline, then re-reads `.taskgrind-prompt` before each resumed
+session so operators can keep steering the run without mutating the original
+focus context.
 
 ## Validation rules
 
@@ -83,6 +90,8 @@ persist prompt text, git-sync cadence, or retry maps in the state file today.
 - the saved deadline is still in the future
 - any explicit `--backend` override matches the saved backend
 - any explicit `--model` override matches the saved model
+- any explicit `--prompt` / `TG_PROMPT` override matches the saved startup
+  prompt
 - the requested skill matches the saved skill
 
 Current rejection reasons surfaced to the operator:
@@ -94,6 +103,7 @@ Current rejection reasons surfaced to the operator:
 - `deadline expired`
 - `backend override does not match saved state`
 - `model override does not match saved state`
+- `prompt override does not match saved state`
 - `skill does not match saved state`
 
 When the deadline is expired, taskgrind also suggests starting a fresh grind.

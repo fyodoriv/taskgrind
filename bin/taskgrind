@@ -303,6 +303,7 @@ state_backend=""
 state_skill=""
 state_model=""
 state_startup_model=""
+state_startup_prompt=""
 state_repo=""
 state_status=""
 state_version=""
@@ -325,6 +326,7 @@ load_resume_state() {
       skill) state_skill="$value" ;;
       model) state_model="$value" ;;
       startup_model) state_startup_model="$value" ;;
+      startup_prompt) state_startup_prompt="$value" ;;
     esac
   done < "$state_file"
 }
@@ -352,6 +354,8 @@ if [[ "$resume_run" -eq 1 ]]; then
     resume_reason="backend override does not match saved state"
   elif [[ -n "$_cli_model" && "$requested_model" != "$state_model" ]]; then
     resume_reason="model override does not match saved state"
+  elif [[ -n "$_cli_prompt" && "$_cli_prompt" != "$state_startup_prompt" ]]; then
+    resume_reason="prompt override does not match saved state"
   elif [[ "$skill" != "$state_skill" ]]; then
     resume_reason="skill does not match saved state"
   fi
@@ -367,6 +371,7 @@ if [[ "$resume_run" -eq 1 ]]; then
   backend="$state_backend"
   skill="$state_skill"
   _startup_model="${state_startup_model:-$state_model}"
+  _cli_prompt="$state_startup_prompt"
   resume_loaded=1
 fi
 
@@ -997,6 +1002,7 @@ backend=$backend
 skill=$skill
 model=$model
 startup_model=$_startup_model
+startup_prompt=$_cli_prompt
 EOF
   mv -f "$state_tmp" "$state_file" 2>/dev/null || rm -f "$state_tmp"
 }

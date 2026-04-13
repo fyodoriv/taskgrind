@@ -38,6 +38,7 @@ SCRIPT
   grep -q "^backend=devin$" "$state_file"
   grep -q "^skill=next-task$" "$state_file"
   grep -q "^model=gpt-5.4$" "$state_file"
+  grep -q "^startup_prompt=$" "$state_file"
 
   kill -9 "$grind_pid"
   wait "$grind_pid" 2>/dev/null || true
@@ -192,7 +193,7 @@ EOF
   write_resume_state_file "$state_file" \
     "repo=$TEST_REPO"
 
-  run "$DVB_GRIND" --resume "$TEST_REPO" --model claude-opus-4-6-thinking
+  run "$DVB_GRIND" --resume "$TEST_REPO" --model claude-opus-4-6
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"saved state is incompatible: model override does not match saved state"* ]]
@@ -209,4 +210,56 @@ EOF
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"saved state is incompatible: skill does not match saved state"* ]]
+}
+
+@test "--resume restores the saved startup prompt and keeps live prompt overlays" {
+  local state_file="$TEST_DIR/resume-state"
+  local counter_file="$TEST_DIR/resume-counter"
+  local resumable_devin="$TEST_DIR/resumable-devin"
+  echo "0" > "$counter_file"
+  create_fake_devin "$resumable_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "${DVB_GRIND_INVOKE_LOG}"
+count=\$(cat "$counter_file")
+count=\$((count + 1))
+echo "\$count" > "$counter_file"
+if [[ "\$count" -eq 1 ]]; then
+  sleep 5
+else
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+fi
+SCRIPT
+  export DVB_GRIND_CMD="$resumable_devin"
+  export DVB_STATE_FILE="$state_file"
+  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+
+  "$DVB_GRIND" --prompt "focus on backend docs" 1 "$TEST_REPO" >"$TEST_DIR/stdout.log" 2>"$TEST_DIR/stderr.log" &
+  local grind_pid=$!
+  wait_for_resume_session "$state_file" 1
+  grep -q "^startup_prompt=focus on backend docs$" "$state_file"
+  printf 'prefer fast loops' > "$TEST_REPO/.taskgrind-prompt"
+  kill -9 "$grind_pid"
+  wait "$grind_pid" 2>/dev/null || true
+
+  run "$DVB_GRIND" --resume "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  [[ "$(cat "$DVB_GRIND_INVOKE_LOG")" == *"FOCUS: focus on backend docs LIVE_PROMPT: prefer fast loops"* ]]
+}
+
+@test "--resume rejects prompt override mismatches" {
+  local state_file="$TEST_DIR/resume-state"
+  export DVB_STATE_FILE="$state_file"
+
+  write_resume_state_file "$state_file" \
+    "repo=$TEST_REPO" \
+    "startup_prompt=focus on backend docs"
+
+  run "$DVB_GRIND" --resume "$TEST_REPO" --prompt "focus on tests"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"saved state is incompatible: prompt override does not match saved state"* ]]
 }
