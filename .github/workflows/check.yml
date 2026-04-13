@@ -18,6 +18,9 @@ jobs:
       - name: shellcheck
         run: make lint
 
+      - name: audit
+        run: make audit
+
   test:
     strategy:
       fail-fast: false

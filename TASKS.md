@@ -14,13 +14,6 @@
   **Files**: `bin/taskgrind`, `tests/task-attempts.bats`, `tests/session.bats`, `docs/architecture.md`
   **Acceptance**: New bats coverage proves attempt counters reset or prune correctly after shipped work and queue churn, and skip-list prompts only mention active task IDs that truly crossed the retry threshold.
 
-## P1
-- [ ] Add a CI gate for the offline repo audit workflow
-  **ID**: gate-make-audit-in-ci
-  **Tags**: ci, docs, drift-prevention
-  **Details**: `make audit` is part of the documented contributor workflow and is the same lightweight scan taskgrind asks agents to run during empty-queue sweeps, but the GitHub Actions workflow only runs `make lint` and `make test`. Add an audit job or fold `make audit` into the existing workflow so doc-drift and audit-target regressions fail fast in pull requests.
-  **Files**: `.github/workflows/check.yml`, `Makefile`, `tests/basics.bats`
-  **Acceptance**: GitHub Actions runs `make audit` on every pull request, and tests or docs protect the expected audit target list so future drift fails CI instead of silently shipping.
 - [ ] Publish a troubleshooting playbook for stuck, blocked, or conflicting grinds
   **ID**: document-operator-troubleshooting-playbook
   **Tags**: docs, operations, ux

@@ -205,6 +205,11 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [ "$status" -eq 0 ]
 }
 
+@test "GitHub Actions runs make audit on pull requests" {
+  run grep -n 'make audit$' "$BATS_TEST_DIRNAME/../.github/workflows/check.yml"
+  [ "$status" -eq 0 ]
+}
+
 @test ".gitignore covers local runtime state and split test cache artifacts" {
   run grep -nF '.taskgrind-state' "$BATS_TEST_DIRNAME/../.gitignore"
   [ "$status" -eq 0 ]
