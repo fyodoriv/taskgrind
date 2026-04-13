@@ -65,8 +65,9 @@ actually blocks the work. When you finish a task, remove its entire block from
 
 Use `make audit` when you want the same lightweight local audit loop that empty-queue sweeps rely on:
 
-- Scans the repo for `TODO` and `FIXME` markers
-- Includes the core docs and repo-local audit skills in that `TODO`/`FIXME` scan so doc drift shows up in the same pass
+- Scans the repo for real `TODO` and `FIXME` task markers
+- Treats only colon-suffixed task markers as actionable so audit instructions do not report themselves as backlog items
+- Includes the core docs and repo-local audit skills in that actionable scan so real doc drift still shows up in the same pass
 - Runs shellcheck through `make lint`
 - Prints the core docs review queue (`README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `AGENTS.md`, `Agentfile.yaml`, `docs/architecture.md`, `docs/resume-state.md`, `docs/user-stories.md`, `man/taskgrind.1`, `.devin/skills/standing-audit-gap-loop/SKILL.md`, `.devin/skills/grind-log-analyze/SKILL.md`)
 

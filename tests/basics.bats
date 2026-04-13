@@ -108,7 +108,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 @test "make audit runs the local audit workflow" {
   run make -C "$BATS_TEST_DIRNAME/.." audit
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Audit: TODO/FIXME scan"* ]]
+  [[ "$output" == *"Audit: TODO:/FIXME: scan"* ]]
   [[ "$output" == *"Audit: docs review queue"* ]]
   [[ "$output" == *"man/taskgrind.1"* ]]
 }
@@ -125,8 +125,24 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "make audit TODO/FIXME scan covers the docs review queue files" {
-  run grep -n 'grep -RIn.*SECURITY.md.*AGENTS.md.*Agentfile.yaml.*man/taskgrind.1.*standing-audit-gap-loop/SKILL.md.*grind-log-analyze/SKILL.md' "$BATS_TEST_DIRNAME/../Makefile"
+  run grep -n 'grep -RInE.*TODO:|FIXME:.*SECURITY.md.*AGENTS.md.*Agentfile.yaml.*man/taskgrind.1.*standing-audit-gap-loop/SKILL.md.*grind-log-analyze/SKILL.md' "$BATS_TEST_DIRNAME/../Makefile"
   [ "$status" -eq 0 ]
+
+  [[ "$output" != *"tests"* ]]
+  [[ "$output" != *"Makefile"* ]]
+}
+
+@test "make audit keeps self-referential docs out of the TODO/FIXME findings" {
+  run make -C "$BATS_TEST_DIRNAME/.." audit
+  [ "$status" -eq 0 ]
+
+  [[ "$output" != *"README.md:51:"* ]]
+  [[ "$output" != *"CONTRIBUTING.md:68:"* ]]
+  [[ "$output" != *"CONTRIBUTING.md:69:"* ]]
+  [[ "$output" != *"man/taskgrind.1:356:"* ]]
+  [[ "$output" != *".devin/skills/standing-audit-gap-loop/SKILL.md:47:"* ]]
+  [[ "$output" != *"tests/basics.bats:111:"* ]]
+  [[ "$output" != *"Makefile:56:"* ]]
 }
 
 @test "CONTRIBUTING documents the current make audit review queue" {

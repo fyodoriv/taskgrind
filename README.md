@@ -48,7 +48,7 @@ export PATH="$HOME/apps/taskgrind/bin:$PATH"
 
 To update: `brew upgrade taskgrind` (Homebrew) or `cd ~/apps/taskgrind && git pull --rebase` (manual)
 
-Contributor audit shortcut: run `make audit` to reproduce the local repo-audit pass (an actionable `TODO:`/`FIXME:` scan across code plus the core docs and repo-local audit skills, shellcheck, and the core docs review queue, including `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `AGENTS.md`, `Agentfile.yaml`, `docs/architecture.md`, `docs/resume-state.md`, `docs/user-stories.md`, `man/taskgrind.1`, `.devin/skills/standing-audit-gap-loop/SKILL.md`, and `.devin/skills/grind-log-analyze/SKILL.md`) without any network-only dependencies.
+Contributor audit shortcut: run `make audit` to reproduce the local repo-audit pass (an actionable scan for real task markers, plus the core docs and repo-local audit skills, shellcheck, and the core docs review queue, including `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `AGENTS.md`, `Agentfile.yaml`, `docs/architecture.md`, `docs/resume-state.md`, `docs/user-stories.md`, `man/taskgrind.1`, `.devin/skills/standing-audit-gap-loop/SKILL.md`, and `.devin/skills/grind-log-analyze/SKILL.md`) without any network-only dependencies.
 
 ## Usage
 

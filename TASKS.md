@@ -20,12 +20,6 @@
   **Details**: Final push protection is critical for unattended runs, but some `final_sync` paths are still mostly covered structurally instead of by realistic git behavior. Add bats coverage for duplicate-push suppression, nothing-to-push exits, and push-failure diagnostics so taskgrind can be trusted to shut down cleanly without extra operator babysitting.
   **Files**: `bin/taskgrind`, `tests/signals.bats`, `tests/git-sync.bats`
   **Acceptance**: Bats tests exercise real final-sync outcomes for duplicate attempts, zero-ahead shutdowns, and rejected pushes, and the resulting log/output expectations are locked in.
-- [ ] Make `make audit` report actionable TODO/FIXME hits instead of self-referential noise
-  **ID**: audit-scan-actionable-results
-  **Tags**: tooling, audit, docs
-  **Details**: The current `make audit` run mostly reports README, CONTRIBUTING, architecture, and skill text that describe the audit itself, which makes empty-queue sweep output noisy and hard to act on. Tighten the scan or add exclusions so real backlog-worthy markers stand out while the docs review queue still stays visible.
-  **Files**: `Makefile`, `tests/basics.bats`, `README.md`, `CONTRIBUTING.md`
-  **Acceptance**: `make audit` still scans the intended repo paths, but a clean repo no longer reports the standing audit docs and skill instructions as TODO/FIXME findings unless a real marker is added.
 - [ ] Add a monitoring-focused user story for status-file driven automation
   **ID**: add-status-file-monitoring-user-story
   **Tags**: docs, observability, integrations
