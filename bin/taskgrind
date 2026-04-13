@@ -7,8 +7,8 @@
 # Usage: taskgrind                              → 10h grind (default)
 #        taskgrind 10                          → 10h grind, current dir
 #        taskgrind ~/apps/myrepo 10            → 10h grind in specific repo
-#        taskgrind --model gpt-5-4 8           → 8h grind with specific model
-#        taskgrind --model "gpt-5-4 XHigh thinking fast" 8
+#        taskgrind --model gpt-5.4 8           → 8h grind with specific model
+#        taskgrind --model "gpt-5.4 XHigh thinking fast" 8
 #                                               → quote multi-word model names
 #        taskgrind --skill fleet-grind 10      → 10h fleet-grind
 #        taskgrind ~/apps/bosun --skill fleet-grind 10

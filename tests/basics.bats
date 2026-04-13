@@ -317,6 +317,17 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [ "$status" -eq 1 ]
 }
 
+@test "script usage examples use the shipped default model id" {
+  run grep -nF '#        taskgrind --model gpt-5.4 8' "$BATS_TEST_DIRNAME/../bin/taskgrind"
+  [ "$status" -eq 0 ]
+
+  run grep -nF '#        taskgrind --model "gpt-5.4 XHigh thinking fast" 8' "$BATS_TEST_DIRNAME/../bin/taskgrind"
+  [ "$status" -eq 0 ]
+
+  run grep -n 'gpt-5-4' "$BATS_TEST_DIRNAME/../bin/taskgrind"
+  [ "$status" -eq 1 ]
+}
+
 @test "CLI docs parity keeps help, README, and man page in sync" {
   run python3 - "$BATS_TEST_DIRNAME/.." <<'PY'
 import pathlib
