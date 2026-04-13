@@ -99,7 +99,8 @@ taskgrind --help / -h                  # show usage and environment variables
 taskgrind --version / -V               # print version (commit hash + date)
 TG_MODEL=sonnet taskgrind 8            # pick a model alias without changing shell history
 TG_BACKEND=codex taskgrind 8           # make a wrapper or terminal default use Codex
-TG_MAX_INSTANCES=3 taskgrind 8         # allow three concurrent grinds per repo
+TG_MAX_INSTANCES=3 taskgrind ~/apps/myrepo 8  # allow three concurrent grinds per repo
+TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8  # write machine-readable status snapshots
 ```
 
 Arguments can appear in any order. Hours is any bare integer 1-24.

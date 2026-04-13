@@ -2,12 +2,6 @@
 
 ## P0
 ## P1
-- [ ] Continue the operator-docs CLI example audit after the `--model` prose fix
-  **ID**: continue-cli-doc-example-audit
-  **Tags**: docs, audit, user-stories
-  **Details**: Finish auditing the remaining README, man page, and user-stories command snippets for uncaught example drift so future docs-only sessions have a clear follow-up once the `--model` prose regression is covered.
-  **Files**: `README.md`, `docs/user-stories.md`, `man/taskgrind.1`, `TASKS.md`
-  **Acceptance**: Any newly discovered CLI example drift is captured as concrete follow-up tasks or fixed directly with updated regression coverage.
 ## P2
 - [ ] Add canonical `TG_` precedence tests for wait and backoff env vars that only have validation coverage
   **ID**: expand-tg-precedence-coverage

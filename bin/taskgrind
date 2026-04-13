@@ -21,6 +21,10 @@
 #        taskgrind --version / -V             → print version (commit hash + date)
 #        TG_MODEL=sonnet taskgrind 8           → 8h grind, sonnet model
 #        TG_BACKEND=codex taskgrind 8          → 8h grind with Codex
+#        TG_MAX_INSTANCES=3 taskgrind ~/apps/myrepo 8
+#                                             → allow three concurrent grinds per repo
+#        TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8
+#                                             → write machine-readable status snapshots
 #
 #        Args can appear in any order. Hours is any bare integer (1-24).
 #

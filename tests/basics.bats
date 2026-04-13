@@ -219,6 +219,12 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 
   run grep -nF 'taskgrind \-\-version / \-V' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
   [ "$status" -eq 0 ]
+
+  run grep -nF 'TG_MAX_INSTANCES=3 taskgrind ~/apps/myrepo 8' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  [ "$status" -eq 0 ]
 }
 
 @test "man page model option prose keeps the dotted XHigh example" {
@@ -293,6 +299,16 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [ "$status" -eq 0 ]
 
   run grep -nF 'alias resolves to claude-sonnet-4.6' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  [ "$status" -eq 0 ]
+}
+
+@test "help and README keep the env example block aligned" {
+  run "$DVB_GRIND" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"TG_MAX_INSTANCES=3 taskgrind ~/apps/myrepo 8"* ]]
+  [[ "$output" == *"TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8"* ]]
+
+  run grep -nF 'TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]
 }
 
