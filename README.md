@@ -22,6 +22,26 @@ You need at least one AI coding backend installed:
 
 Taskgrind defaults to Devin. Use `--backend claude-code` or `--backend codex` to switch.
 
+### Backend setup matrix
+
+Use `taskgrind --preflight ~/apps/myrepo` after installing a backend. The same
+checks run before a real grind starts, so this is the fastest way to confirm the
+binary, model, and network assumptions for the backend you chose.
+
+| Backend | Binary taskgrind looks for | Model validation before session 1 | Most actionable setup failures |
+|---------|----------------------------|-----------------------------------|--------------------------------|
+| `devin` | `devin` from `PATH`, or `TG_DEVIN_PATH` if you override it | Validates the requested model by running `devin --model "$TG_MODEL" --help` during preflight | `Backend binary not found (devin)` means the CLI is missing or `TG_DEVIN_PATH` points at the wrong file. `Model rejected by devin before starting` means the model string is wrong for your Devin install. If the startup probe says the binary is a stub or broken after `--version`, reinstall or roll back the Devin CLI before retrying. |
+| `claude-code` | `claude` from `PATH` | Validates the requested model by running `claude --model "$TG_MODEL" --help` during preflight | `Backend binary not found (claude-code)` usually means `@anthropic-ai/claude-code` is not installed globally or `claude` is not on `PATH`. `Model rejected by claude-code before starting` means the selected Claude model is unavailable to that install or account. |
+| `codex` | `codex` from `PATH` | Validates the requested model by running `codex --model "$TG_MODEL" --help` during preflight | `Backend binary not found (codex)` means the Codex CLI is missing from `PATH`. If you keep the default Anthropic-flavored model while using `--backend codex`, taskgrind warns before launch because Codex expects an OpenAI model such as `o3` or `gpt-5.4`. A later `Model rejected by codex before starting` failure means the chosen OpenAI model name is not accepted by your local Codex install. |
+
+Practical examples:
+
+```bash
+taskgrind --preflight ~/apps/myrepo
+taskgrind --preflight --backend claude-code --model claude-sonnet-4.6 ~/apps/myrepo
+taskgrind --preflight --backend codex --model o3 ~/apps/myrepo
+```
+
 ## Install
 
 ### Homebrew (macOS / Linux)
@@ -189,6 +209,55 @@ cat /tmp/taskgrind-status.json
 ```
 
 The status file updates atomically on startup, before and after each session, during empty-queue sweeps and wait windows, during network waits, and on final completion or failure. It includes the repo, process ID, slot, backend, skill, model, current session, remaining minutes, current phase, and the most recent session result.
+
+Supervisor example:
+
+```bash
+#!/bin/sh
+status_file="${TMPDIR:-/tmp}/taskgrind-status.json"
+
+phase=$(python3 - <<'PY' "$status_file"
+import json, sys
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+print(payload.get("current_phase", "missing"))
+print(payload.get("last_session", {}).get("result", "none"))
+PY
+)
+
+current_phase=$(printf '%s\n' "$phase" | sed -n '1p')
+last_result=$(printf '%s\n' "$phase" | sed -n '2p')
+
+case "$current_phase" in
+  running_session|running_sweep|preflight|cooldown|git_sync|queue_refilled|session_complete)
+    echo "healthy: let the grind keep running"
+    ;;
+  queue_empty_wait|blocked_wait)
+    echo "idle: wait unless the repo should have work right now"
+    ;;
+  waiting_for_network)
+    echo "degraded: alert only after the outage outlives TG_NET_MAX_WAIT"
+    ;;
+  failed)
+    echo "page now: inspect the log and resume after fixing the cause"
+    ;;
+  complete)
+    if [ "$last_result" = "completed" ]; then
+      echo "done: no restart needed unless new tasks arrived"
+    else
+      echo "finished with a non-success result: inspect before restarting"
+    fi
+    ;;
+  *)
+    echo "unknown phase: inspect the status file and log before acting"
+    ;;
+esac
+```
+
+This pattern works well in `launchd`, `systemd`, or a lightweight cron watchdog:
+page on `failed`, keep waiting through `queue_empty_wait`, and only auto-restart
+after `complete` when new tasks or a fresh schedule justify another grind.
 
 Status payload fields:
 
@@ -382,15 +451,46 @@ If taskgrind is interrupted unexpectedly, rerun it with `--resume` in the same r
 taskgrind --resume ~/apps/myrepo
 ```
 
-Taskgrind saves resumable runtime state in `~/apps/myrepo/.taskgrind-state` while the grind is active. A resumed run restores the original deadline, session counter, shipped count, backend, skill, and model instead of starting from session 1 again.
+Taskgrind saves resumable runtime state in `~/apps/myrepo/.taskgrind-state` while the grind is active. A resumed run restores the original deadline, session counter, shipped count, backend, skill, model, and baseline focus prompt instead of starting from session 1 again.
 
 The saved state file is a flat `key=value` snapshot, not JSON. Today it stores
 the schema `version`, absolute `repo`, resumability `status`, `deadline`,
 `session`, `tasks_shipped`, `sessions_zero_ship`, `consecutive_zero_ship`,
-`backend`, `skill`, `model`, and `startup_model`. See `docs/resume-state.md`
-for the current contract and validation rules.
+`backend`, `skill`, `model`, `startup_model`, and `startup_prompt`. The saved
+focus prompt is the baseline `--prompt` or `TG_PROMPT` text from startup;
+repo-local `.taskgrind-prompt` edits still stay live-only and are re-read on
+resume. See `docs/resume-state.md` for the current contract and validation
+rules.
 
-Use `--resume` when the previous run was interrupted by a terminal crash, reboot, or similar external interruption. Prefer a fresh `taskgrind` launch when you intentionally want a new deadline or different runtime settings. If the saved deadline already expired, taskgrind rejects the stale state and tells you to start fresh.
+Use `--resume` when the previous run was interrupted by a terminal crash,
+reboot, or similar external interruption. Prefer a fresh `taskgrind` launch
+when you intentionally want a new deadline or different runtime settings. If
+the saved deadline already expired, taskgrind rejects the stale state and tells
+you to start fresh. If you try to resume with a different `--prompt` or
+`TG_PROMPT`, taskgrind rejects that mismatch explicitly so a resumed grind does
+not silently change direction.
+
+## Troubleshooting
+
+Use this playbook when an unattended grind looks stuck, blocked, or noisy. Start
+with the status file when `TG_STATUS_FILE` is enabled, then confirm the same
+story in the log named in the startup banner.
+
+| Symptom | Inspect | Recovery |
+|-------|---------|---------|
+| Queue looks stuck even though the process is alive | `current_phase` in `TG_STATUS_FILE`; log lines containing `queue_empty_wait`, `blocked_wait`, or `running_sweep` | If the phase is `queue_empty_wait` or `blocked_wait`, leave the grind running while another agent or operator refills or unblocks `TASKS.md`. If the repo should already have work, open `TASKS.md` and fix claimed/blocking entries instead of restarting immediately. |
+| Another terminal says the repo is busy or a new worker will not start | `taskgrind --preflight ~/apps/myrepo` for `slots: N/M active`; the active-slot owner list in preflight output | Wait for a slot to free up, or raise `TG_MAX_INSTANCES` before starting another grind. Keep slot `0` as the sync owner; point higher slots at docs, audits, or other non-overlapping work. |
+| Sessions keep ending with zero shipped tasks | `last_session.result`, `last_session.shipped`, and log markers such as `productive_zero_ship`, `shipped_inferred`, or repeated `tasks_after=` counts | Read the last few session summaries before killing the run. If the queue is churning under another agent, taskgrind may still be shipping work. If the same task is being retried without progress, tighten the prompt, split the task, or remove the blocker in `TASKS.md` before resuming. |
+| Network outages pause progress for too long | `current_phase=waiting_for_network`; log lines around connectivity retries and `network_restored` | Let taskgrind hold the deadline open during short outages. If the outage exceeds `TG_NET_MAX_WAIT`, restore connectivity first, then restart with `taskgrind --resume ~/apps/myrepo` to keep the original grind context. |
+| `--resume` refuses to continue | The rejection message in stderr; `.taskgrind-state`; `docs/resume-state.md` for the saved field contract | Fix the mismatch the message calls out: use the same repo, restore the missing state file, or start a fresh grind if the deadline already expired. Do not copy stale state across repos. |
+| Final push or sync fails during shutdown | The final `git push` / `git pull --rebase` lines in the log; `git status --short`; `git log --oneline --decorate -5` | Resolve the git problem in the repo first, usually with `git pull --rebase` for incoming changes or by fixing the rejected push target. Then rerun `taskgrind --resume ~/apps/myrepo` if the run was interrupted mid-shutdown. |
+
+Safe recovery loop:
+
+1. Read `TG_STATUS_FILE` to learn whether the grind is working, waiting, or failed.
+2. Tail the matching log file to confirm the latest session result and git state.
+3. Run `taskgrind --preflight ~/apps/myrepo` before adding more workers or after clearing a blocker.
+4. Prefer `taskgrind --resume ~/apps/myrepo` after crashes, reboots, or push failures so the original session counters and deadline survive.
 
 ## Development
 

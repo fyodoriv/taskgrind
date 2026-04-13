@@ -128,6 +128,65 @@ Seconds to wait after session SIGINT before SIGTERM (default: 15).
 .TP
 .B TG_EARLY_EXIT_ON_STALL
 Exit early on low throughput (default: 0, 1 to enable).
+.SH BACKEND SETUP
+Run
+.B taskgrind \-\-preflight
+after installing a backend. Preflight checks the backend binary, validates the
+requested model before session 1, and reports the most actionable setup
+failure before a long grind starts.
+.TP
+.B devin
+Binary detection uses
+.B devin
+from
+.BR PATH ,
+or
+.B TG_DEVIN_PATH
+if set. Model validation runs
+.B devin \-\-model <name> \-\-help
+before launch. Common setup failures are
+.B Backend binary not found (devin)
+for a missing CLI or bad
+.BR TG_DEVIN_PATH ,
+and
+.B Model rejected by devin before starting
+for an unsupported model string. When the optional startup probe reports that
+the backend is a stub or broken after
+.BR \-\-version ,
+reinstall or roll back the Devin CLI before retrying.
+.TP
+.B claude\-code
+Binary detection uses
+.B claude
+from
+.BR PATH .
+Model validation runs
+.B claude \-\-model <name> \-\-help
+before launch. Common setup failures are
+.B Backend binary not found (claude\-code)
+when the Claude Code CLI is not installed or not on
+.BR PATH ,
+and
+.B Model rejected by claude\-code before starting
+when the selected Claude model is not available to that install or account.
+.TP
+.B codex
+Binary detection uses
+.B codex
+from
+.BR PATH .
+Model validation runs
+.B codex \-\-model <name> \-\-help
+before launch. Common setup failures are
+.B Backend binary not found (codex)
+for a missing CLI and
+.B Model rejected by codex before starting
+for an unsupported OpenAI model name. If the selected model still looks like a
+Claude model, taskgrind warns before launch and tells the operator to switch to
+an OpenAI model such as
+.B o3
+or
+.BR gpt\-5.4 .
 .SH FILES
 .TP
 .I TASKS.md
@@ -292,7 +351,7 @@ failed.
 taskgrind                           # 10h grind, current dir
 taskgrind 10 ~/apps/myrepo         # 10h grind in specific repo
 taskgrind \-\-model gpt\-5\-4 8       # use specific model
-taskgrind \-\-model opus 8          # resolves to claude-opus-4-6-thinking
+taskgrind \-\-model opus 8          # resolves to claude-opus-4-6
 taskgrind \-\-skill fleet\-grind 10  # custom skill
 taskgrind \-\-backend claude\-code 8  # use Claude Code backend
 taskgrind \-\-prompt "test coverage" 8
@@ -333,6 +392,71 @@ saved deadline already expired, taskgrind rejects the stale state and tells you
 to start a fresh grind. See
 .I docs/resume-state.md
 for the current field contract and validation rules.
+.SH TROUBLESHOOTING
+When an unattended grind looks stuck, start with the JSON status file named by
+.B TG_STATUS_FILE
+if you enabled it, then confirm the same state in the taskgrind log.
+.TP
+.B Queue appears stuck
+Inspect
+.B current_phase
+for
+.BR queue_empty_wait ,
+.BR blocked_wait ,
+or
+.BR running_sweep .
+If the phase is one of the wait states, leave the process running and refill or
+unblock
+.I TASKS.md
+instead of restarting immediately.
+.TP
+.B Slot contention
+Run
+.B taskgrind \-\-preflight ~/apps/myrepo
+and inspect the
+.B slots:
+header plus the active owner list. Wait for a free slot or raise
+.BR TG_MAX_INSTANCES .
+Slot 0 remains the between-session sync owner; higher slots should stay on
+docs, audits, or other non-overlapping work.
+.TP
+.B Repeated zero-ship sessions
+Check
+.BR last_session.result ,
+.BR last_session.shipped ,
+and log markers such as
+.BR productive_zero_ship
+or
+.BR shipped_inferred .
+If the queue is changing under another worker, the session may still have
+shipped useful work. Otherwise split or unblock the task before resuming.
+.TP
+.B Network wait
+Inspect
+.BR current_phase=waiting_for_network
+and the matching connectivity log lines. Let short outages recover normally; if
+the outage exceeds
+.BR TG_NET_MAX_WAIT ,
+restore connectivity and rerun
+.B taskgrind \-\-resume
+to keep the original deadline.
+.TP
+.B Resume rejected
+Read the stderr reason, inspect
+.I .taskgrind\-state ,
+and compare it with
+.I docs/resume-state.md .
+Use the same repo and active state file, or start fresh when the saved deadline
+has already expired.
+.TP
+.B Final push or sync failure
+Read the last git lines in the log, inspect
+.B git status --short
+and
+.B git log --oneline \-\-decorate \-5
+in the repo, fix the push or rebase problem, then rerun
+.B taskgrind \-\-resume
+if the grind was interrupted mid-shutdown.
 .SH DEVELOPMENT
 For repo maintenance, the standard local workflow is:
 .RS

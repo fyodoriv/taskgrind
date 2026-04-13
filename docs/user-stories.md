@@ -40,7 +40,7 @@ What happens:
 
 Sample banner:
 ```
-☕ taskgrind: 4h (until 13:00) — backend=devin, skill=next-task, model=claude-opus-4-6-thinking, repo=/Users/you/apps/myproject
+☕ taskgrind: 4h (until 13:00) — backend=devin, skill=next-task, model=claude-opus-4-6, repo=/Users/you/apps/myproject
    Each session runs next-task. Git sync every 5 sessions.
    Focus: focus on test coverage
    Log: ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
@@ -98,6 +98,54 @@ What happens:
 - The skill monitors pipelines, fixes failures, merges PRs
 - Sessions may be longer (productive timeouts auto-increase the timeout cap)
 
+## 5a. Monitoring a grind from `TG_STATUS_FILE`
+
+You want a lightweight supervisor to watch one unattended grind, page only on
+real failures, and avoid restarting healthy sessions that are simply waiting
+for more work or network recovery.
+
+```bash
+TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myproject 8
+```
+
+What happens:
+- Taskgrind updates `/tmp/taskgrind-status.json` atomically at every important state change
+- A wrapper can poll `current_phase` to decide whether to wait, alert, or start a fresh run later
+- `queue_empty_wait` means "the queue is empty, keep watching for refills", not "the grind is broken"
+- `waiting_for_network` means "pause and keep the deadline alive", so alert only if that phase outlives your expected outage budget
+- `failed` means the wrapper should inspect the log immediately, while `complete` usually means the run ended cleanly and only needs a restart if new work arrived
+
+Example watchdog:
+
+```bash
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+payload = json.loads(Path("/tmp/taskgrind-status.json").read_text())
+phase = payload["current_phase"]
+
+if phase in {"running_session", "running_sweep", "cooldown", "git_sync"}:
+    print("healthy: keep waiting")
+elif phase in {"queue_empty_wait", "blocked_wait"}:
+    print("idle: wait for new tasks or an unblock")
+elif phase == "waiting_for_network":
+    print("degraded: alert only if the outage lasts too long")
+elif phase == "failed":
+    print("page now and inspect the log")
+elif phase == "complete":
+    print("finished cleanly; restart only if you want another pass")
+else:
+    print(f"inspect manually: unexpected phase {phase}")
+PY
+```
+
+Why this helps:
+- Dashboards can show the latest phase without scraping logs
+- `launchd` or `systemd` units can distinguish "idle but healthy" from "needs intervention"
+- A simple watchdog can restart only after `complete`, instead of interrupting a productive session
+- You can combine `current_phase` with `last_session.result` to detect repeated zero-ship sessions before escalating
+
 ## 6. Dry-run / preflight to check before committing
 
 Before starting an 8-hour grind, verify everything is set up correctly.
@@ -117,7 +165,7 @@ taskgrind --dry-run
   repo:     /Users/you/apps/myproject
   backend:  devin
   skill:    next-task
-  model:    claude-opus-4-6-thinking
+  model:    claude-opus-4-6
   cooldown: 5s
   log:      ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
   notify:   1
@@ -131,7 +179,7 @@ taskgrind --preflight
   repo:     /Users/you/apps/myproject
   backend:  devin
   skill:    next-task
-  model:    claude-opus-4-6-thinking
+  model:    claude-opus-4-6
   slots:    0/2 active
 
 Preflight checks for: /Users/you/apps/myproject
@@ -171,13 +219,52 @@ Sample output:
    Log: ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
 ```
 
+## 7a. Recovering a grind that looks stuck or blocked
+
+You wake up to an unattended grind that stopped shipping tasks. You need to
+decide whether it is healthy-but-idle, blocked by another worker, waiting on the
+network, or actually failed.
+
+```bash
+status_file="${TMPDIR:-/tmp}/taskgrind-status.json"
+python3 - <<'PY' "$status_file"
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text())
+print(payload.get("current_phase", "missing"))
+print(payload.get("last_session", {}).get("result", "none"))
+print(payload.get("slot", "unknown"))
+PY
+tail -n 20 "${TMPDIR:-/tmp}"/taskgrind-*.log
+taskgrind --preflight ~/apps/myproject
+```
+
+What happens:
+- `queue_empty_wait` or `blocked_wait` means the grind is still healthy; refill or unblock `TASKS.md` instead of restarting immediately
+- `waiting_for_network` means the deadline is paused for a short outage, so restore connectivity before intervening
+- `failed` means you should read the log right away and fix the reported git, repo, or backend issue
+- `--preflight` shows slot ownership, so you can tell whether another grind already owns the repo sync lane
+- Once the underlying problem is fixed, `taskgrind --resume ~/apps/myproject` keeps the original deadline and counters
+
+Recovery cheat sheet:
+
+| Symptom | Signal to inspect | Recommended action |
+|-------|---------|---------|
+| Empty queue or blocked queue | `current_phase=queue_empty_wait` or `blocked_wait` | Add or unblock tasks, then let the next wait cycle refill naturally |
+| Slot contention | `slots: N/M active` plus slot owners in `--preflight` | Wait for a free slot or raise `TG_MAX_INSTANCES`; keep higher slots on non-overlapping work |
+| Repeated zero-ship sessions | `last_session.shipped`, `productive_zero_ship`, `shipped_inferred` in the log | Check whether another agent changed `TASKS.md`; split or unblock the task before resuming |
+| Resume rejected | `taskgrind --resume` stderr | Fix the saved-state mismatch or start a fresh grind if the deadline expired |
+| Final push rejected | Last `git push` line in the log | Repair the branch with `git pull --rebase`, then rerun `--resume` |
+
 ## 8. Switching models mid-grind
 
 You start a long grind with a stronger model for ambiguous work, then switch to a faster one once the remaining tasks are mostly straightforward docs or tests.
 
 ```bash
 # Start with a stronger model for harder tasks
-taskgrind --model claude-opus-4-6-thinking ~/apps/myproject 6
+taskgrind --model claude-opus-4-6 ~/apps/myproject 6
 
 # Later, switch future sessions to a faster model
 echo "claude-sonnet-4.6" > ~/apps/myproject/.taskgrind-model
@@ -193,9 +280,9 @@ What happens:
 
 Sample log:
 ```
-[pid=38291] [09:00] session=1 remaining=360m tasks=9 model=claude-opus-4-6-thinking
+[pid=38291] [09:00] session=1 remaining=360m tasks=9 model=claude-opus-4-6
 [pid=38291] [09:42] session=1 ended exit=0 duration=2520s tasks_after=8 shipped=1
-[pid=38291] [09:47] live_model=claude-sonnet-4.6 (startup=claude-opus-4-6-thinking)
+[pid=38291] [09:47] live_model=claude-sonnet-4.6 (startup=claude-opus-4-6)
 [pid=38291] [09:47] session=2 remaining=313m tasks=8 model=claude-sonnet-4.6
 ```
 

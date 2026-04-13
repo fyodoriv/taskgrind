@@ -1,24 +1,12 @@
 # Tasks
 
 ## P0
-- [ ] Publish a troubleshooting playbook for stuck, blocked, or conflicting grinds
-  **ID**: document-operator-troubleshooting-playbook
-  **Tags**: docs, operations, ux
-  **Details**: The README explains features, but it does not yet give operators a single troubleshooting path for common unattended-run failures such as blocked queues, slot contention, repeated zero-ship sessions, network waits, resume rejection, or push failures. Add a concise playbook that teaches users how to inspect `TG_STATUS_FILE`, logs, slot ownership, and safe recovery commands.
-  **Files**: `README.md`, `docs/user-stories.md`, `man/taskgrind.1`
-  **Acceptance**: The docs include a scan-friendly troubleshooting section with concrete symptoms, the status/log signals to inspect, and the recommended recovery action for each common failure mode.
 - [ ] Turn final-sync edge cases into behavior-tested guarantees
   **ID**: behavior-test-final-sync-edge-cases
   **Tags**: testing, git, reliability
   **Details**: Final push protection is critical for unattended runs, but some `final_sync` paths are still mostly covered structurally instead of by realistic git behavior. Add bats coverage for duplicate-push suppression, nothing-to-push exits, and push-failure diagnostics so taskgrind can be trusted to shut down cleanly without extra operator babysitting.
   **Files**: `bin/taskgrind`, `tests/signals.bats`, `tests/git-sync.bats`
   **Acceptance**: Bats tests exercise real final-sync outcomes for duplicate attempts, zero-ahead shutdowns, and rejected pushes, and the resulting log/output expectations are locked in.
-- [ ] Add a monitoring-focused user story for status-file driven automation
-  **ID**: add-status-file-monitoring-user-story
-  **Tags**: docs, observability, integrations
-  **Details**: Taskgrind already emits a machine-readable `TG_STATUS_FILE`, but the docs stop short of showing how to wire it into dashboards, launchd/systemd wrappers, or lightweight watchdog scripts. Add a user story that demonstrates polling the status file, interpreting phase changes, and deciding when an external supervisor should alert or restart the run.
-  **Files**: `README.md`, `docs/user-stories.md`
-  **Acceptance**: The docs include at least one copy-pasteable monitoring example that reads `TG_STATUS_FILE`, explains the important phases, and shows when to page, wait, or resume.
 - [ ] Benchmark and document backend-specific preflight probe expectations
   **ID**: document-backend-probe-expectations
   **Tags**: docs, backends, onboarding
