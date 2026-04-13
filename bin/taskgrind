@@ -1549,13 +1549,13 @@ is_audit_only_focus_request() {
   [[ "$combined" =~ standing-audit-gap-loop|project-audit|full-sweep|(^|[[:space:]])sweep($|[[:space:]])|audit|analyze[[:space:]]+logs|update[[:space:]]+tasks|refresh[[:space:]]+tasks|queue[[:space:]]+refresh ]]
 }
 
-has_removable_audit_task() {
+has_supported_audit_lane_task() {
   local tasks_file="$1"
   [[ -f "$tasks_file" ]] || return 1
 
   awk '
     function flush_task() {
-      if (in_task && task_text ~ /(audit|log|queue|tasks\.md|sweep|refresh)/) {
+      if (in_task && (task_text ~ /(audit|log|queue|tasks\.md|sweep|refresh)/ || task_text ~ /standing-loop/)) {
         found = 1
       }
     }
@@ -2080,7 +2080,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
     _ids_before=$(extract_task_ids "$repo/TASKS.md")
   fi
 
-  if is_audit_only_focus_request "$skill" "$extra_prompt" && ! has_removable_audit_task "$repo/TASKS.md"; then
+  if is_audit_only_focus_request "$skill" "$extra_prompt" && ! has_supported_audit_lane_task "$repo/TASKS.md"; then
     _blocked_session=$((session + 1))
     _first_task_context=$(extract_first_task_context "$repo/TASKS.md")
     _first_task_id=$(printf '%s\n' "$_first_task_context" | awk -F= '$1 == "task_id" { print $2; exit }')

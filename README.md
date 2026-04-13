@@ -445,6 +445,25 @@ Conflict-avoidance expectations by slot:
 - `slot 1+` skips that sync, rebases just before committing, and should prefer `TASKS.md` updates, audits, docs, or other non-overlapping files when slot 0 is editing code
 - If all slots are occupied, taskgrind prints which process owns each slot and tells you to raise `TG_MAX_INSTANCES` before starting another grind
 
+Supported two-stream workflow for one repo:
+
+- Keep `slot 0` on the normal `next-task` lane so it keeps shipping removable work from `TASKS.md`
+- Put `slot 1` on a discovery skill such as `standing-audit-gap-loop`, but back it with the reusable standing-loop pattern instead of a sacrificial repo-local audit task
+- Define that discovery lane task in `TASKS.md` with durable metadata such as `**ID**: discovery-standing-loop` and `**Tags**: standing-loop, audit, queue`; taskgrind treats that as a valid queue-maintenance lane even though the task definition itself is meant to persist
+- Let the discovery lane add normal tasks back into `TASKS.md`; `slot 0` then picks them up and removes only the shipped work items, while the standing-loop definition remains available for the next discovery pass
+
+Example standing-loop definition:
+
+```markdown
+# Tasks
+
+## P0
+- [ ] Keep the discovery lane replenishing the queue
+  **ID**: discovery-standing-loop
+  **Tags**: standing-loop, audit, queue
+  **Details**: Continuously discover high-value follow-up work for slot 0 to ship.
+```
+
 ### Resuming an interrupted grind
 
 If taskgrind is interrupted unexpectedly, rerun it with `--resume` in the same repo:

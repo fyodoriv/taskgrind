@@ -337,7 +337,7 @@ TASKS
   ! find "$tmp_root" -maxdepth 1 -name 'taskgrind-*.task-attempts*' | grep -q .
 }
 
-@test "audit-only skills refuse to run without a removable audit task" {
+@test "audit-only skills refuse to run without a supported discovery-lane task" {
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
 ## P0
@@ -367,7 +367,7 @@ SCRIPT
   [ "$status" -eq 0 ]
   ! [ -f "$DVB_GRIND_INVOKE_LOG" ]
   grep -q 'audit_focus_without_task session=1 skill=standing-audit-gap-loop task_id=product-fix refusing_session=1' "$TEST_LOG"
-  [[ "$output" == *"Audit-only focus requested but TASKS.md has no matching removable audit task"* ]]
+  [[ "$output" == *"Audit-only focus requested but TASKS.md has no matching discovery-lane task"* ]]
 }
 
 @test "audit-only skills still run when TASKS.md includes a removable audit task" {
@@ -377,6 +377,26 @@ SCRIPT
 - [ ] Refresh taskgrind audit notes
   **ID**: refresh-audit-notes
   **Tags**: audit, logs
+TASKS
+
+  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
+
+  run "$DVB_GRIND" 1 "$TEST_REPO" --skill standing-audit-gap-loop
+
+  [ "$status" -eq 0 ]
+  [ -f "$DVB_GRIND_INVOKE_LOG" ]
+  ! grep -q 'audit_focus_without_task' "$TEST_LOG"
+  grep -q 'standing-audit-gap-loop' "$DVB_GRIND_INVOKE_LOG"
+}
+
+@test "audit-only skills accept standardized standing-loop tasks" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Keep the discovery lane replenishing the queue
+  **ID**: discovery-standing-loop
+  **Tags**: standing-loop, audit, queue
+  **Details**: Continuously discover high-value follow-up work for slot 0 to ship.
 TASKS
 
   export DVB_DEADLINE=$(( $(date +%s) + 40 ))

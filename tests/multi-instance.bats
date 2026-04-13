@@ -159,6 +159,23 @@ _wait_for_slot_file() {
   grep -q 'git pull --rebase' "$DVB_GRIND_INVOKE_LOG"
 }
 
+@test "slot 1 discovery lane can run standing-loop audit skill" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Keep the discovery lane replenishing the queue
+  **ID**: discovery-standing-loop
+  **Tags**: standing-loop, audit, queue
+TASKS
+  export DVB_SLOT=1
+  export DVB_MAX_INSTANCES=2
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  run "$DVB_GRIND" 1 "$TEST_REPO" --skill standing-audit-gap-loop
+  [ "$status" -eq 0 ]
+  grep -q 'standing-audit-gap-loop' "$DVB_GRIND_INVOKE_LOG"
+  ! grep -q 'audit_focus_without_task' "$TEST_LOG"
+}
+
 # ── Git sync skip for slot >= 1 ──────────────────────────────────────
 
 @test "slot 0 runs git sync normally" {

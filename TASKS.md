@@ -8,12 +8,6 @@
   **Files**: `bin/taskgrind`, `tests/signals.bats`, `tests/git-sync.bats`
   **Acceptance**: Bats tests exercise real final-sync outcomes for duplicate attempts, zero-ahead shutdowns, and rejected pushes, and the resulting log/output expectations are locked in.
 ## P1
-- [ ] Support paired execution and discovery lanes without a sacrificial audit task
-  **ID**: paired-execution-discovery-lanes
-  **Tags**: workflow, queue, docs, tests
-  **Details**: The `apps/ideas` stack already treats `standing-audit-gap-loop` as the discovery lane and `taskgrind` as the execution lane, but operators trying to run that as two concurrent grinds still end up parking a repo-local `standing-audit-gap-loop` task in `TASKS.md`. That task is removed on completion, which is correct for real work items but makes the discovery lane self-destruct. Keep taskgrind narrow, but add a supported two-stream operator story once `tasks.md` lands the reusable standing-loop pattern and targeted `/next-task` behavior it is already tracking: slot 0 keeps shipping normal queue work, slot 1 keeps filling the queue with high-value discoveries, and the flow no longer depends on a permanent removable sentinel task.
-  **Files**: `README.md`, `docs/user-stories.md`, `tests/session.bats`, `tests/multi-instance.bats`
-  **Acceptance**: Taskgrind documents one supported two-stream workflow for a single repo; tests cover the discovery-lane guard with the standardized standing-loop pattern instead of a sacrificial repo-local task; the docs explain how discovered tasks flow back into the normal execution lane without the standing definition disappearing.
 
 ## P2
 - [ ] Add canonical `TG_` precedence tests for wait and backoff env vars that only have validation coverage

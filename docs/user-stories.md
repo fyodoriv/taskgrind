@@ -59,9 +59,10 @@ taskgrind ~/apps/backend 6
 ```
 
 What happens:
-- Each instance locks its repo (via `flock`) so two grinds can't run on the same repo
+- Each repo gets its own lock namespace, so the two repos run independently without cross-repo contention
 - Each gets its own log file (includes repo name + PID)
 - Both use caffeinate to prevent system sleep
+- If you want multiple grinds on one repo, use the slot-based workflow in story `4`
 
 ## 4. Concurrent grinds on one repo
 
@@ -84,6 +85,33 @@ What happens:
 - Slot `0` is the only instance that runs the between-session git sync
 - Slot `1` and above skip that sync and get prompt instructions to avoid overlapping edits, prefer audits/docs/queue work, and run `git pull --rebase` before committing
 - If all slots are busy, taskgrind prints the current slot owners instead of starting a conflicting fourth grind
+
+## 4a. Running an execution lane and a discovery lane together
+
+You want one grind to keep shipping normal tasks while a second grind keeps
+finding new work for the same repo without depending on a sacrificial audit task
+that disappears as soon as it is "completed".
+
+```markdown
+# Tasks
+
+## P0
+- [ ] Keep the discovery lane replenishing the queue
+  **ID**: discovery-standing-loop
+  **Tags**: standing-loop, audit, queue
+  **Details**: Continuously discover high-value follow-up work for slot 0 to ship.
+```
+
+```bash
+taskgrind ~/apps/myproject 8
+TG_MAX_INSTANCES=2 taskgrind --skill standing-audit-gap-loop ~/apps/myproject 8
+```
+
+What happens:
+- Slot `0` stays on the default `next-task` execution lane and keeps removing shipped work from `TASKS.md`
+- Slot `1` runs the discovery skill, but taskgrind now accepts the standardized `standing-loop` task definition as the durable lane marker
+- The discovery lane can add new removable tasks back into `TASKS.md` without deleting its own standing-loop definition
+- Newly discovered tasks flow back to slot `0`, which ships them normally while the discovery lane remains available for the next pass
 
 ## 5. Fleet-grind for pipeline management
 
