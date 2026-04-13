@@ -257,7 +257,8 @@ Preflight checks for: /Users/you/apps/myproject
 
 ## 7. Resuming an interrupted grind
 
-Your terminal crashes or the machine reboots mid-session, but you want to keep the same deadline and session counters instead of starting from scratch.
+Your terminal crashes or the machine reboots mid-session, but you want to keep
+the same deadline and session counters instead of starting from scratch.
 
 ```bash
 # Continue the interrupted run in the same repo
@@ -265,9 +266,20 @@ taskgrind --resume ~/apps/myproject
 ```
 
 What happens:
-- Taskgrind loads `~/apps/myproject/.taskgrind-state` and validates that it still belongs to the same repo and active run
-- The resumed grind restores the original deadline, session counter, shipped-task totals, zero-ship counters, backend, skill, and model
-- If the saved deadline already expired or the saved state is incompatible, taskgrind exits with a clear reason instead of silently mixing runs
+- Taskgrind loads `~/apps/myproject/.taskgrind-state` and validates that it
+  still belongs to the same repo and active run
+- The resumed grind restores the original deadline, session counter,
+  shipped-task totals, zero-ship counters, backend, skill, startup prompt
+  baseline, and startup model baseline
+- Resume is strict on purpose: if the saved deadline already expired, the repo
+  changed, or you now ask for a different backend, model, skill, or baseline
+  prompt, taskgrind exits with a clear reason instead of silently mixing runs
+- Repo-local live overrides still work after resume because taskgrind restores
+  the saved startup baseline and then keeps re-reading `.taskgrind-prompt` and
+  `.taskgrind-model` between later sessions
+- Resume continues from the last clean git state only. It cannot recover
+  uncommitted edits from the interrupted session if that session crashed after
+  its context filled up
 - On clean completion, taskgrind removes the state file again
 
 Sample output:
@@ -277,6 +289,12 @@ Sample output:
    Each session runs next-task. Git sync every 5 sessions.
    Log: ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
 ```
+
+Common resume failures:
+
+- `deadline expired` → the saved run is already over; start a fresh grind
+- `repo mismatch` or `state file is malformed` → the saved file is stale or damaged
+- `backend override does not match saved state`, `model override does not match saved state`, `prompt override does not match saved state`, or `skill does not match saved state` → rerun with the same baseline choices as the interrupted grind
 
 ## 7a. Recovering a grind that looks stuck or blocked
 

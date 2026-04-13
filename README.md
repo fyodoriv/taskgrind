@@ -111,6 +111,15 @@ Arguments can appear in any order. Hours is any bare integer 1-24.
 
 That session boundary is also the context-budget guard: keep prompts, plans, and scope small enough that each agent run can finish and commit before its context window fills. If a session crashes from context exhaustion, taskgrind can resume from git and `TASKS.md`, but any uncommitted edits from the crashed run are gone.
 
+If a run stops because of a reboot, terminal loss, or a recoverable backend
+failure, `taskgrind --resume <repo>` restores the saved deadline, counters,
+backend, skill, startup prompt baseline, and startup model baseline for that
+same grind. It deliberately does not resurrect uncommitted edits from the
+interrupted session, so treat resume as "continue from the last clean commit,"
+not "recover everything that was in memory." See `docs/resume-state.md` for
+the exact validation contract and `docs/user-stories.md` for an operator-facing
+resume example.
+
 ### Task format
 
 Taskgrind reads `TASKS.md` following the [tasks.md spec](https://github.com/tasksmd/tasks.md). Tasks use checkbox format under priority headings:
