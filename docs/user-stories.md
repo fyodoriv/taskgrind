@@ -125,6 +125,7 @@ What happens:
 - Slot `0` stays on the default `next-task` execution lane and keeps removing shipped work from `TASKS.md`
 - Slot `1` runs the discovery skill, but taskgrind now accepts the standardized `standing-loop` task definition as the durable lane marker
 - The discovery lane can add new removable tasks back into `TASKS.md` without deleting its own standing-loop definition
+- Slot `1` still needs `git pull --rebase` right before each commit because slot `0` remains the only between-session sync owner
 - Newly discovered tasks flow back to slot `0`, which ships them normally while the discovery lane remains available for the next pass
 
 ## 5. Fleet-grind for pipeline management
