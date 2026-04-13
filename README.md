@@ -144,7 +144,7 @@ Taskgrind reads `TASKS.md` following the [tasks.md spec](https://github.com/task
   **ID**: fix-auth-bug
   **Tags**: bug, auth
   **Details**: The OAuth callback fails when...
-  **Files**: `src/auth.sh`, `tests/auth.bats`
+  **Files**: `bin/taskgrind`, `tests/preflight.bats`
   **Acceptance**: Users can complete the OAuth callback without a retry loop.
 
 ## P1
@@ -152,7 +152,7 @@ Taskgrind reads `TASKS.md` following the [tasks.md spec](https://github.com/task
   **ID**: add-api-retry
   **Tags**: reliability, api
   **Details**: Retries should cover transient 502/503 responses only.
-  **Files**: `src/api.sh`, `tests/api.bats`
+  **Files**: `bin/taskgrind`, `tests/network.bats`
   **Acceptance**: Transient upstream failures retry with backoff and permanent failures still exit fast.
   **Blocked by**: backend-rate-limit-policy
 ```

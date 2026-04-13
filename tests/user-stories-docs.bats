@@ -50,3 +50,19 @@
   run grep -nF 'If you touch runtime shell code, keep it `/bin/bash` 3.2 compatible and use `tests/verify-bash32-compat.sh` plus `tests/bash-compat.bats` to catch Bash-4-only syntax before the full suite does' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
   [ "$status" -eq 0 ]
 }
+
+@test "README task format examples use real focused bats files" {
+  local readme="$BATS_TEST_DIRNAME/../README.md"
+
+  run grep -nF '**Files**: `bin/taskgrind`, `tests/preflight.bats`' "$readme"
+  [ "$status" -eq 0 ]
+
+  run grep -nF '**Files**: `bin/taskgrind`, `tests/network.bats`' "$readme"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'tests/auth.bats' "$readme"
+  [ "$status" -eq 1 ]
+
+  run grep -nF 'tests/api.bats' "$readme"
+  [ "$status" -eq 1 ]
+}
