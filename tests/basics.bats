@@ -213,6 +213,14 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [ "$status" -eq 0 ]
 }
 
+@test "repo layout docs mention repo-local audit skills" {
+  run grep -nF '.devin/skills/' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF '.devin/skills/' "$BATS_TEST_DIRNAME/../AGENTS.md"
+  [ "$status" -eq 0 ]
+}
+
 @test "developer docs mention make test-force for uncached reruns" {
   run grep -nF 'make test-force' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]

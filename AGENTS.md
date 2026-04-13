@@ -19,6 +19,7 @@ taskgrind/
 ├── docs/architecture.md    Design decision rationales
 ├── man/taskgrind.1         Man page
 ├── install.sh              One-liner install script
+├── .devin/skills/          Repo-local audit loop skills used by taskgrind sessions
 ├── .github/workflows/      CI (shellcheck + bats on macOS + Linux)
 ├── Makefile                lint + test targets
 ├── README.md               Usage, install, env vars

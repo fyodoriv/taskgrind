@@ -122,5 +122,6 @@ tests/*.bats            Focused bats suites by subsystem
 tests/test_helper.bash  Shared test helpers
 man/taskgrind.1         Man page
 docs/                   Architecture docs and user stories
+.devin/skills/          Repo-local audit loop skills
 Makefile                lint + test targets
 ```
