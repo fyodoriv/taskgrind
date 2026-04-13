@@ -127,6 +127,8 @@ When adding a new env var:
 - Use `make test TESTS=tests/<file>.bats` for tight local reruns before falling back to the full suite
 - Use `make test-force TESTS=tests/<file>.bats` when you need to bypass the cache and re-run the suite from scratch
 - `make test` auto-caps `TEST_JOBS` at 6 to avoid local `bats --jobs 9` terminations; set `TEST_JOBS=<n>` when you need to probe a different level
+- If you touch runtime shell code, keep it `/bin/bash` 3.2 compatible and use `tests/verify-bash32-compat.sh` plus `tests/bash-compat.bats` to catch Bash-4-only syntax before the full suite does
+- If you touch runtime shell code, keep it `/bin/bash` 3.2 compatible and use `tests/verify-bash32-compat.sh` plus `tests/bash-compat.bats` to catch Bash-4-only syntax before the full suite does
 - Structural tests (`grep -q` on the script) are fine for verifying code patterns
 
 ## Known Issues

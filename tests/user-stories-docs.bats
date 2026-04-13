@@ -38,3 +38,15 @@
   run grep -nF 'This is useful for reusable automation because a restart can inherit the same baseline choices without editing the wrapper command itself' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
   [ "$status" -eq 0 ]
 }
+
+
+@test "contributor docs mention the Bash 3.2 compatibility guard" {
+  run grep -nF 'Taskgrind runtime files must stay compatible with `/bin/bash` 3.2' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF '`tests/verify-bash32-compat.sh` is the guard that enforces that contract during' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'If you touch runtime shell code, keep it `/bin/bash` 3.2 compatible and use `tests/verify-bash32-compat.sh` plus `tests/bash-compat.bats` to catch Bash-4-only syntax before the full suite does' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
+  [ "$status" -eq 0 ]
+}

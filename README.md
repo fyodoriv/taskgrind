@@ -586,6 +586,14 @@ make uninstall  # remove symlink and man page
 
 Requires: [bats-core](https://github.com/bats-core/bats-core), [shellcheck](https://www.shellcheck.net/)
 
+Taskgrind runtime files must stay compatible with `/bin/bash` 3.2, and
+`tests/verify-bash32-compat.sh` is the guard that enforces that contract during
+the bats suite.
+
+Taskgrind runtime files must stay compatible with `/bin/bash` 3.2, and
+`tests/verify-bash32-compat.sh` is the guard that enforces that contract during
+the bats suite.
+
 ```bash
 # macOS
 brew install bats-core shellcheck
