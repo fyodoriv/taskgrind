@@ -154,9 +154,12 @@ Fresh run:
 Resumed run:
 
 1. `taskgrind --resume ~/apps/myrepo`
-2. Taskgrind loads the saved `key=value` state, validates it, and restores the
+2. If the interrupted run started with explicit `--backend`, `--model`,
+   `--skill`, or baseline `--prompt` / `TG_PROMPT` overrides, rerun `--resume`
+   with those same choices instead of relying on today's shell defaults.
+3. Taskgrind loads the saved `key=value` state, validates it, and restores the
    saved counters and runtime choices.
-3. If validation fails, taskgrind exits with a clear incompatibility reason.
+4. If validation fails, taskgrind exits with a clear incompatibility reason.
 
 ## Testing implications
 

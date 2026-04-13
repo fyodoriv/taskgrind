@@ -288,6 +288,10 @@ the same deadline and session counters instead of starting from scratch.
 ```bash
 # Continue the interrupted run in the same repo
 taskgrind --resume ~/apps/myproject
+
+# If the original run started with explicit overrides, repeat them
+taskgrind --resume --backend codex --model o3 --skill next-task \
+  --prompt "focus on tests" ~/apps/myproject
 ```
 
 What happens:
@@ -358,7 +362,7 @@ Recovery cheat sheet:
 | Slot contention | `slots: N/M active` plus slot owners in `--preflight` | Wait for a free slot or raise `TG_MAX_INSTANCES`; keep higher slots on non-overlapping work |
 | Repeated zero-ship sessions | `last_session.shipped`, `productive_zero_ship`, `shipped_inferred` in the log | Check whether another agent changed `TASKS.md`; split or unblock the task before resuming |
 | Resume rejected | `taskgrind --resume` stderr | Re-run with the original `--backend`, `--model`, `--skill`, and baseline `--prompt` / `TG_PROMPT` inputs, or start a fresh grind if the deadline expired |
-| Final push rejected | Last `git push` line in the log | Repair the branch with `git pull --rebase`, then rerun `--resume` |
+| Final push rejected | Last `git push` line in the log | Repair the branch with `git pull --rebase`, then rerun `--resume` with the original startup overrides if the interrupted grind did not use pure defaults |
 
 ## 8. Switching models mid-grind
 
