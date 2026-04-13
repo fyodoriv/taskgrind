@@ -66,3 +66,13 @@
   run grep -nF 'tests/api.bats' "$readme"
   [ "$status" -eq 1 ]
 }
+
+@test "resume-state docs list blocked and audit-focused clean exits" {
+  local resume_doc="$BATS_TEST_DIRNAME/../docs/resume-state.md"
+
+  run grep -nF -- '- all-tasks-blocked completion' "$resume_doc"
+  [ "$status" -eq 0 ]
+
+  run grep -nF -- '- audit-focus-blocked completion' "$resume_doc"
+  [ "$status" -eq 0 ]
+}

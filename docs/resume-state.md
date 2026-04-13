@@ -131,6 +131,8 @@ Taskgrind writes the state file:
 Taskgrind removes the file on clean completion, including:
 
 - empty-queue completion
+- all-tasks-blocked completion
+- audit-focus-blocked completion
 - deadline completion
 
 The file is intentionally left behind for interrupted runs so `--resume` can
