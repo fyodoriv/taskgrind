@@ -8,6 +8,12 @@
   **Files**: `bin/taskgrind`, `tests/signals.bats`, `tests/git-sync.bats`
   **Acceptance**: Bats tests exercise real final-sync outcomes for duplicate attempts, zero-ahead shutdowns, and rejected pushes, and the resulting log/output expectations are locked in.
 ## P1
+- [ ] Align discovery-lane test wording with the current guard terminology (@devin)
+  **ID**: align-discovery-lane-test-wording
+  **Tags**: docs, testing, audit
+  **Details**: The audit-only guard now talks about supported discovery-lane standing-loop tasks, but `tests/session.bats` still names the happy-path case as a "removable audit task". Update the stale wording so the test suite and grep-based docs checks describe the same behavior taskgrind now enforces.
+  **Files**: `tests/session.bats`
+  **Acceptance**: The audit-only session test names use discovery-lane terminology consistently with the current guard wording, and the targeted bats suite still passes.
 ## P2
 - [ ] Add canonical `TG_` precedence tests for wait and backoff env vars that only have validation coverage
   **ID**: expand-tg-precedence-coverage
