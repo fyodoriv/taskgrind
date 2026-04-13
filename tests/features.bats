@@ -143,7 +143,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "codex backend warns when model contains claude" {
-  export DVB_MODEL=claude-opus-4-6-thinking
+  export DVB_MODEL=claude-opus-4-6
   run "$DVB_GRIND" --dry-run --backend codex 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Warning"*"Anthropic model"*"codex"* ]]
@@ -233,7 +233,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 @test "--model alias resolves before backend invocation" {
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" --model opus 1 "$TEST_REPO"
-  grep -q -- '--model claude-opus-4-6-thinking' "$DVB_GRIND_INVOKE_LOG"
+  grep -q -- '--model claude-opus-4-6' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--model works with --backend and --skill" {
