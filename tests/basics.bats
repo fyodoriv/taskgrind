@@ -294,6 +294,29 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [ "$status" -eq 0 ]
 }
 
+@test "live model override docs use the shipped default model id" {
+  run grep -nF 'taskgrind --model gpt-5.4 8' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'taskgrind --model "gpt-5.4 XHigh thinking fast" 8' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF -- '--model gpt-5.4' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'model=gpt-5.4' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'echo "gpt-5.4" > ~/apps/myrepo/.taskgrind-model' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'echo "gpt\-5.4" > .taskgrind\-model' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  [ "$status" -eq 0 ]
+
+  run grep -n 'gpt-5-4' "$BATS_TEST_DIRNAME/../README.md" "$BATS_TEST_DIRNAME/../docs/user-stories.md" "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  [ "$status" -eq 1 ]
+}
+
 @test "CLI docs parity keeps help, README, and man page in sync" {
   run python3 - "$BATS_TEST_DIRNAME/.." <<'PY'
 import pathlib
