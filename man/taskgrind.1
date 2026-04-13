@@ -405,7 +405,9 @@ counters, backend, skill, model, and startup model. Start a fresh
 .B taskgrind
 run instead when you want a new deadline or different runtime settings. If the
 saved deadline already expired, taskgrind rejects the stale state and tells you
-to start a fresh grind. See
+to start a fresh grind. Resume also requires the original backend, model,
+skill, and baseline prompt overrides to match; changing those inputs turns the
+resume into a different grind and is rejected. See
 .I docs/resume-state.md
 for the current field contract and validation rules.
 .SH TROUBLESHOOTING
@@ -434,7 +436,7 @@ and inspect the
 header plus the active owner list. Wait for a free slot or raise
 .BR TG_MAX_INSTANCES .
 Slot 0 remains the between-session sync owner; higher slots should stay on
-docs, audits, or other non-overlapping work.
+docs, audits, status-file supervision, or other non-overlapping work.
 .TP
 .B Repeated zero-ship sessions
 Check
@@ -462,8 +464,8 @@ Read the stderr reason, inspect
 .I .taskgrind\-state ,
 and compare it with
 .I docs/resume-state.md .
-Use the same repo and active state file, or start fresh when the saved deadline
-has already expired.
+Use the same repo, backend, model, skill, and baseline prompt inputs with the
+active state file, or start fresh when the saved deadline has already expired.
 .TP
 .B Final push or sync failure
 Read the last git lines in the log, inspect

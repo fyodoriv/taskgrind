@@ -95,7 +95,7 @@ What happens:
 - The first grind claims slot `0`; the second claims slot `1`
 - `--preflight` prints `slots:    2/3 active`, so you can see one slot is still free before launching again
 - Slot `0` is the only instance that runs the between-session git sync
-- Slot `1` and above skip that sync and get prompt instructions to avoid overlapping edits, prefer audits/docs/queue work, and run `git pull --rebase` before committing
+- Slot `1` and above skip that sync and get prompt instructions to avoid overlapping edits, prefer audits/docs/queue work or status-file supervision, and run `git pull --rebase` before committing
 - If all slots are busy, taskgrind prints the current slot owners instead of starting a conflicting fourth grind
 
 ## 4a. Running an execution lane and a discovery lane together
@@ -289,7 +289,7 @@ What happens:
 - `waiting_for_network` means the deadline is paused for a short outage, so restore connectivity before intervening
 - `failed` means you should read the log right away and fix the reported git, repo, or backend issue
 - `--preflight` shows slot ownership, so you can tell whether another grind already owns the repo sync lane
-- Once the underlying problem is fixed, `taskgrind --resume ~/apps/myproject` keeps the original deadline and counters
+- Once the underlying problem is fixed, `taskgrind --resume ~/apps/myproject` keeps the original deadline and counters, but only if you reuse the same backend, model, skill, and baseline prompt overrides from the original run
 
 Recovery cheat sheet:
 
@@ -298,7 +298,7 @@ Recovery cheat sheet:
 | Empty queue or blocked queue | `current_phase=queue_empty_wait` or `blocked_wait` | Add or unblock tasks, then let the next wait cycle refill naturally |
 | Slot contention | `slots: N/M active` plus slot owners in `--preflight` | Wait for a free slot or raise `TG_MAX_INSTANCES`; keep higher slots on non-overlapping work |
 | Repeated zero-ship sessions | `last_session.shipped`, `productive_zero_ship`, `shipped_inferred` in the log | Check whether another agent changed `TASKS.md`; split or unblock the task before resuming |
-| Resume rejected | `taskgrind --resume` stderr | Fix the saved-state mismatch or start a fresh grind if the deadline expired |
+| Resume rejected | `taskgrind --resume` stderr | Re-run with the original `--backend`, `--model`, `--skill`, and baseline `--prompt` / `TG_PROMPT` inputs, or start a fresh grind if the deadline expired |
 | Final push rejected | Last `git push` line in the log | Repair the branch with `git pull --rebase`, then rerun `--resume` |
 
 ## 8. Switching models mid-grind

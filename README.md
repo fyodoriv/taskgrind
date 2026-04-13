@@ -503,9 +503,10 @@ Use `--resume` when the previous run was interrupted by a terminal crash,
 reboot, or similar external interruption. Prefer a fresh `taskgrind` launch
 when you intentionally want a new deadline or different runtime settings. If
 the saved deadline already expired, taskgrind rejects the stale state and tells
-you to start fresh. If you try to resume with a different `--prompt` or
-`TG_PROMPT`, taskgrind rejects that mismatch explicitly so a resumed grind does
-not silently change direction.
+you to start fresh. Resume also requires the original `--backend`, `--model`,
+`--skill`, and baseline `--prompt` / `TG_PROMPT` inputs to match. If you try to
+resume with different overrides, taskgrind rejects that mismatch explicitly so
+a resumed grind does not silently change direction.
 
 ## Troubleshooting
 
@@ -516,18 +517,20 @@ story in the log named in the startup banner.
 | Symptom | Inspect | Recovery |
 |-------|---------|---------|
 | Queue looks stuck even though the process is alive | `current_phase` in `TG_STATUS_FILE`; log lines containing `queue_empty_wait`, `blocked_wait`, or `running_sweep` | If the phase is `queue_empty_wait` or `blocked_wait`, leave the grind running while another agent or operator refills or unblocks `TASKS.md`. If the repo should already have work, open `TASKS.md` and fix claimed/blocking entries instead of restarting immediately. |
-| Another terminal says the repo is busy or a new worker will not start | `taskgrind --preflight ~/apps/myrepo` for `slots: N/M active`; the active-slot owner list in preflight output | Wait for a slot to free up, or raise `TG_MAX_INSTANCES` before starting another grind. Keep slot `0` as the sync owner; point higher slots at docs, audits, or other non-overlapping work. |
+| Another terminal says the repo is busy or a new worker will not start | `taskgrind --preflight ~/apps/myrepo` for `slots: N/M active`; the active-slot owner list in preflight output; `current_phase` in `TG_STATUS_FILE` for the active worker | Wait for a slot to free up, or raise `TG_MAX_INSTANCES` before starting another grind. Keep slot `0` as the sync owner; point higher slots at docs, audits, `TASKS.md` maintenance, or status-file supervision instead of overlapping code edits. |
 | Sessions keep ending with zero shipped tasks | `last_session.result`, `last_session.shipped`, and log markers such as `productive_zero_ship`, `shipped_inferred`, or repeated `tasks_after=` counts | Read the last few session summaries before killing the run. If the queue is churning under another agent, taskgrind may still be shipping work. If the same task is being retried without progress, tighten the prompt, split the task, or remove the blocker in `TASKS.md` before resuming. |
 | Network outages pause progress for too long | `current_phase=waiting_for_network`; log lines around connectivity retries and `network_restored` | Let taskgrind hold the deadline open during short outages. If the outage exceeds `TG_NET_MAX_WAIT`, restore connectivity first, then restart with `taskgrind --resume ~/apps/myrepo` to keep the original grind context. |
-| `--resume` refuses to continue | The rejection message in stderr; `.taskgrind-state`; `docs/resume-state.md` for the saved field contract | Fix the mismatch the message calls out: use the same repo, restore the missing state file, or start a fresh grind if the deadline already expired. Do not copy stale state across repos. |
+| `--resume` refuses to continue | The rejection message in stderr; `.taskgrind-state`; `docs/resume-state.md` for the saved field contract | Fix the mismatch the message calls out: rerun with the same repo plus the same `--backend`, `--model`, `--skill`, and baseline `--prompt` / `TG_PROMPT` inputs, restore the missing state file, or start a fresh grind if the deadline already expired. Do not copy stale state across repos. |
 | Final push or sync fails during shutdown | The final `git push` / `git pull --rebase` lines in the log; `git status --short`; `git log --oneline --decorate -5` | Resolve the git problem in the repo first, usually with `git pull --rebase` for incoming changes or by fixing the rejected push target. Then rerun `taskgrind --resume ~/apps/myrepo` if the run was interrupted mid-shutdown. |
 
 Safe recovery loop:
 
 1. Read `TG_STATUS_FILE` to learn whether the grind is working, waiting, or failed.
 2. Tail the matching log file to confirm the latest session result and git state.
-3. Run `taskgrind --preflight ~/apps/myrepo` before adding more workers or after clearing a blocker.
-4. Prefer `taskgrind --resume ~/apps/myrepo` after crashes, reboots, or push failures so the original session counters and deadline survive.
+3. If slot `0` is already active, keep later slots on supervision or other non-overlapping work until the sync lane is free.
+4. Run `taskgrind --preflight ~/apps/myrepo` before adding more workers or after clearing a blocker.
+5. Prefer `taskgrind --resume ~/apps/myrepo` after crashes, reboots, or push failures so the original session counters and deadline survive.
+6. If resume is rejected, retry with the original startup overrides or start a fresh run on purpose.
 
 ## Development
 
