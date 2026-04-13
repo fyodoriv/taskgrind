@@ -6,6 +6,43 @@ load test_helper
 
 DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 
+start_conflicted_rebase() {
+  local conflict_path="$1"
+
+  git -C "$TEST_REPO" init -q -b main
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Default test task
+TASKS
+  printf 'shared\n' > "$TEST_REPO/$conflict_path"
+  git -C "$TEST_REPO" add -f TASKS.md "$conflict_path"
+  git -C "$TEST_REPO" commit -q --no-verify -m "init"
+
+  local bare="$TEST_DIR/bare.git"
+  local remote_worktree="$TEST_DIR/remote-worktree"
+  git init -q --bare "$bare"
+  git -C "$TEST_REPO" remote add origin "$bare"
+  git -C "$TEST_REPO" push -q -u origin main 2>/dev/null
+
+  git clone -q "$bare" "$remote_worktree"
+  git -C "$remote_worktree" config user.email "test@test.com"
+  git -C "$remote_worktree" config user.name "Test"
+  printf 'remote-change\n' > "$remote_worktree/$conflict_path"
+  git -C "$remote_worktree" commit -qam "remote change"
+  git -C "$remote_worktree" push -q origin main 2>/dev/null
+
+  printf 'local-change\n' > "$TEST_REPO/$conflict_path"
+  git -C "$TEST_REPO" commit -qam "local change"
+  git -C "$TEST_REPO" fetch -q origin
+  run git -C "$TEST_REPO" rebase origin/main
+  [ "$status" -ne 0 ]
+  [ -d "$TEST_REPO/.git/rebase-merge" ]
+}
+
 # ── Session loop ─────────────────────────────────────────────────────
 
 @test "runs devin with --permission-mode dangerous" {
@@ -136,6 +173,36 @@ TASKS
   # Session 2 prompt should mention the zero-ship from session 1
   [ -f "$prompt_dir/prompt-2.txt" ]
   grep -q 'task count did not decrease' "$prompt_dir/prompt-2.txt"
+}
+
+@test "pre-session recovery classifies TASKS-only rebase conflicts" {
+  start_conflicted_rebase "TASKS.md"
+
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_SYNC_INTERVAL=999
+  export DVB_SKIP_PREFLIGHT=1
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  grep -q 'pre_session_recovery rebase_conflicts class=queue_only paths=TASKS.md' "$TEST_LOG"
+  grep -q 'pre_session_recovery rebase_aborted class=queue_only paths=TASKS.md' "$TEST_LOG"
+  [ ! -d "$TEST_REPO/.git/rebase-merge" ]
+  [ ! -d "$TEST_REPO/.git/rebase-apply" ]
+}
+
+@test "pre-session recovery classifies non-queue rebase conflicts" {
+  start_conflicted_rebase "README.md"
+
+  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_SYNC_INTERVAL=999
+  export DVB_SKIP_PREFLIGHT=1
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  grep -q 'pre_session_recovery rebase_conflicts class=repo paths=README.md' "$TEST_LOG"
+  grep -q 'pre_session_recovery rebase_aborted class=repo paths=README.md' "$TEST_LOG"
+  [ ! -d "$TEST_REPO/.git/rebase-merge" ]
+  [ ! -d "$TEST_REPO/.git/rebase-apply" ]
 }
 
 @test "skip list warning appears in session 4 prompt after repeated task attempts" {

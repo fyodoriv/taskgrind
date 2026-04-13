@@ -1693,6 +1693,32 @@ EOF
   printf '%s\n' "${joined:-unknown}"
 }
 
+emit_rebase_conflict_logs() {
+  local repo="$1"
+  local scope="$2"
+  local output_file="${3:-}"
+  local conflict_paths=""
+  local conflict_class=""
+  local conflict_paths_log=""
+
+  if [[ -n "$output_file" ]]; then
+    conflict_paths="$(extract_rebase_conflict_paths "$output_file")"
+  fi
+  if [[ -z "$conflict_paths" ]]; then
+    conflict_paths="$(git -C "$repo" diff --name-only --diff-filter=U 2>/dev/null || true)"
+  fi
+
+  conflict_class="$(classify_rebase_conflicts "$conflict_paths")"
+  conflict_paths_log="$(format_conflict_paths_for_log "$conflict_paths")"
+
+  if [[ "$conflict_class" != "unknown" ]]; then
+    log_write "[$(date '+%H:%M')] ${scope} rebase_conflicts class=${conflict_class} paths=${conflict_paths_log}"
+    log_write "[$(date '+%H:%M')] ${scope} rebase_aborted class=${conflict_class} paths=${conflict_paths_log}"
+  else
+    log_write "[$(date '+%H:%M')] ${scope} rebase_aborted"
+  fi
+}
+
 rebase_in_progress() {
   local repo="$1"
   local git_dir
@@ -1863,8 +1889,8 @@ while [[ $(date +%s) -lt $deadline ]]; do
   if git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
     _git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)" || _git_dir=""
     if [[ -n "$_git_dir" && ( -d "$_git_dir/rebase-merge" || -d "$_git_dir/rebase-apply" ) ]]; then
+      emit_rebase_conflict_logs "$repo" "pre_session_recovery"
       git -C "$repo" rebase --abort 2>/dev/null || true
-      log_write "[$(date '+%H:%M')] pre_session_recovery rebase_aborted"
     fi
     if [[ -n "$_git_dir" && -f "$_git_dir/MERGE_HEAD" ]]; then
       git -C "$repo" merge --abort 2>/dev/null || true
@@ -2642,15 +2668,8 @@ while [[ $(date +%s) -lt $deadline ]]; do
             ' "$_git_out" 2>/dev/null | tr -cd '[:print:]\n' | tr '\n' ' ' | head -c 500)
             echo "   ⚠ git sync: $_git_fail"
             log_write "[$(date '+%H:%M')] $_git_fail"
-            if [[ "$_rebase_conflict_class" != "unknown" ]]; then
-              log_write "[$(date '+%H:%M')] git_sync rebase_conflicts class=$_rebase_conflict_class paths=$_rebase_conflict_paths_log"
-            fi
           fi
-          if [[ "$_rebase_conflict_class" != "unknown" ]]; then
-            log_write "[$(date '+%H:%M')] git_sync rebase_aborted class=$_rebase_conflict_class paths=$_rebase_conflict_paths_log"
-          else
-            log_write "[$(date '+%H:%M')] git_sync rebase_aborted"
-          fi
+          emit_rebase_conflict_logs "$repo" "git_sync" "$_git_out"
         elif grep -q 'rebase_failed' "$_git_out" 2>/dev/null; then
           _git_fail=$(awk '
             /rebase_failed:/ { capture=1 }
