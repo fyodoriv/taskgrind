@@ -8,6 +8,12 @@
   **Files**: `bin/taskgrind`, `tests/signals.bats`, `tests/git-sync.bats`
   **Acceptance**: Bats tests exercise real final-sync outcomes for duplicate attempts, zero-ahead shutdowns, and rejected pushes, and the resulting log/output expectations are locked in.
 ## P1
+- [ ] Remove the hardcoded preflight-check count from README
+  **ID**: remove-hardcoded-preflight-count-readme
+  **Tags**: docs, preflight, drift
+  **Details**: README still promises "8 health checks" even though the current preflight flow reports seven checks and can change again over time. Update the feature description so operators are not trained on a stale count.
+  **Files**: `README.md`
+  **Acceptance**: README describes preflight coverage without a stale hardcoded count and no longer claims there are eight checks.
 ## P2
 - [ ] Add canonical `TG_` precedence tests for wait and backoff env vars that only have validation coverage
   **ID**: expand-tg-precedence-coverage
