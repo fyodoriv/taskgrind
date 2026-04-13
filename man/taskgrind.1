@@ -244,7 +244,7 @@ model. If the file exceeds 1KB, taskgrind logs a warning and skips it.
 By default, taskgrind allows two concurrent grinds on the same repo. Set
 .B TG_MAX_INSTANCES
 above 2 to allow more. Each running grind claims the lowest free slot. Slot 0 owns the between\-session git sync;
-higher slots skip that sync and receive conflict\-avoidance prompt guidance.
+higher slots skip that sync and receive conflict\-avoidance prompt guidance so multiple terminals do not run competing fetch/rebase loops in the same repo.
 .PP
 Example with three allowed slots:
 .RS

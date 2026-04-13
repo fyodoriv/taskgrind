@@ -450,7 +450,7 @@ By default, taskgrind allows two concurrent grinds on the same repo. Raise
 TG_MAX_INSTANCES=3 taskgrind ~/apps/myrepo 8
 ```
 
-Each running grind claims the lowest free slot (`0`, `1`, ...). Slot 0 remains the primary instance and owns the between-session git sync. Higher slots skip that sync and get extra prompt guidance to avoid overlapping file edits.
+Each running grind claims the lowest free slot (`0`, `1`, ...). Slot 0 remains the primary instance and owns the between-session git sync. Higher slots skip that sync and get extra prompt guidance to avoid overlapping file edits, which keeps one terminal responsible for fetch/rebase instead of letting multiple sessions fight over the same queue and branch state.
 
 Operator example for a three-slot run:
 

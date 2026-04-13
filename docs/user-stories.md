@@ -94,7 +94,7 @@ TG_MAX_INSTANCES=3 taskgrind --preflight ~/apps/myproject
 What happens:
 - The first grind claims slot `0`; the second claims slot `1`
 - `--preflight` prints `slots:    2/3 active`, so you can see one slot is still free before launching again
-- Slot `0` is the only instance that runs the between-session git sync
+- Slot `0` is the only instance that runs the between-session git sync, which avoids dueling fetch/rebase loops when multiple terminals share one repo
 - Slot `1` and above skip that sync and get prompt instructions to avoid overlapping edits, prefer audits/docs/queue work or status-file supervision, and run `git pull --rebase` before committing
 - If all slots are busy, taskgrind prints the current slot owners instead of starting a conflicting fourth grind
 
