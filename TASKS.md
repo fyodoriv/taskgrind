@@ -1,12 +1,6 @@
 # Tasks
 
 ## P0
-- [ ] Turn final-sync edge cases into behavior-tested guarantees
-  **ID**: behavior-test-final-sync-edge-cases
-  **Tags**: testing, git, reliability
-  **Details**: Final push protection is critical for unattended runs, but some `final_sync` paths are still mostly covered structurally instead of by realistic git behavior. Add bats coverage for duplicate-push suppression, nothing-to-push exits, and push-failure diagnostics so taskgrind can be trusted to shut down cleanly without extra operator babysitting.
-  **Files**: `bin/taskgrind`, `tests/signals.bats`, `tests/git-sync.bats`
-  **Acceptance**: Bats tests exercise real final-sync outcomes for duplicate attempts, zero-ahead shutdowns, and rejected pushes, and the resulting log/output expectations are locked in.
 ## P1
 ## P2
 - [ ] Add canonical `TG_` precedence tests for wait and backoff env vars that only have validation coverage

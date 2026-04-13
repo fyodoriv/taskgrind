@@ -1158,7 +1158,18 @@ final_sync() {
   if [[ "$push_status" -eq 0 ]]; then
     log_write "[$(date '+%H:%M')] final_sync push_ok"
   else
-    push_first_line=$(printf '%s\n' "$push_output" | sed -n '1p')
+    while IFS= read -r _push_line; do
+      [[ -z "$_push_line" ]] && continue
+      case "$_push_line" in
+        *"[rejected]"*|*"non-fast-forward"*|*"failed to push"*|*"remote rejected"*|error:*)
+          push_first_line="$_push_line"
+          break
+          ;;
+      esac
+      if [[ -z "$push_first_line" ]] && [[ "$_push_line" != To\ * ]]; then
+        push_first_line="$_push_line"
+      fi
+    done <<< "$push_output"
     if [[ -n "$push_first_line" ]]; then
       echo "   ⚠ Push failed: $push_first_line — local commits preserved for manual push"
       log_write "[$(date '+%H:%M')] final_sync push_failed error=$push_first_line"
@@ -2089,8 +2100,8 @@ while [[ $(date +%s) -lt $deadline ]]; do
       _audit_guard_context=" task_id=$_first_task_id"
     fi
     log_write "[$(date '+%H:%M')] audit_focus_without_task session=$_blocked_session skill=$skill${_audit_guard_context} refusing_session=1"
-    echo "   ⚠ Audit-only focus requested but TASKS.md has no matching removable audit task — refusing to run a queue-maintenance-only session."
-    last_session_summary="session $_blocked_session refused audit-only focus without a removable audit task"
+    echo "   ⚠ Audit-only focus requested but TASKS.md has no matching discovery-lane task — refusing to run a queue-maintenance-only session."
+    last_session_summary="session $_blocked_session refused audit-only focus without a discovery-lane task"
     last_session_result="blocked"
     last_session_exit=0
     last_session_shipped=0

@@ -232,6 +232,12 @@ SCRIPT
   local fake_devin="$TEST_DIR/fake-devin-real-final-sync"
   cat > "$fake_devin" <<'SCRIPT'
 #!/bin/bash
+for arg in "$@"; do
+  if [ "$arg" = "--version" ]; then
+    echo "fake-devin 1.0.0"
+    exit 0
+  fi
+done
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 exit 0
 SCRIPT
@@ -247,6 +253,115 @@ SCRIPT
   grep -q 'final_sync push_failed error=remote rejected push: branch is protected' "$TEST_LOG"
   grep -q 'remote rejected push: branch is protected' "$TEST_LOG"
   grep -q 'Push failed: \$push_first_line' "$DVB_GRIND"
+}
+
+@test "final_sync skips push when shutdown finds no commits ahead of origin" {
+  local remote_repo="$TEST_DIR/remote.git"
+  git init --bare "$remote_repo" >/dev/null
+
+  local origin_repo="$TEST_DIR/origin"
+  git clone "$remote_repo" "$origin_repo" >/dev/null 2>&1
+  git -C "$origin_repo" config user.email "test@test.com"
+  git -C "$origin_repo" config user.name "Test"
+  git -C "$origin_repo" config core.hooksPath /dev/null
+  cat > "$origin_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Seed remote
+TASKS
+  git -C "$origin_repo" add -f TASKS.md
+  git -C "$origin_repo" commit -m "seed remote" >/dev/null
+  git -C "$origin_repo" push origin main >/dev/null 2>&1
+
+  local grind_repo="$TEST_DIR/grind-repo"
+  git clone "$remote_repo" "$grind_repo" >/dev/null 2>&1
+  git -C "$grind_repo" config user.email "test@test.com"
+  git -C "$grind_repo" config user.name "Test"
+  git -C "$grind_repo" config core.hooksPath /dev/null
+
+  local fake_devin="$TEST_DIR/fake-devin-no-final-sync-push"
+  cat > "$fake_devin" <<'SCRIPT'
+#!/bin/bash
+for arg in "$@"; do
+  if [ "$arg" = "--version" ]; then
+    echo "fake-devin 1.0.0"
+    exit 0
+  fi
+done
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+exit 0
+SCRIPT
+  chmod +x "$fake_devin"
+
+  unset DVB_GRIND_CMD
+  export DVB_DEVIN_PATH="$fake_devin"
+  export DVB_CAFFEINATED=1
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+
+  run "$DVB_GRIND" 1 "$grind_repo"
+  [ "$status" -eq 0 ]
+  grep -q 'final_sync nothing_to_push' "$TEST_LOG"
+  [[ "$output" != *"Pushing "* ]]
+}
+
+@test "final_sync reports non-fast-forward rejection with actionable detail" {
+  local remote_repo="$TEST_DIR/remote.git"
+  git init --bare "$remote_repo" >/dev/null
+
+  local origin_repo="$TEST_DIR/origin"
+  git clone "$remote_repo" "$origin_repo" >/dev/null 2>&1
+  git -C "$origin_repo" config user.email "test@test.com"
+  git -C "$origin_repo" config user.name "Test"
+  git -C "$origin_repo" config core.hooksPath /dev/null
+  cat > "$origin_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Seed remote
+TASKS
+  git -C "$origin_repo" add -f TASKS.md
+  git -C "$origin_repo" commit -m "seed remote" >/dev/null
+  git -C "$origin_repo" push origin main >/dev/null 2>&1
+
+  local grind_repo="$TEST_DIR/grind-repo"
+  git clone "$remote_repo" "$grind_repo" >/dev/null 2>&1
+  git -C "$grind_repo" config user.email "test@test.com"
+  git -C "$grind_repo" config user.name "Test"
+  git -C "$grind_repo" config core.hooksPath /dev/null
+  cat > "$grind_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+  git -C "$grind_repo" add -f TASKS.md
+  git -C "$grind_repo" commit -m "local task commit" >/dev/null
+
+  echo "remote advance" > "$origin_repo/remote.txt"
+  git -C "$origin_repo" add remote.txt
+  git -C "$origin_repo" commit -m "remote advance" >/dev/null
+  git -C "$origin_repo" push origin main >/dev/null 2>&1
+
+  local fake_devin="$TEST_DIR/fake-devin-non-fast-forward"
+  cat > "$fake_devin" <<'SCRIPT'
+#!/bin/bash
+for arg in "$@"; do
+  if [ "$arg" = "--version" ]; then
+    echo "fake-devin 1.0.0"
+    exit 0
+  fi
+done
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+exit 0
+SCRIPT
+  chmod +x "$fake_devin"
+
+  unset DVB_GRIND_CMD
+  export DVB_DEVIN_PATH="$fake_devin"
+  export DVB_CAFFEINATED=1
+  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+
+  run "$DVB_GRIND" 1 "$grind_repo"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"non-fast-forward"* ]]
+  grep -Eq 'final_sync push_failed error=.*(fetch first|non-fast-forward|failed to push)' "$TEST_LOG"
 }
 
 @test "graceful shutdown runs final_sync only once before EXIT cleanup" {
@@ -285,6 +400,10 @@ TASKS
   cat > "$fake_devin" <<SCRIPT
 #!/bin/bash
 for arg in "\$@"; do
+  if [ "\$arg" = "--version" ]; then
+    echo "fake-devin 1.0.0"
+    exit 0
+  fi
   if [ "\$arg" = "-p" ]; then
     trap 'echo interrupted >> "$TEST_DIR/session-lifecycle.log"; exit 0' INT
     printf '%s\n' started > "$started_file"
@@ -310,6 +429,7 @@ SCRIPT
 
   [ "$(grep -c 'final_sync pushing commits=1' "$TEST_LOG")" -eq 1 ]
   [ "$(grep -c 'final_sync push_ok' "$TEST_LOG")" -eq 1 ]
+  [ "$(git -C "$grind_repo" rev-list --count origin/main..HEAD)" -eq 0 ]
 }
 
 @test "repeated shutdown signals do not push the same final-sync snapshot twice" {
@@ -348,6 +468,10 @@ TASKS
   cat > "$fake_devin" <<SCRIPT
 #!/bin/bash
 for arg in "\$@"; do
+  if [ "\$arg" = "--version" ]; then
+    echo "fake-devin 1.0.0"
+    exit 0
+  fi
   if [ "\$arg" = "-p" ]; then
     trap 'echo interrupted >> "$TEST_DIR/session-lifecycle.log"; exit 0' INT TERM
     printf '%s\n' started > "$started_file"
@@ -375,6 +499,7 @@ SCRIPT
 
   [ "$(grep -c 'final_sync pushing commits=1' "$TEST_LOG")" -eq 1 ]
   [ "$(grep -c 'final_sync push_ok' "$TEST_LOG")" -eq 1 ]
+  [ "$(git -C "$grind_repo" rev-list --count origin/main..HEAD)" -eq 0 ]
 }
 
 @test "structural: EXIT trap routes through final_sync handler before cleanup" {
