@@ -213,6 +213,23 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [ "$status" -eq 0 ]
 }
 
+@test "architecture docs describe the current prompt wrapper instead of a thin prompt" {
+  run grep -nF 'completion protocol for removing shipped tasks from `TASKS.md`' "$BATS_TEST_DIRNAME/../docs/architecture.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'the autonomy reminder to use available tools instead of punting' "$BATS_TEST_DIRNAME/../docs/architecture.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'the optional `FOCUS:` prompt' "$BATS_TEST_DIRNAME/../docs/architecture.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'the stuck-task skip list when repeated failures were detected' "$BATS_TEST_DIRNAME/../docs/architecture.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'By keeping the prompt thin' "$BATS_TEST_DIRNAME/../docs/architecture.md"
+  [ "$status" -ne 0 ]
+}
+
 @test "operator docs surface the context-budget guard from CLI help" {
   run grep -nF 'Sessions should exit before context fills; context exhaustion can crash the' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]
