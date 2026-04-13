@@ -150,18 +150,20 @@ What happens:
 - Slot `1` still needs `git pull --rebase` right before each commit because slot `0` remains the only between-session sync owner
 - Newly discovered tasks flow back to slot `0`, which ships them normally while the discovery lane remains available for the next pass
 
-## 5. Fleet-grind for pipeline management
+## 5. Custom skill lane for pipeline management
 
-You're managing an orchestrator that runs multiple AI pipelines. Use the `fleet-grind` skill to monitor and fix pipelines instead of picking tasks.
+You're managing an orchestrator that runs multiple AI pipelines. Use a real
+installed skill such as `pipeline-ops` to monitor and fix pipelines instead of
+picking normal repo tasks.
 
 ```bash
-taskgrind --skill fleet-grind ~/apps/bosun 10
+taskgrind --skill pipeline-ops ~/apps/bosun 10
 ```
 
 What happens:
-- Each session runs the `fleet-grind` skill instead of `next-task`
-- The skill monitors pipelines, fixes failures, merges PRs
-- Sessions may be longer (productive timeouts auto-increase the timeout cap)
+- Each session runs `pipeline-ops` instead of `next-task`
+- The skill monitors pipelines, fixes failures, and restarts the server when needed
+- `--skill` still accepts any installed skill, so you can swap in another real lane when your workflow needs something other than normal task picking
 
 ## 5a. Monitoring a grind from `TG_STATUS_FILE`
 

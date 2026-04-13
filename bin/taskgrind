@@ -10,8 +10,8 @@
 #        taskgrind --model gpt-5.4 8           → 8h grind with specific model
 #        taskgrind --model "gpt-5.4 XHigh thinking fast" 8
 #                                               → quote multi-word model names
-#        taskgrind --skill fleet-grind 10      → 10h fleet-grind
-#        taskgrind ~/apps/bosun --skill fleet-grind 10
+#        taskgrind --skill pipeline-ops ~/apps/bosun 10
+#                                             → 10h run with a custom skill
 #        taskgrind --backend claude-code 8     → 8h grind with Claude Code
 #        taskgrind --prompt "focus on test coverage" 8
 #        taskgrind --dry-run 8 ~/apps/myrepo  → print config without running
@@ -958,6 +958,7 @@ _git_out=""
 : > "$_task_attempts_file" 2>/dev/null || true
 last_session_summary=""
 current_phase="startup"
+terminal_reason=""
 last_session_number=0
 last_session_result="pending"
 last_session_exit=""
@@ -1020,7 +1021,7 @@ json_escape() {
 write_status_file() {
   [[ -n "$status_file" ]] || return 0
 
-  local status_dir status_tmp now remaining_secs remaining_minutes
+  local status_dir status_tmp now remaining_secs remaining_minutes terminal_reason_json
   status_dir="$(dirname "$status_file")"
   mkdir -p "$status_dir" 2>/dev/null || return 0
   status_tmp=$(mktemp "${status_file}.tmp.XXXXXX") 2>/dev/null || return 0
@@ -1028,6 +1029,11 @@ write_status_file() {
   remaining_secs=$((deadline - now))
   [[ "$remaining_secs" -lt 0 ]] && remaining_secs=0
   remaining_minutes=$((remaining_secs / 60))
+  if [[ -n "$terminal_reason" ]]; then
+    terminal_reason_json="\"$(json_escape "$terminal_reason")\""
+  else
+    terminal_reason_json="null"
+  fi
 
   cat > "$status_tmp" <<EOF
 {
@@ -1040,6 +1046,7 @@ write_status_file() {
   "session": $session,
   "remaining_minutes": $remaining_minutes,
   "current_phase": "$(json_escape "$current_phase")",
+  "terminal_reason": $terminal_reason_json,
   "updated_at": "$(date '+%Y-%m-%dT%H:%M:%S%z')",
   "last_session": {
     "number": $last_session_number,
@@ -1260,6 +1267,14 @@ cleanup() {
   [[ $_dvb_cleaned -eq 1 ]] && return
   _dvb_cleaned=1
   _dvb_finalizing=1
+  case "$current_phase" in
+    queue_empty|all_tasks_blocked|deadline_expired|audit_focus_blocked)
+      terminal_reason="$current_phase"
+      ;;
+    *)
+      terminal_reason=""
+      ;;
+  esac
   if [[ "$current_phase" != "failed" ]]; then
     current_phase="complete"
   fi

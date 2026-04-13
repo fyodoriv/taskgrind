@@ -89,7 +89,7 @@ taskgrind 10                           # 10h grind
 taskgrind ~/apps/myrepo 10             # 10h grind in specific repo
 taskgrind --model gpt-5.4 8            # use specific model
 taskgrind --model "gpt-5.4 XHigh thinking fast" 8  # quote multi-word model names
-taskgrind --skill fleet-grind 10       # custom skill
+taskgrind --skill pipeline-ops ~/apps/bosun 10  # custom installed skill
 taskgrind --prompt "focus on test coverage" 8  # focus prompt
 taskgrind --backend claude-code 8       # use Claude Code backend
 taskgrind --dry-run 8 ~/apps/myrepo    # print config without running
@@ -109,6 +109,10 @@ shell aliases, or a small supervisor script. Use flags when you want a
 one-off override in your shell history; use `TG_BACKEND` or `TG_MODEL` when
 you want restarts and helper scripts to inherit the same defaults without
 retyping them on every launch.
+
+`--skill` accepts any installed skill. Use repo-local skills such as
+`standing-audit-gap-loop` or globally installed skills such as `pipeline-ops`
+when you want a lane other than the default `next-task` workflow.
 
 ## How It Works
 
@@ -302,6 +306,7 @@ Status payload fields:
 | `session` | number | Session counter for the current grind run |
 | `remaining_minutes` | number | Whole minutes left until the current deadline, floored at `0` |
 | `current_phase` | string | Current lifecycle phase such as `startup`, `preflight`, `running_session`, `running_sweep`, `queue_refilled`, `session_complete`, `cooldown`, `git_sync`, `git_sync_skipped`, `queue_empty_wait`, `queue_empty`, `blocked_wait`, `all_tasks_blocked`, `waiting_for_network`, `network_restored`, `deadline_expired`, `audit_focus_blocked`, `complete`, or `failed` |
+| `terminal_reason` | string or `null` | Why a clean run stopped before `current_phase` rolled to `complete`; for example `all_tasks_blocked`, `queue_empty`, `deadline_expired`, or `audit_focus_blocked` |
 | `updated_at` | string | Last write time in local ISO-like timestamp format (`%Y-%m-%dT%H:%M:%S%z`) |
 | `last_session.number` | number | Most recently finished session number, or `0` before any session completes |
 | `last_session.result` | string | Result label for the most recent session, such as `completed`, `timeout`, `network_wait`, or `none` before the first session |
@@ -323,6 +328,7 @@ Example lifecycle snapshots:
   "session": 0,
   "remaining_minutes": 479,
   "current_phase": "preflight",
+  "terminal_reason": null,
   "updated_at": "2026-04-11T18:05:12-0700",
   "last_session": {
     "number": 0,
@@ -416,7 +422,7 @@ Watchdog mapping for the less obvious phases:
 - `git_sync`: slot `0` is running the between-session fetch/rebase cycle
 - `git_sync_skipped`: a higher slot intentionally skipped git sync; this is healthy for multi-instance runs
 - `queue_empty_wait` / `blocked_wait`: intentionally idle; wait for queue changes instead of restarting
-- `queue_empty`, `all_tasks_blocked`, `deadline_expired`, and `audit_focus_blocked`: short-lived decision phases that explain why taskgrind is about to exit or hand off into another terminal state
+- `queue_empty`, `all_tasks_blocked`, `deadline_expired`, and `audit_focus_blocked`: stop reasons that also land in `terminal_reason` on the final `complete` snapshot so slower monitors do not miss why a clean grind stopped
 - `waiting_for_network`: degraded but recoverable; taskgrind is extending the deadline while connectivity is down
 - `network_restored`: connectivity recovered and the process is about to resume normal work
 - `complete` / `failed`: terminal states for the current process

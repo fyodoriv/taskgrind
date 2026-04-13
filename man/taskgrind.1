@@ -21,7 +21,8 @@ Arguments can appear in any order. Hours is any bare integer (1\-24, default: 10
 .SH OPTIONS
 .TP
 .BR \-\-skill " " \fIname\fR
-Skill to run each session (default: next\-task).
+Skill to run each session (default: next\-task). Accepts any installed skill,
+including repo\-local lanes such as standing\-audit\-gap\-loop.
 .TP
 .BR \-\-backend " " \fIname\fR
 AI backend: devin, claude\-code, codex (default: devin).
@@ -312,6 +313,18 @@ git_sync_skipped, queue_empty_wait, queue_empty, blocked_wait,
 all_tasks_blocked, waiting_for_network, network_restored,
 deadline_expired, audit_focus_blocked, complete, or failed.
 .TP
+.B terminal_reason
+Why a clean run stopped before
+.B current_phase
+rolled to
+.BR complete ;
+null during active work and normal success snapshots, or a stop reason such as
+.BR queue_empty ,
+.BR all_tasks_blocked ,
+.BR deadline_expired ,
+or
+.BR audit_focus_blocked .
+.TP
 .B updated_at
 Last write timestamp in the local %Y\-%m\-%dT%H:%M:%S%z format.
 .TP
@@ -349,6 +362,7 @@ Lifecycle example:
   "session": 3,
   "remaining_minutes": 451,
   "current_phase": "running_session",
+  "terminal_reason": null,
   "updated_at": "2026-04-11T18:33:44-0700",
   "last_session": {
     "number": 2,
@@ -366,8 +380,11 @@ running_sweep or running_session, then transitions through queue_refilled,
 session_complete, cooldown, git_sync, git_sync_skipped, queue_empty_wait,
 queue_empty, blocked_wait, all_tasks_blocked, waiting_for_network,
 network_restored, deadline_expired, or audit_focus_blocked as needed. A
-successful shutdown writes one final complete state; startup or runtime errors
-finish as failed.
+successful shutdown writes one final complete state; if the clean stop came
+from queue_empty, all_tasks_blocked, deadline_expired, or audit_focus_blocked,
+that reason remains in
+.B terminal_reason
+for slower monitors. Startup or runtime errors finish as failed.
 .PP
 Supervisors should treat
 .BR startup ,
@@ -391,9 +408,11 @@ mean the process is intentionally idle while it waits for queue changes.
 .BR deadline_expired ,
 and
 .BR audit_focus_blocked
-are short-lived explanation states that usually roll into
-.BR complete
-after taskgrind decides to stop.
+remain available in
+.B terminal_reason
+after the final
+.B complete
+snapshot so a poller can still tell why the grind stopped cleanly.
 .BR waiting_for_network
 means degraded-but-recoverable operation with the deadline held open.
 Only
@@ -407,7 +426,8 @@ taskgrind                           # 10h grind, current dir
 taskgrind 10 ~/apps/myrepo         # 10h grind in specific repo
 taskgrind \-\-model gpt\-5\-4 8       # use specific model
 taskgrind \-\-model opus 8          # alias resolves to claude-opus-4-6
-taskgrind \-\-skill fleet\-grind 10  # custom skill
+taskgrind \-\-skill pipeline\-ops ~/apps/bosun 10
+                                   # custom installed skill
 taskgrind \-\-backend claude\-code 8  # use Claude Code backend
 taskgrind \-\-prompt "test coverage" 8
 taskgrind \-\-dry\-run 8             # print config only

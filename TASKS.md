@@ -2,6 +2,12 @@
 
 ## P0
 ## P1
+- [ ] Preserve terminal stop reasons in `TG_STATUS_FILE` so operators can distinguish clean completion from blocked or empty-queue exits
+  **ID**: preserve-status-terminal-reasons
+  **Tags**: observability, status-file, dx
+  **Details**: The JSON status file currently ends at `complete` even when the grind actually stopped because the queue stayed blocked or empty. Preserve the final stop reason in the status snapshot so dashboards and humans can tell why a clean run stopped without tailing logs.
+  **Files**: `bin/taskgrind`, `tests/logging.bats`, `README.md`, `man/taskgrind.1`
+  **Acceptance**: A blocked-queue run leaves a machine-readable terminal reason in the status file, coverage proves it, and the operator docs explain the new field.
 ## P2
 - [ ] Add canonical `TG_` precedence tests for wait and backoff env vars that only have validation coverage
   **ID**: expand-tg-precedence-coverage
