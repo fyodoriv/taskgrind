@@ -32,6 +32,21 @@ The counter is intentionally scoped to the live queue snapshot, not to raw histo
 
 The same principle now applies to shipped-work accounting. Raw queue deltas are still useful, but they miss real completions when a session removes a finished task and simultaneously rolls the queue forward, when another agent injects new tasks before the session ends, or when the completed task lives in a non-root `TASKS.md`. Taskgrind therefore treats explicit task-removal evidence as authoritative enough to infer shipped work even if the queue ends at the same size. That keeps stall detection focused on genuinely unproductive sessions instead of punishing healthy queue churn.
 
+## Why session boundaries are the context-budget guard
+
+Taskgrind assumes each AI run is a bounded unit of work: start with fresh
+context, pick one task, commit, exit, then let the next session continue from
+git and `TASKS.md`. That boundary is not just a scheduling convenience; it is
+also the safety rail against context exhaustion. If a session keeps accreting
+logs, plans, or code review churn until the model context fills up, the process
+can crash before it commits. The next session can still resume from the last
+good git state, but any uncommitted edits from the crashed run are gone.
+
+That is why taskgrind keeps repeating "commit before timeout" and why the
+operator docs now warn against overstuffed sessions. The safest unattended run
+is a sequence of small, shippable turns, not one heroic prompt that tries to
+finish an entire epic in a single context window.
+
 ## Why empty-queue sweep then wait, then exit
 
 When TASKS.md is empty, taskgrind runs a single sweep session that audits the repo for work (TODOs, test gaps, lint warnings) and populates TASKS.md. If the sweep finds tasks, the grind continues normally. If the sweep finds nothing, taskgrind does not exit immediately: it waits up to 10 minutes for another agent, hook, or human to inject fresh tasks, then exits if the queue is still empty. That pause makes short autonomous runs more useful in shared repos where new tasks may appear just after a cleanup session finishes.

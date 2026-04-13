@@ -11,6 +11,11 @@ This document describes the resume contract that `bin/taskgrind` implements
 today. The goal is to keep the on-disk format small, human-readable, and easy
 to validate in tests.
 
+`--resume` only restores the persisted grind state. It cannot recover
+uncommitted edits from a session that crashed after its context filled up, so
+the operational rule is still to keep each session small enough to commit and
+exit cleanly.
+
 ## Goals
 
 - Preserve enough state to continue the same grind after an interruption.
