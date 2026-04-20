@@ -7,10 +7,10 @@
 # shellcheck disable=SC2034  # used by sourcing scripts
 
 # Default AI model for all backends
-DVB_DEFAULT_MODEL="gpt-5.4"
+DVB_DEFAULT_MODEL="claude-opus-4-7-max"
 DVB_RESUME_STATE_VERSION="1"
 DVB_RESUME_STATE_BASENAME=".taskgrind-state"
-DVB_MODEL_ALIASES=$'opus=claude-opus-4-6\nsonnet=claude-sonnet-4.6\nhaiku=claude-haiku-4.5\nswe=swe-1.6\ncodex=gpt-5.3-codex\ngpt=gpt-5.4'
+DVB_MODEL_ALIASES=$'opus=claude-opus-4-7-max\nsonnet=claude-sonnet-4.6\nhaiku=claude-haiku-4.5\nswe=swe-1.6\ncodex=gpt-5.3-codex\ngpt=gpt-5.4'
 
 dvb_resolve_model_alias() {
   local requested="$1"

@@ -37,7 +37,7 @@ SCRIPT
   grep -q "^status=running$" "$state_file"
   grep -q "^backend=devin$" "$state_file"
   grep -q "^skill=next-task$" "$state_file"
-  grep -q "^model=gpt-5.4$" "$state_file"
+  grep -q "^model=claude-opus-4-7-max$" "$state_file"
   grep -q "^startup_prompt=$" "$state_file"
 
   kill -9 "$grind_pid"
@@ -95,8 +95,8 @@ sessions_zero_ship=0
 consecutive_zero_ship=0
 backend=devin
 skill=next-task
-model=gpt-5.4
-startup_model=gpt-5.4
+model=claude-opus-4-7-max
+startup_model=claude-opus-4-7-max
 EOF
 
   run "$DVB_GRIND" --resume "$TEST_REPO"
@@ -119,8 +119,8 @@ sessions_zero_ship=0
 consecutive_zero_ship=0
 backend=devin
 skill=next-task
-model=gpt-5.4
-startup_model=gpt-5.4
+model=claude-opus-4-7-max
+startup_model=claude-opus-4-7-max
 EOF
 
   run "$DVB_GRIND" --resume "$TEST_REPO"

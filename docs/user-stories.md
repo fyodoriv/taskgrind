@@ -52,7 +52,7 @@ What happens:
 
 Sample banner:
 ```
-☕ taskgrind: 4h (until 13:00) — backend=devin, skill=next-task, model=gpt-5.4, repo=/Users/you/apps/myproject
+☕ taskgrind: 4h (until 13:00) — backend=devin, skill=next-task, model=claude-opus-4-7-max, repo=/Users/you/apps/myproject
    Each session runs next-task. Git sync every 5 sessions.
    Focus: focus on test coverage
    Log: ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
@@ -249,7 +249,7 @@ taskgrind --dry-run
   repo:     /Users/you/apps/myproject
   backend:  devin
   skill:    next-task
-  model:    gpt-5.4
+  model:    claude-opus-4-7-max
   cooldown: 5s
   log:      ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
   notify:   1
@@ -263,7 +263,7 @@ taskgrind --preflight
   repo:     /Users/you/apps/myproject
   backend:  devin
   skill:    next-task
-  model:    gpt-5.4
+  model:    claude-opus-4-7-max
   slots:    0/2 active
 
 Preflight checks for: /Users/you/apps/myproject
@@ -313,7 +313,7 @@ What happens:
 
 Sample output:
 ```
-☕ taskgrind: 6h (until 15:00) — backend=devin, skill=next-task, model=gpt-5.4, repo=/Users/you/apps/myproject
+☕ taskgrind: 6h (until 15:00) — backend=devin, skill=next-task, model=claude-opus-4-7-max, repo=/Users/you/apps/myproject
    Resuming: session=3 shipped=2 zero-ship=1
    Each session runs next-task. Git sync every 5 sessions.
    Log: ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
@@ -386,9 +386,9 @@ What happens:
 
 Sample log:
 ```
-[pid=38291] [09:00] session=1 remaining=360m tasks=9 model=claude-opus-4-6
+[pid=38291] [09:00] session=1 remaining=360m tasks=9 model=claude-opus-4-7-max
 [pid=38291] [09:42] session=1 ended exit=0 duration=2520s tasks_after=8 shipped=1
-[pid=38291] [09:47] live_model=claude-sonnet-4.6 (startup=claude-opus-4-6)
+[pid=38291] [09:47] live_model=claude-sonnet-4.6 (startup=claude-opus-4-7-max)
 [pid=38291] [09:47] session=2 remaining=313m tasks=8 model=claude-sonnet-4.6
 ```
 

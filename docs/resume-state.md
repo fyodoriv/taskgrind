@@ -63,8 +63,8 @@ sessions_zero_ship=1
 consecutive_zero_ship=0
 backend=devin
 skill=next-task
-model=gpt-5.4
-startup_model=gpt-5.4
+model=claude-opus-4-7-max
+startup_model=claude-opus-4-7-max
 startup_prompt=focus on reliability
 ```
 

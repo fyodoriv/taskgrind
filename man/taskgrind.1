@@ -28,7 +28,7 @@ including repo\-local lanes such as standing\-audit\-gap\-loop.
 AI backend: devin, claude\-code, codex (default: devin).
 .TP
 .BR \-\-model " " \fIname\fR
-AI model to use (default: "gpt\-5.4"). Overrides TG_MODEL env var. Short aliases such as
+AI model to use (default: "claude\-opus\-4\-7\-max"). Overrides TG_MODEL env var. Short aliases such as
 \fBopus\fR, \fBsonnet\fR, \fBhaiku\fR, \fBgpt\fR, \fBcodex\fR, and \fBswe\fR resolve to the
 current preferred model IDs. Quote multi-word model names, for example
 \fB\-\-model "gpt\-5.4 XHigh thinking fast"\fR.
@@ -57,7 +57,7 @@ TG_ is the canonical prefix. DVB_ is supported as a backward\-compatible alias.
 AI backend (default: devin).
 .TP
 .B TG_MODEL
-AI model (default: "gpt\-5.4").
+AI model (default: "claude\-opus\-4\-7\-max").
 .TP
 .B TG_SKILL
 Skill to run (default: next\-task).
@@ -357,7 +357,7 @@ Lifecycle example:
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
-  "model": "gpt-5.4",
+  "model": "claude-opus-4-7-max",
   "session": 3,
   "remaining_minutes": 451,
   "current_phase": "running_session",
@@ -423,10 +423,11 @@ are terminal states for the current process.
 .nf
 taskgrind                           # 10h grind, current dir
 taskgrind ~/apps/myrepo 10         # 10h grind in specific repo
-taskgrind \-\-model gpt\-5.4 8       # use specific model
+taskgrind \-\-model claude\-opus\-4\-7\-max 8
+                                   # use specific model
 taskgrind \-\-model "gpt\-5.4 XHigh thinking fast" 8
                                    # quote multi\-word model names
-taskgrind \-\-model opus 8          # alias resolves to claude-opus-4-6
+taskgrind \-\-model opus 8          # alias resolves to claude-opus-4-7-max
 taskgrind \-\-skill pipeline\-ops ~/apps/bosun 10
                                    # custom installed skill
 taskgrind \-\-backend claude\-code 8  # use Claude Code backend
@@ -442,7 +443,7 @@ taskgrind \-\-version / \-V         # print version
 TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8
                                    # write machine-readable status snapshots
 TG_MODEL=sonnet taskgrind 8        # alias resolves to claude-sonnet-4.6
-echo "gpt\-5.4" > .taskgrind\-model  # switch model mid\-grind
+echo "claude\-sonnet\-4.6" > .taskgrind\-model  # switch model mid\-grind
 .fi
 .SH EXIT STATUS
 .TP

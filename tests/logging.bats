@@ -62,7 +62,7 @@ PY
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q '# taskgrind started' "$TEST_LOG"
   grep -q "hours=1" "$TEST_LOG"
-  grep -q "model=gpt-5.4" "$TEST_LOG"
+  grep -q "model=claude-opus-4-7-max" "$TEST_LOG"
 }
 
 @test "log file records session start entries" {
@@ -93,7 +93,7 @@ assert data["terminal_reason"] is None
 assert data["session"] >= 1
 assert data["backend"] == "devin"
 assert data["skill"] == "next-task"
-assert data["model"] == "gpt-5.4"
+assert data["model"] == "claude-opus-4-7-max"
 assert data["last_session"]["number"] >= 1
 assert data["last_session"]["result"] == "success"
 assert data["last_session"]["completed_at"]
@@ -237,8 +237,8 @@ PY
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"Session 1"* ]]
-  [[ "$output" == *"tasks queued — model=gpt-5.4"* ]]
-  grep -q 'session=1 .*model=gpt-5.4' "$TEST_LOG"
+  [[ "$output" == *"tasks queued — model=claude-opus-4-7-max"* ]]
+  grep -q 'session=1 .*model=claude-opus-4-7-max' "$TEST_LOG"
 }
 
 @test "log file records session end entries" {
@@ -299,7 +299,7 @@ TASKS
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"taskgrind"* ]]
   [[ "$output" == *"1h"* ]]
-  [[ "$output" == *"gpt-5.4"* ]]
+  [[ "$output" == *"claude-opus-4-7-max"* ]]
 }
 
 @test "shows startup banner with repo path" {

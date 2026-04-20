@@ -87,7 +87,7 @@ Contributor audit shortcut: run `make audit` to reproduce the local repo-audit p
 taskgrind                              # 10h grind (default), current dir
 taskgrind 10                           # 10h grind
 taskgrind ~/apps/myrepo 10             # 10h grind in specific repo
-taskgrind --model gpt-5.4 8            # use specific model
+taskgrind --model claude-opus-4-7-max 8 # use specific model
 taskgrind --model "gpt-5.4 XHigh thinking fast" 8  # quote multi-word model names
 taskgrind --skill pipeline-ops ~/apps/bosun 10  # custom installed skill
 taskgrind --prompt "focus on test coverage" 8  # focus prompt
@@ -163,7 +163,7 @@ Use `**Blocked by**` only when another task or external dependency truly prevent
 ## Features
 
 - **Multi-backend support** — works with Devin, Claude Code, and Codex via `--backend`
-- **Model selection** — `--model gpt-5.4` or `TG_MODEL=gpt-5.4` to use any model the backend supports; quote multi-word model names such as `--model "gpt-5.4 XHigh thinking fast"`; short aliases like `opus` and `sonnet` resolve to the current preferred model IDs
+- **Model selection** — `--model claude-opus-4-7-max` or `TG_MODEL=claude-opus-4-7-max` to use any model the backend supports; quote multi-word model names such as `--model "gpt-5.4 XHigh thinking fast"`; short aliases like `opus` and `sonnet` resolve to the current preferred model IDs
 - **Live model switching** — create/edit `.taskgrind-model` in the repo while running; changes take effect at the next session, including short alias resolution. Delete the file to revert to the startup model. Files larger than 1 KB are ignored with a warning.
 - **Live prompt injection** — create/edit `.taskgrind-prompt` in the repo while running; changes take effect at the next session. Files larger than 10 KB are ignored with a warning.
 - **Preflight checks** — validates the backend, network, repo, disk, queue, and optional watchdog setup before launch, plus active slot reporting. `network-watchdog` is optional; if missing, taskgrind falls back to `curl` for connectivity checks.
@@ -199,7 +199,7 @@ Before deploying, ensure:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TG_BACKEND` | `devin` | AI backend: `devin`, `claude-code`, `codex` |
-| `TG_MODEL` | `gpt-5.4` | AI model (set to an OpenAI model when using `--backend codex`) |
+| `TG_MODEL` | `claude-opus-4-7-max` | AI model (set to an OpenAI model when using `--backend codex`) |
 | `TG_SKILL` | `next-task` | Skill to run each session |
 | `TG_PROMPT` | (none) | Focus prompt for every session |
 | `TG_COOL` | `5` | Seconds between sessions |
@@ -325,7 +325,7 @@ Example lifecycle snapshots:
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
-  "model": "gpt-5.4",
+  "model": "claude-opus-4-7-max",
   "session": 0,
   "remaining_minutes": 479,
   "current_phase": "preflight",
@@ -349,7 +349,7 @@ Example lifecycle snapshots:
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
-  "model": "gpt-5.4",
+  "model": "claude-opus-4-7-max",
   "session": 3,
   "remaining_minutes": 451,
   "current_phase": "running_session",
@@ -372,7 +372,7 @@ Example lifecycle snapshots:
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
-  "model": "gpt-5.4",
+  "model": "claude-opus-4-7-max",
   "session": 3,
   "remaining_minutes": 449,
   "current_phase": "waiting_for_network",
@@ -395,7 +395,7 @@ Example lifecycle snapshots:
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
-  "model": "gpt-5.4",
+  "model": "claude-opus-4-7-max",
   "session": 7,
   "remaining_minutes": 0,
   "current_phase": "complete",
@@ -447,7 +447,7 @@ can see why the override did not apply.
 Switch models mid-grind without restarting — useful for switching from a powerful model to a faster one for simpler tasks:
 
 ```bash
-echo "gpt-5.4" > ~/apps/myrepo/.taskgrind-model
+echo "claude-sonnet-4.6" > ~/apps/myrepo/.taskgrind-model
 ```
 
 The file is re-read before each session. Overrides `--model` and `TG_MODEL` when present. Short aliases such as `opus`, `sonnet`, `haiku`, `codex`, `gpt`, and `swe` resolve to the current preferred model IDs. Delete the file to revert to the original startup model. Files larger than 1 KB are skipped as a safety guard, and taskgrind logs a warning like `⚠ .taskgrind-model too large (2048B > 1024B) — skipping`.
@@ -487,7 +487,7 @@ taskgrind --preflight
   repo:     /Users/you/apps/myrepo
   backend:  devin
   skill:    next-task
-  model:    gpt-5.4
+  model:    claude-opus-4-7-max
   slots:    2/3 active
 ```
 
