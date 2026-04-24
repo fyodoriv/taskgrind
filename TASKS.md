@@ -1,14 +1,5 @@
 # Tasks
 
-## P1
-
-- [ ] An operator pressing Ctrl+C during a long grind has a user story showing what they will see
-  **ID**: doc-graceful-shutdown-user-story
-  **Tags**: docs, shutdown, user-stories, operator-facing
-  **Details**: The README mentions "Graceful shutdown — SIGINT/SIGTERM waits for running session, pushes commits, ignores duplicate shutdown signals, then exits", and the code implements a 120 s grace period (`TG_SHUTDOWN_GRACE`, validated at `bin/taskgrind:236`) plus a 15 s per-session grace (`TG_SESSION_GRACE`, validated at `bin/taskgrind:239`) before force-kill. `docs/user-stories.md` does not show what the terminal looks like from the moment the operator hits ^C to the final "grind_done" summary — when the grind is safe to rerun, what the log says, how duplicate ^C is ignored. Add a story (e.g., "Interrupting a grind with Ctrl+C") walking through the happy path and the timeout path with sample output.
-  **Files**: `docs/user-stories.md`, `README.md`
-  **Acceptance**: A new user-stories entry shows: (1) the "Waiting for session to finish" message, (2) the grace-period countdown, (3) session finishes vs. times out, (4) final summary line, (5) sample log lines with `graceful_shutdown` markers, (6) when it's safe to rerun. `tests/user-stories-docs.bats` still passes.
-
 ## P2
 - [ ] Add canonical `TG_` precedence tests for wait and backoff env vars that only have validation coverage
   **ID**: expand-tg-precedence-coverage

@@ -182,7 +182,7 @@ Use `**Blocked by**` only when another task or external dependency truly prevent
 - **Productive timeout auto-increase** — when a session ships work but hits `TG_MAX_SESSION`, taskgrind logs a `productive_timeout` marker and adds 1800 s (30 min) to the next session's budget, up to a hard cap of 7200 s (2 h). Operators who need a strict time budget should plan around the cap instead of the initial value.
 - **Unique log names** — includes repo basename + PID to prevent collisions
 - **External injection detection** — logs when other processes add tasks mid-run
-- **Graceful shutdown** — SIGINT/SIGTERM waits for running session, pushes commits, ignores duplicate shutdown signals, then exits
+- **Graceful shutdown** — SIGINT/SIGTERM waits for running session, pushes commits, ignores duplicate shutdown signals, then exits. See [Interrupting a grind with Ctrl+C](docs/user-stories.md#11-interrupting-a-grind-with-ctrlc) for sample output on happy, timeout, and impatient-operator paths.
 
 ## Security
 

@@ -478,3 +478,108 @@ Recovery options when you see this marker:
 - Split the task into 2–3 sub-tasks with different IDs so each starts with a fresh counter
 - Mark the task `**Blocked by**:` if it is genuinely waiting on an external event so the grind uses `blocked_wait` instead of retrying on top of the skip list
 - Remove the task block if the attempt was based on stale requirements — the next session will see the queue shrink and the counter disappears with it
+
+## 11. Interrupting a grind with Ctrl+C
+
+An 8-hour grind is running in a terminal and you need to stop it — maybe you
+realized the prompt is wrong, or a production issue needs your attention.
+Hitting `^C` does not rip the running session out mid-commit. Taskgrind
+converts the signal into a graceful shutdown that waits for the current
+session to finish and pushes any pending commits before exiting.
+
+Happy path — session finishes within the grace window:
+```
+^C
+   ⏳ Waiting for session 7 to finish (up to 120s)...
+   ✓ Session finished gracefully.
+   📤 Pushing 2 local commit(s) to origin...
+──────────────────────────────────────────
+  Grind complete: 7 sessions, 4+ tasks, 2h43m
+  Rate: 1.5/h  Avg session: 22m  Zero-ship: 1
+  Ship rate: 57% (4/7)  Remaining: 5
+  Log: /var/folders/…/taskgrind-2025-01-15-0900-myproject-38291.log
+──────────────────────────────────────────
+```
+
+Matching log entries:
+```
+[pid=38291] [11:43] graceful_shutdown waiting pid=38502 grace=120s
+[pid=38291] [11:43] graceful_shutdown session_finished after=47s
+[pid=38291] [11:43] final_sync pushing commits=2
+[pid=38291] [11:44] final_sync push_ok
+[pid=38291] [11:44] grind_done sessions=7 shipped=4 remaining=5 …
+```
+
+Timeout path — session ignores SIGINT for longer than `TG_SHUTDOWN_GRACE`
+(default 120 s):
+```
+^C
+   ⏳ Waiting for session 7 to finish (up to 120s)...
+   ⏰ Session still running after 120s — sending SIGTERM
+   📤 Pushing 1 local commit(s) to origin...
+──────────────────────────────────────────
+  Grind complete: 7 sessions, 4+ tasks, 2h45m
+  …
+──────────────────────────────────────────
+```
+
+Matching log entries:
+```
+[pid=38291] [11:45] graceful_shutdown waiting pid=38502 grace=120s
+[pid=38291] [11:47] graceful_shutdown timeout — killing pid=38502
+[pid=38291] [11:47] final_sync pushing commits=1
+[pid=38291] [11:47] final_sync push_ok
+[pid=38291] [11:47] grind_done sessions=7 shipped=4 remaining=5 …
+```
+
+Impatient-operator path — hitting `^C` again during the grace window is a
+no-op so taskgrind can finish cleanly:
+```
+^C
+   ⏳ Waiting for session 7 to finish (up to 120s)...
+^C
+   (nothing new printed; taskgrind keeps waiting)
+   ✓ Session finished gracefully.
+```
+
+The second signal is recorded in the log but changes nothing about the
+shutdown flow:
+```
+[pid=38291] [11:43] graceful_shutdown waiting pid=38502 grace=120s
+[pid=38291] [11:43] graceful_shutdown duplicate_signal exit=130 ignored
+[pid=38291] [11:43] graceful_shutdown session_finished after=12s
+```
+
+What happens:
+- Taskgrind sends `SIGINT` to the running session so the backend can commit
+  its current task before exiting
+- It then waits up to `TG_SHUTDOWN_GRACE` seconds (default 120) for the
+  session process to exit on its own
+- If the grace window expires, taskgrind sends `SIGTERM` and force-kills the
+  session. Anything not committed at that point is lost — the code-change
+  contract is "commit before timeout"
+- `final_sync` tries one last `git push` so committed work reaches origin
+  before the process exits
+- Duplicate `^C` / `SIGTERM` while shutdown is in flight is logged as
+  `graceful_shutdown duplicate_signal` and ignored. Spam-hitting Ctrl+C does
+  not skip ahead of the grace window; the safest way to rip out is to send
+  `SIGKILL` (`kill -9 <pid>`), which also loses any uncommitted work
+
+Safe to rerun indicators:
+- The `grind_done` line is printed to both stdout and the log, so seeing it
+  means the marathon exited cleanly
+- `final_sync push_ok` in the log means all committed work reached origin
+- `final_sync push_failed` means the push was rejected (usually because
+  another worker pushed first); fix the git state and either rerun
+  `taskgrind --resume` or manually `git push` before starting a new grind
+- The absence of `graceful_shutdown timeout` means the session got to
+  commit its work naturally — a subsequent `taskgrind --resume` will pick
+  up exactly where it stopped
+
+Related environment variables:
+- `TG_SHUTDOWN_GRACE` — seconds to wait for the current session before
+  SIGTERM (default 120)
+- `TG_SESSION_GRACE` — seconds to wait between SIGINT and SIGTERM when a
+  session hits the per-session `TG_MAX_SESSION` timeout (default 15). This
+  is a different code path from marathon-level Ctrl+C and only affects how
+  aggressively taskgrind kills a runaway session inside the normal loop
