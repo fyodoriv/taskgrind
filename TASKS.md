@@ -16,13 +16,6 @@
   **Files**: `tests/session.bats`, `tests/multi-instance.bats`
   **Acceptance**: (1) `is_audit_only_focus_request` has tests for skill names `standing-audit-gap-loop`, `project-audit`, `full-sweep`, mixed-case `AUDIT`, prompts containing `analyze logs`, `refresh tasks`, `queue refresh`, `sweep`, plus negatives (`next-task`, empty prompt). (2) `has_supported_audit_lane_task` has tests for: missing file, empty file, task with `standing-loop` in description, task with the `audit|log|queue|tasks.md|sweep|refresh` keywords, and a task that mentions neither. (3) All tests extract the function from `bin/taskgrind` via `awk` (consistent with the existing `classify_rebase_conflicts` pattern).
 
-- [ ] `extract_first_task_context()` has direct unit-style test coverage
-  **ID**: test-extract-first-task-context
-  **Tags**: tests, queue, blocked-reason
-  **Details**: `extract_first_task_context()` (`bin/taskgrind:1539-1580`) walks `TASKS.md`, stops at the first `- [ ]`, and emits `task_id=<id>` and optional `blocker=<reason>` lines used when logging `audit_focus_blocked` context and when composing the blocked-wait summary (`bin/taskgrind:2124,2493`). The function has no direct test — a parsing regression (e.g. treating `- [x]` as active, stopping at the wrong task, or losing the blocker line on trailing whitespace) would silently degrade the "which task is blocking us?" operator signal. Add table-driven bats coverage sourcing the function via `awk` extract, matching the `detect_default_branch` pattern.
-  **Files**: `tests/session.bats`, `tests/task-attempts.bats`
-  **Acceptance**: New tests cover (1) empty `TASKS.md`, (2) one `- [ ]` with `**ID**:` only, (3) one `- [ ]` with `**ID**:` and `**Blocked by**:`, (4) two `- [ ]` tasks — function only reports the first, (5) `- [x]` (completed) blocks are ignored, (6) trailing whitespace after `**Blocked by**:` does not bleed into the blocker value. The tests extract the function via `awk '/^extract_first_task_context\(\) \{/,/^}$/'` so they stay decoupled from unrelated refactors.
-
 ## P2
 
 - [ ] `extract_task_signatures()` and `extract_task_checkbox_changes()` have direct unit-style test coverage
