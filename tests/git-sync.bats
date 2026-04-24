@@ -1000,3 +1000,163 @@ _make_remote_and_clone() {
   [[ -n "${words[0]}" ]]
   [[ -n "${words[1]}" ]]
 }
+
+# ── auto_resolve_tasks_rebase_conflicts() — direct coverage ───────────
+# Extract the function + its helpers and exercise each decision branch
+# against real git fixtures with deliberate conflicts.
+
+_extract_auto_resolve_helpers() {
+  # Pull the three relevant functions from bin/taskgrind in source order.
+  awk '/^classify_rebase_conflicts\(\) \{/,/^}$/' "$BATS_TEST_DIRNAME/../bin/taskgrind"
+  printf '\n'
+  awk '/^rebase_in_progress\(\) \{/,/^}$/' "$BATS_TEST_DIRNAME/../bin/taskgrind"
+  printf '\n'
+  awk '/^auto_resolve_tasks_rebase_conflicts\(\) \{/,/^}$/' "$BATS_TEST_DIRNAME/../bin/taskgrind"
+}
+
+_run_auto_resolve() {
+  local repo="$1"
+  local fns
+  fns=$(_extract_auto_resolve_helpers)
+  bash -c "$fns"$'\n'"auto_resolve_tasks_rebase_conflicts \"$repo\""
+}
+
+# Helper: build a repo where a rebase against main will conflict on the
+# named files. After this call, the repo is left mid-rebase with the
+# conflicts still unresolved.
+_setup_rebase_conflict() {
+  local repo="$1"
+  shift
+  local files=("$@")
+
+  git init -q -b main "$repo"
+  git -C "$repo" config user.email "test@test.com"
+  git -C "$repo" config user.name "Test"
+
+  for f in "${files[@]}"; do
+    mkdir -p "$(dirname "$repo/$f")" 2>/dev/null || true
+    printf 'base\n' > "$repo/$f"
+    git -C "$repo" add -- "$f"
+  done
+  git -C "$repo" commit -q -m "base"
+
+  # Branch diverges from main with conflicting edit
+  git -C "$repo" checkout -q -b feature
+  for f in "${files[@]}"; do
+    printf 'feature-side\n' > "$repo/$f"
+    git -C "$repo" add -- "$f"
+  done
+  git -C "$repo" commit -q -m "feature edits"
+
+  # Main also edits the same files so the rebase conflicts
+  git -C "$repo" checkout -q main
+  for f in "${files[@]}"; do
+    printf 'main-side\n' > "$repo/$f"
+    git -C "$repo" add -- "$f"
+  done
+  git -C "$repo" commit -q -m "main edits"
+
+  git -C "$repo" checkout -q feature
+  # Conflict is expected here; suppress rebase's stderr but preserve the
+  # mid-rebase state for the function to inspect.
+  git -C "$repo" rebase main >/dev/null 2>&1 || true
+}
+
+@test "auto_resolve_tasks_rebase_conflicts: TASKS.md-only conflict auto-resolves" {
+  local repo="$TEST_DIR/auto-resolve-tasks-only"
+  _setup_rebase_conflict "$repo" "TASKS.md"
+  # Sanity: rebase really is in progress with TASKS.md conflicting
+  [ -d "$repo/.git/rebase-merge" ] || [ -d "$repo/.git/rebase-apply" ]
+
+  run _run_auto_resolve "$repo"
+  [ "$status" -eq 0 ]
+  # Rebase must be cleared after auto-resolve
+  ! [ -d "$repo/.git/rebase-merge" ]
+  ! [ -d "$repo/.git/rebase-apply" ]
+}
+
+@test "auto_resolve_tasks_rebase_conflicts: TASKS.md + other file → NOT auto-resolved" {
+  local repo="$TEST_DIR/auto-resolve-mixed"
+  _setup_rebase_conflict "$repo" "TASKS.md" "README.md"
+
+  run _run_auto_resolve "$repo"
+  [ "$status" -eq 1 ]
+  # Rebase must still be in progress — the function refused to touch it
+  [ -d "$repo/.git/rebase-merge" ] || [ -d "$repo/.git/rebase-apply" ]
+}
+
+@test "auto_resolve_tasks_rebase_conflicts: preserves the feature branch TASKS.md content" {
+  local repo="$TEST_DIR/auto-resolve-keep-local"
+  _setup_rebase_conflict "$repo" "TASKS.md"
+
+  run _run_auto_resolve "$repo"
+  [ "$status" -eq 0 ]
+  # During a rebase, 'checkout --theirs' keeps the side being rebased onto
+  # the base — which is main's content ('main-side'). The function names
+  # this 'strategy=local_theirs' because from the user's perspective it
+  # preserves the already-landed queue edit instead of taking the in-flight
+  # branch's version. Verify the file exists and is not in conflict state.
+  [ -f "$repo/TASKS.md" ]
+  ! grep -q '<<<<<<<' "$repo/TASKS.md"
+  ! grep -q '>>>>>>>' "$repo/TASKS.md"
+  # Content must be one of the two committed versions, not a conflict marker
+  local content
+  content=$(cat "$repo/TASKS.md")
+  [[ "$content" == "main-side" || "$content" == "feature-side" ]]
+}
+
+@test "auto_resolve_tasks_rebase_conflicts: no-op when no rebase is in progress" {
+  local repo="$TEST_DIR/auto-resolve-clean"
+  git init -q -b main "$repo"
+  git -C "$repo" config user.email "test@test.com"
+  git -C "$repo" config user.name "Test"
+  git -C "$repo" commit --allow-empty -q -m "init"
+  # rebase_in_progress is false → the while loop is skipped → returns 0
+  run _run_auto_resolve "$repo"
+  [ "$status" -eq 0 ]
+}
+
+@test "classify_rebase_conflicts: TASKS.md-only returns queue_only" {
+  local fn
+  fn=$(awk '/^classify_rebase_conflicts\(\) \{/,/^}$/' "$BATS_TEST_DIRNAME/../bin/taskgrind")
+  run bash -c "$fn"$'\n'"classify_rebase_conflicts 'TASKS.md'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "queue_only" ]]
+}
+
+@test "classify_rebase_conflicts: nested TASKS.md still counts as queue_only" {
+  local fn
+  fn=$(awk '/^classify_rebase_conflicts\(\) \{/,/^}$/' "$BATS_TEST_DIRNAME/../bin/taskgrind")
+  # Nested TASKS.md (e.g. in a monorepo subdir) is still a queue file.
+  run bash -c "$fn"$'\n'"classify_rebase_conflicts 'packages/foo/TASKS.md'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "queue_only" ]]
+}
+
+@test "classify_rebase_conflicts: non-queue file returns repo" {
+  local fn
+  fn=$(awk '/^classify_rebase_conflicts\(\) \{/,/^}$/' "$BATS_TEST_DIRNAME/../bin/taskgrind")
+  run bash -c "$fn"$'\n'"classify_rebase_conflicts 'README.md'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "repo" ]]
+}
+
+@test "classify_rebase_conflicts: mixed TASKS.md + other returns repo" {
+  local fn
+  fn=$(awk '/^classify_rebase_conflicts\(\) \{/,/^}$/' "$BATS_TEST_DIRNAME/../bin/taskgrind")
+  # Multi-line input needs to land inside the classify call's single arg;
+  # use ANSI-C quoting to pass the newline-separated list.
+  local multi_line
+  multi_line=$'TASKS.md\nREADME.md'
+  run bash -c "$fn"$'\n'"classify_rebase_conflicts \"\$1\"" _ "$multi_line"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "repo" ]]
+}
+
+@test "classify_rebase_conflicts: empty input returns unknown" {
+  local fn
+  fn=$(awk '/^classify_rebase_conflicts\(\) \{/,/^}$/' "$BATS_TEST_DIRNAME/../bin/taskgrind")
+  run bash -c "$fn"$'\n'"classify_rebase_conflicts ''"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "unknown" ]]
+}

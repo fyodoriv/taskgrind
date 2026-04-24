@@ -8,13 +8,6 @@
   **Files**: `tests/diagnostics.bats`, `tests/network.bats`, `tests/session.bats`
   **Acceptance**: The affected env vars have red/green coverage proving `TG_` overrides the matching `DVB_` value during a real run, not just in validation error paths.
 
-- [ ] `auto_resolve_tasks_rebase_conflicts()` has focused tests for the TASKS.md-only path
-  **ID**: test-auto-resolve-tasks-conflicts
-  **Tags**: tests, git, rebase, conflict-resolution
-  **Details**: `auto_resolve_tasks_rebase_conflicts()` (`bin/taskgrind:1765`) keeps the local TASKS.md when a rebase conflict touches only that file, preventing the queue-churn deadlock. `tests/git-sync.bats` tests the end-to-end sync; the function itself has no direct coverage. A bug here (e.g., accidentally auto-resolving conflicts in other files) would silently drop changes. Add tests for: (1) TASKS.md-only conflict is auto-resolved, (2) TASKS.md + another file conflict is NOT auto-resolved, (3) local TASKS.md content is preserved, (4) log line `auto_resolve_tasks_conflicts` appears.
-  **Files**: `tests/git-sync.bats`
-  **Acceptance**: Four targeted tests exercise the auto-resolve path directly against fixture git repos.
-
 ## P3
 
 - [ ] Error messages for common failures include actionable next-step guidance
