@@ -1,13 +1,6 @@
 # Tasks
 
 ## P0
-- [ ] Add `status:` field to user-stories dry-run example and align with actual output
-  **ID**: doc-dry-run-status-field
-  **Tags**: docs, accuracy
-  **Details**: The actual `--dry-run` output prints a `status:` line showing the `TG_STATUS_FILE` path or `disabled` (line 884 of `bin/taskgrind`), but user story 6 omits it from the example output. Add `status:   disabled` to the dry-run example in `docs/user-stories.md` between the `log:` and `notify:` lines so the example matches what a user actually sees.
-  **Files**: `docs/user-stories.md`
-  **Acceptance**: The dry-run example in story 6 includes the `status:` field and matches the actual output of `taskgrind --dry-run` for a run without `TG_STATUS_FILE`.
-
 - [ ] Correct the README blocked-queue feature bullet to describe the wait-and-retry behavior
   **ID**: doc-blocked-queue-wait-behavior
   **Tags**: docs, accuracy, operator-facing

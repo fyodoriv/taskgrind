@@ -252,6 +252,7 @@ taskgrind --dry-run
   model:    claude-opus-4-7-max
   cooldown: 5s
   log:      ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
+  status:   disabled
   notify:   1
   max_session: 3600s
   early_exit_on_stall: 0
