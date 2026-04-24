@@ -502,7 +502,12 @@ SCRIPT
 # ── Stability: pre-session git state recovery ─────────────────────────
 
 @test "structural: pre-session git state recovery checks for rebase" {
-  grep -q 'pre_session_recovery rebase_aborted' "$DVB_GRIND"
+  # The script now composes the 'pre_session_recovery rebase_aborted' marker
+  # via emit_rebase_conflict_logs; keep the structural assertion on the
+  # call-site plus the helper's shared format so a refactor cannot drop
+  # either half of the contract.
+  grep -q 'emit_rebase_conflict_logs .*pre_session_recovery' "$DVB_GRIND"
+  grep -q '${scope} rebase_aborted' "$DVB_GRIND"
 }
 
 @test "structural: pre-session git state recovery checks for merge" {

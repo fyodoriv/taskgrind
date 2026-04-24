@@ -2,13 +2,6 @@
 
 ## P1
 
-- [ ] Fix stale `pre_session_recovery rebase_aborted` structural assertion in `tests/features.bats`
-  **ID**: fix-pre-session-recovery-test-drift
-  **Tags**: tests, bug, drift, git-recovery
-  **Details**: `@test "structural: pre-session git state recovery checks for rebase"` (tests/features.bats:504) greps the script for the literal string `pre_session_recovery rebase_aborted`. The code was refactored so the script now calls `emit_rebase_conflict_logs "$repo" "pre_session_recovery"` to emit a structured rebase-conflict log with `pre_session_recovery` as the phase label, then aborts. The structural assertion never updated. Decide whether the test should grep for `emit_rebase_conflict_logs "$repo" "pre_session_recovery"` (matching the refactor) or the code should keep writing a literal `pre_session_recovery rebase_aborted` marker. The log shape is what operators actually rely on — verify the refactor still emits the same marker in practice and align the test accordingly.
-  **Files**: `tests/features.bats`, possibly `bin/taskgrind`
-  **Acceptance**: `bats tests/features.bats` passes the "pre-session git state recovery checks for rebase" test. If the refactor already emits an equivalent marker, just update the grep to match. If it does not, restore the marker so existing operator docs/logs stay accurate.
-
 - [ ] Investigate `--preflight runs health checks and exits 0 on healthy repo` test failure
   **ID**: fix-preflight-healthy-repo-test
   **Tags**: tests, bug, preflight
