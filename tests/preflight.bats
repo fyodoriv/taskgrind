@@ -12,7 +12,18 @@ _install_fake_backend_binary() {
 
   cat > "$script_path" <<'SCRIPT'
 #!/bin/bash
+# Record every invocation (argv as-is) so callers can assert ordering and the
+# ratio of probe vs. model-validation calls.
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+# When taskgrind's startup probe runs `<backend> --version`, it requires a
+# non-empty stdout payload from a fast (<1s) zero-exit invocation; otherwise
+# run_backend_probe rejects the binary as "stub or broken". Emit a stable
+# pseudo-version string so the probe accepts the fixture and the rest of the
+# preflight + model-validation flow can run.
+if [[ "$*" == *"--version"* ]]; then
+  echo "fake-backend 0.0.1"
+  exit 0
+fi
 if [[ "$*" == *"--help"* ]] && [[ "$*" == *"--model invalid-model"* ]]; then
   echo "backend said invalid model: invalid-model" >&2
   exit 1

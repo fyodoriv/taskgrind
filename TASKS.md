@@ -1,14 +1,5 @@
 # Tasks
 
-## P0
-
-- [ ] `preflight validates models through claude-code backend resolution` test fixture matches the current backend-probe contract
-  **ID**: fix-preflight-claude-code-probe-fixture
-  **Tags**: tests, preflight, backend-probe, regression
-  **Details**: `tests/preflight.bats:257-277` installs a fake `claude` binary via `_install_fake_backend_binary` whose `--version` path writes the received argv to the invoke log and exits 0 with no stdout. After commit `e87d0ac fix: probe backend startup failures early`, `backend_probe` rejects that shape as "backend binary may be a stub or broken: exited in 0s with no output when running --version". The probe fires before model validation, so the test's expected `backend said invalid model: invalid-model` stderr is never produced. The suite currently reports `not ok 450 preflight validates models through claude-code backend resolution` under `make check`, and the same test fails deterministically in isolation (`bats tests/preflight.bats -f "preflight validates models through claude-code backend resolution"`). Either teach the fixture to emit a version string on `--version` or refactor the test to assert both the probe and the model-validation path in order. Whichever fix we pick, the fake must match the shape the probe enforces (non-empty stdout, exit 0) so model validation can still run.
-  **Files**: `tests/preflight.bats`
-  **Acceptance**: `bats tests/preflight.bats -f "preflight validates models through claude-code"` passes locally and under `make check` without re-disabling the probe. The fake binary still writes one line per invocation to `DVB_GRIND_INVOKE_LOG` so the invocation-count assertion at `tests/preflight.bats:274` keeps protecting the probe-then-validate ordering.
-
 ## P1
 
 - [ ] Test flakiness in `TG_STATUS_FILE writes status snapshots` and `does not launch another session after the deadline expires during pre-session setup` is fixed or quarantined
