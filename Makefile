@@ -2,6 +2,7 @@
 
 PREFIX ?= /usr/local
 TESTS ?= tests/*.bats
+TASKS_MD ?= TASKS.md
 AUTO_TEST_JOBS = $(shell jobs=$$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4); expr "$$jobs" + 0 >/dev/null 2>&1 || jobs=4; if [ "$$jobs" -gt 6 ]; then jobs=6; fi; if [ "$$jobs" -lt 2 ]; then jobs=2; fi; echo "$$jobs")
 TEST_JOBS ?= $(AUTO_TEST_JOBS)
 TEST_CACHE_BASENAME = .test-cache
@@ -57,6 +58,20 @@ audit:
 	@grep -RInE 'TODO:|FIXME:' bin lib docs README.md CONTRIBUTING.md SECURITY.md AGENTS.md Agentfile.yaml man/taskgrind.1 .devin/skills/standing-audit-gap-loop/SKILL.md .devin/skills/grind-log-analyze/SKILL.md 2>/dev/null || true
 	@echo "═══ Audit: shellcheck ═══"
 	@$(MAKE) lint
+	@echo "═══ Audit: TASKS.md spec ═══"
+	@if [ ! -f $(TASKS_MD) ]; then \
+		echo "(no $(TASKS_MD) to lint)"; \
+	elif command -v tasks-lint >/dev/null 2>&1; then \
+		tasks-lint $(TASKS_MD); \
+	elif command -v npx >/dev/null 2>&1; then \
+		npx --yes @tasks-md/lint $(TASKS_MD); \
+	else \
+		echo "Error: tasks-lint not on PATH and no npx fallback available." >&2; \
+		echo "Install with one of:" >&2; \
+		echo "  npm install -g @tasks-md/lint   # global, idempotent" >&2; \
+		echo "  npx --yes @tasks-md/lint $(TASKS_MD)   # one-off (needs npm/Node)" >&2; \
+		exit 1; \
+	fi
 	@echo "═══ Audit: docs review queue ═══"
 	@printf '%s\n' README.md CONTRIBUTING.md SECURITY.md AGENTS.md Agentfile.yaml docs/architecture.md docs/resume-state.md docs/user-stories.md man/taskgrind.1 .devin/skills/standing-audit-gap-loop/SKILL.md .devin/skills/grind-log-analyze/SKILL.md
 

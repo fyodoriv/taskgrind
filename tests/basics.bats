@@ -112,6 +112,86 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [[ "$output" == *"make audit"* ]]
 }
 
+@test "make audit runs tasks-lint and rejects malformed TASKS.md" {
+  # Override TASKS_MD to point at a temp file with a deliberately malformed
+  # entry. This avoids racing other parallel bats jobs that read the repo's
+  # real TASKS.md while make audit runs.
+  local repo_root="$BATS_TEST_DIRNAME/.."
+  local broken_tasks
+  broken_tasks="$(mktemp "${TMPDIR:-/tmp}/taskgrind-bad-tasks-XXXX.md")"
+  cat > "$broken_tasks" <<'EOF'
+# Tasks
+
+## P0
+
+- broken without checkbox
+  **Tags**: foo
+EOF
+  run make -C "$repo_root" audit TASKS_MD="$broken_tasks"
+  local audit_status="$status"
+  local audit_output="$output"
+  rm -f "$broken_tasks"
+  [ "$audit_status" -ne 0 ]
+  [[ "$audit_output" == *"Audit: TASKS.md spec"* ]]
+  [[ "$audit_output" == *"task must use checkbox format"* ]]
+}
+
+@test "make audit accepts a TASKS.md with only the H1 header" {
+  # Empty queue is the legitimate steady state once the grind ships everything.
+  # Make sure tasks-lint does not fail the audit on that minimal file. Use a
+  # temp override path so this stays parallel-safe.
+  local repo_root="$BATS_TEST_DIRNAME/.."
+  local empty_tasks
+  empty_tasks="$(mktemp "${TMPDIR:-/tmp}/taskgrind-empty-tasks-XXXX.md")"
+  printf '# Tasks\n' > "$empty_tasks"
+  run make -C "$repo_root" audit TASKS_MD="$empty_tasks"
+  local audit_status="$status"
+  local audit_output="$output"
+  rm -f "$empty_tasks"
+  [ "$audit_status" -eq 0 ]
+  [[ "$audit_output" == *"Audit: TASKS.md spec"* ]]
+  [[ "$audit_output" == *"found 0 error"* ]]
+}
+
+@test "make audit handles a missing TASKS.md gracefully" {
+  # Once the queue file is removed (e.g. archived between sweeps), make audit
+  # must not break — it should print a benign skip line and stay green.
+  local repo_root="$BATS_TEST_DIRNAME/.."
+  local missing_tasks
+  missing_tasks="$(mktemp -u "${TMPDIR:-/tmp}/taskgrind-missing-tasks-XXXX.md")"
+  run make -C "$repo_root" audit TASKS_MD="$missing_tasks"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"(no $missing_tasks to lint)"* ]]
+}
+
+@test "audit docs mention tasks-lint" {
+  # CONTRIBUTING and AGENTS must explain how to install/run tasks-lint; the
+  # README should advertise it as a dev dependency for contributors.
+  run grep -nF '@tasks-md/lint' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'tasks-lint' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'tasks-lint' "$BATS_TEST_DIRNAME/../AGENTS.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF '@tasks-md/lint' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF '@tasks-md/lint' "$BATS_TEST_DIRNAME/../.github/workflows/check.yml"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'tasks-lint $(TASKS_MD)' "$BATS_TEST_DIRNAME/../Makefile"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'npx --yes @tasks-md/lint $(TASKS_MD)' "$BATS_TEST_DIRNAME/../Makefile"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'TASKS_MD ?= TASKS.md' "$BATS_TEST_DIRNAME/../Makefile"
+  [ "$status" -eq 0 ]
+}
+
 @test "make audit runs the local audit workflow" {
   run make -C "$BATS_TEST_DIRNAME/.." audit
   [ "$status" -eq 0 ]

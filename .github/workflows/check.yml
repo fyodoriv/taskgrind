@@ -15,6 +15,19 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq shellcheck
+      - name: Set up Node for tasks-lint
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Cache @tasks-md/lint downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: tasks-lint-${{ runner.os }}-v1
+      - name: Install @tasks-md/lint globally
+        # Pinned in CI so `make audit` uses the on-PATH binary (no network call
+        # on cache hit) instead of falling through to the `npx --yes` lane.
+        run: npm install -g @tasks-md/lint
       - name: shellcheck
         run: make lint
 

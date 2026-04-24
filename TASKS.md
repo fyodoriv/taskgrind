@@ -9,13 +9,6 @@
   **Files**: `tests/logging.bats`, `tests/session.bats`, `tests/test_helper.bash`, `CONTRIBUTING.md`
   **Acceptance**: 10 consecutive `make test-force` runs at the default `TEST_JOBS=6` all pass. The `Known Issues` note in `CONTRIBUTING.md` loses the "flaky tests" bullet or references a new, tighter list that does not include tests 318 and 510.
 
-- [ ] `make audit` runs `tasks-lint` on `TASKS.md` so malformed queue entries fail fast in CI
-  **ID**: audit-runs-tasks-lint
-  **Tags**: ci, audit, quality, tasks-lint
-  **Details**: The repo's `TASKS.md` is required to follow the tasks.md spec (`CONTRIBUTING.md:64-84`), and the `next-task` skill + every autonomous session depend on that format. `make audit` today scans for `TODO:`/`FIXME:` markers, runs shellcheck, and lists the docs review queue, but it never runs the upstream `tasks-lint`. A missing `**ID**:`, malformed `**Blocked by**:`, or accidental `[x]` would only surface when an agent tried to pick a task and failed. Add `tasks-lint` to `make audit` (and therefore to `make check` via the CI job that runs `make audit`) using the same local-only discipline — prefer `npx --offline tasks-lint TASKS.md` if the lockfile is vendored, otherwise document the dep in CONTRIBUTING.md and cache it in CI. When `TASKS.md` only has `# Tasks`, lint must still pass.
-  **Files**: `Makefile`, `.github/workflows/check.yml`, `CONTRIBUTING.md`, `AGENTS.md`, `README.md`
-  **Acceptance**: (1) `make audit` fails loudly when `TASKS.md` breaks the tasks.md spec (e.g. checkbox without `**ID**:`, `**Blocked by**:` without a value), using the upstream `tasks-lint` binary or an explicit fallback documented in `CONTRIBUTING.md`. (2) `make audit` still passes on the current empty `# Tasks` stub and on a legitimate populated queue. (3) CI invokes the same target it does today and no new external network call is needed on cache hit. (4) `CONTRIBUTING.md` and `AGENTS.md` mention the new gate so new contributors know where to run `tasks-lint` locally.
-
 - [ ] `is_audit_only_focus_request()` and `has_supported_audit_lane_task()` have direct unit-style test coverage
   **ID**: test-audit-focus-guards-coverage
   **Tags**: tests, audit-focus, discovery-lane

@@ -583,7 +583,7 @@ Safe recovery loop:
 
 ```bash
 make install    # symlink to /usr/local/bin + install man page
-make audit      # run the local repo audit workflow
+make audit      # run the local repo audit workflow (TODO scan + shellcheck + tasks-lint)
 make lint       # shellcheck
 make test       # bats test suite (cached, auto-capped parallelism)
 make test-force # rerun the selected bats suite without cache
@@ -593,7 +593,10 @@ make check      # lint + test
 make uninstall  # remove symlink and man page
 ```
 
-Requires: [bats-core](https://github.com/bats-core/bats-core), [shellcheck](https://www.shellcheck.net/)
+Requires: [bats-core](https://github.com/bats-core/bats-core), [shellcheck](https://www.shellcheck.net/),
+and [`@tasks-md/lint`](https://www.npmjs.com/package/@tasks-md/lint) for `make
+audit` (install with `npm install -g @tasks-md/lint`, or rely on the `npx
+--yes @tasks-md/lint` fallback the audit target falls through to).
 
 Taskgrind runtime files must stay compatible with `/bin/bash` 3.2, and
 `tests/verify-bash32-compat.sh` is the guard that enforces that contract during

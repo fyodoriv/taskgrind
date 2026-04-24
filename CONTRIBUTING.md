@@ -83,6 +83,20 @@ tasks under the priority headings and include the required metadata fields:
 actually blocks the work. When you finish a task, remove its entire block from
 `TASKS.md` instead of checking it off.
 
+`make audit` runs the upstream `tasks-lint` validator against `TASKS.md` so any
+malformed entry (missing `**ID**:`, checkbox typo, accidental `[x]`) fails the
+audit before agents pick it up. To install the validator locally:
+
+```bash
+npm install -g @tasks-md/lint   # idempotent; persists across runs
+# or, no install needed:
+npx --yes @tasks-md/lint TASKS.md
+```
+
+`make audit` calls `tasks-lint` first if it is on `PATH`; otherwise it falls
+back to `npx --yes @tasks-md/lint`. If neither is available, the audit fails
+with a one-shot install hint.
+
 ## Running a Repo Audit
 
 Use `make audit` when you want the same lightweight local audit loop that empty-queue sweeps rely on:
@@ -91,9 +105,12 @@ Use `make audit` when you want the same lightweight local audit loop that empty-
 - Treats only colon-suffixed task markers as actionable so audit instructions do not report themselves as backlog items
 - Includes the core docs and repo-local audit skills in that actionable scan so real doc drift still shows up in the same pass
 - Runs shellcheck through `make lint`
+- Validates `TASKS.md` against the tasks.md spec via `tasks-lint` (`@tasks-md/lint`); the audit exits non-zero on the first malformed entry
 - Prints the core docs review queue (`README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `AGENTS.md`, `Agentfile.yaml`, `docs/architecture.md`, `docs/resume-state.md`, `docs/user-stories.md`, `man/taskgrind.1`, `.devin/skills/standing-audit-gap-loop/SKILL.md`, `.devin/skills/grind-log-analyze/SKILL.md`)
 
-The target is intentionally local-only, so it works offline and does not depend on external services.
+Apart from the optional `tasks-lint` install (which is cached locally and in
+CI), the target is local-only and does not depend on external services at run
+time.
 
 ## Commit Format
 
