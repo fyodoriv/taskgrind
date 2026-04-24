@@ -2,13 +2,6 @@
 
 ## P1
 
-- [ ] Investigate `preflight validates models through claude-code backend resolution` test failure
-  **ID**: fix-preflight-claude-code-model-test
-  **Tags**: tests, bug, preflight, claude-code
-  **Details**: `@test "preflight validates models through claude-code backend resolution"` (tests/preflight.bats:254) fails on main because the claude-code backend path does not emit `"backend said invalid model: invalid-model"` when handed an unknown model. Either the model validation logic changed, the backend stub test fixture no longer exercises the right code path, or a rename dropped the error message. Reproduce with `bats tests/preflight.bats` and trace the `preflight_claude_code_model` path from `bin/taskgrind` to see what error string is actually printed. Re-align the test or the error message.
-  **Files**: `tests/preflight.bats`, possibly `bin/taskgrind`
-  **Acceptance**: `bats tests/preflight.bats` passes the "preflight validates models through claude-code backend resolution" test. Preflight still blocks unknown models for the claude-code backend with an actionable error message.
-
 - [ ] An operator pressing Ctrl+C during a long grind has a user story showing what they will see
   **ID**: doc-graceful-shutdown-user-story
   **Tags**: docs, shutdown, user-stories, operator-facing

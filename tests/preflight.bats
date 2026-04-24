@@ -265,9 +265,14 @@ SCRIPT
   [[ "$output" == *"backend said invalid model: invalid-model"* ]]
   [[ "$output" == *"Model rejected by claude-code before starting"* ]]
 
+  # With backend_probe guarding startup, the binary is invoked twice before
+  # preflight bails: once for '--version' (probe) and once for
+  # '--model invalid-model --help' (model validation). The validation call
+  # is the one that must fire; the probe is legitimate startup hygiene.
   local invoke_count
   invoke_count=$(wc -l < "$DVB_GRIND_INVOKE_LOG" | tr -d ' ' )
-  [ "$invoke_count" -eq 1 ]
+  [ "$invoke_count" -eq 2 ]
+  grep -q -- '--version' "$DVB_GRIND_INVOKE_LOG"
   grep -q -- '--model invalid-model --help' "$DVB_GRIND_INVOKE_LOG"
 }
 
