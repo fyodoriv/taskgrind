@@ -258,7 +258,7 @@ path = sys.argv[1]
 with open(path, "r", encoding="utf-8") as handle:
     payload = json.load(handle)
 print(payload.get("current_phase", "missing"))
-print(payload.get("last_session", {}).get("result", "none"))
+print(payload.get("last_session", {}).get("result", "pending"))
 PY
 )
 
@@ -279,7 +279,7 @@ case "$current_phase" in
     echo "page now: inspect the log and resume after fixing the cause"
     ;;
   complete)
-    if [ "$last_result" = "completed" ]; then
+    if [ "$last_result" = "success" ]; then
       echo "done: no restart needed unless new tasks arrived"
     else
       echo "finished with a non-success result: inspect before restarting"
@@ -311,7 +311,7 @@ Status payload fields:
 | `terminal_reason` | string or `null` | Why a clean run stopped before `current_phase` rolled to `complete`; for example `all_tasks_blocked`, `queue_empty`, `deadline_expired`, or `audit_focus_blocked` |
 | `updated_at` | string | Last write time in local ISO-like timestamp format (`%Y-%m-%dT%H:%M:%S%z`) |
 | `last_session.number` | number | Most recently finished session number, or `0` before any session completes |
-| `last_session.result` | string | Result label for the most recent session, such as `completed`, `timeout`, `network_wait`, or `none` before the first session |
+| `last_session.result` | string | Exactly one of `pending` (initial value before the first session completes, and re-set at the start of every session), `success` (most recent backend exit was 0), `failure` (most recent backend exit was non-zero), or `blocked` (audit-only focus refused because `TASKS.md` lacked a discovery-lane standing-loop task). |
 | `last_session.exit_code` | number or `null` | Backend exit code for the most recent session, or `null` before the first completed session |
 | `last_session.shipped` | number | Tasks shipped by the most recent session |
 | `last_session.duration_seconds` | number | Runtime of the most recent session in seconds |
@@ -334,7 +334,7 @@ Example lifecycle snapshots:
   "updated_at": "2026-04-11T18:05:12-0700",
   "last_session": {
     "number": 0,
-    "result": "none",
+    "result": "pending",
     "exit_code": null,
     "shipped": 0,
     "duration_seconds": 0,
@@ -357,7 +357,7 @@ Example lifecycle snapshots:
   "updated_at": "2026-04-11T18:33:44-0700",
   "last_session": {
     "number": 2,
-    "result": "completed",
+    "result": "success",
     "exit_code": 0,
     "shipped": 1,
     "duration_seconds": 742,
@@ -380,7 +380,7 @@ Example lifecycle snapshots:
   "updated_at": "2026-04-11T18:35:21-0700",
   "last_session": {
     "number": 3,
-    "result": "network_wait",
+    "result": "failure",
     "exit_code": 1,
     "shipped": 0,
     "duration_seconds": 12,
@@ -403,7 +403,7 @@ Example lifecycle snapshots:
   "updated_at": "2026-04-12T02:05:01-0700",
   "last_session": {
     "number": 7,
-    "result": "completed",
+    "result": "success",
     "exit_code": 0,
     "shipped": 1,
     "duration_seconds": 801,

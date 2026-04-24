@@ -341,7 +341,7 @@ from pathlib import Path
 
 payload = json.loads(Path(sys.argv[1]).read_text())
 print(payload.get("current_phase", "missing"))
-print(payload.get("last_session", {}).get("result", "none"))
+print(payload.get("last_session", {}).get("result", "pending"))
 print(payload.get("slot", "unknown"))
 PY
 tail -n 20 "${TMPDIR:-/tmp}"/taskgrind-*.log

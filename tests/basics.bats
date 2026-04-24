@@ -302,6 +302,87 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [ "$status" -eq 0 ]
 }
 
+@test "status payload docs describe last_session.result with the four real values only" {
+  # bin/taskgrind only ever assigns last_session_result one of four strings:
+  # pending (initialization + per-session reset), success (exit 0), failure
+  # (non-zero exit), or blocked (audit-only focus refused). The README and man
+  # page must enumerate that set exactly so operator watchdogs do not key off
+  # phantom labels like completed/timeout/network_wait/none.
+  run grep -nF '`pending`' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF '`success`' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF '`failure`' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF '`blocked`' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+
+  # Phantom result labels must not reappear in the README's status table or
+  # JSON examples.
+  run grep -nE '"result"[[:space:]]*:[[:space:]]*"(completed|timeout|network_wait|none)"' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 1 ]
+
+  run grep -nE '"result"[[:space:]]*:[[:space:]]*"(completed|timeout|network_wait|none)"' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  [ "$status" -eq 1 ]
+
+  # Only the real values may appear in JSON example blocks.
+  run grep -nE '"result"[[:space:]]*:[[:space:]]*"[^"]+"' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+  while IFS= read -r line; do
+    case "$line" in
+      *'"result": "pending"'*|*'"result": "success"'*|*'"result": "failure"'*|*'"result": "blocked"'*) ;;
+      *)
+        printf 'README JSON example uses an unsupported last_session.result value: %s\n' "$line" >&2
+        return 1
+        ;;
+    esac
+  done <<<"$output"
+
+  run grep -nE '"result"[[:space:]]*:[[:space:]]*"[^"]+"' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  [ "$status" -eq 0 ]
+  while IFS= read -r line; do
+    case "$line" in
+      *'"result": "pending"'*|*'"result": "success"'*|*'"result": "failure"'*|*'"result": "blocked"'*) ;;
+      *)
+        printf 'man page JSON example uses an unsupported last_session.result value: %s\n' "$line" >&2
+        return 1
+        ;;
+    esac
+  done <<<"$output"
+
+  # The man page prose enumerates the four real values too.
+  run grep -nE 'pending|success|failure|blocked' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"pending"* ]]
+  [[ "$output" == *"success"* ]]
+  [[ "$output" == *"failure"* ]]
+  [[ "$output" == *"blocked"* ]]
+
+  # Phantom values must not appear in the man page's last_session.result prose.
+  # Use awk to extract just the .B last_session.result block (terminated by
+  # the next .TP) and grep for the forbidden labels there.
+  forbidden=$(awk '/^\.B last_session\.result$/{flag=1; next} /^\.TP$/{flag=0} flag' "$BATS_TEST_DIRNAME/../man/taskgrind.1" | grep -E 'completed|timeout|network_wait|\bnone\b' || true)
+  if [[ -n "$forbidden" ]]; then
+    printf 'man page last_session.result block still mentions a phantom label:\n%s\n' "$forbidden" >&2
+    return 1
+  fi
+
+  # The watchdog snippets in README and user-stories must default to pending,
+  # not the dropped "none" sentinel.
+  run grep -nF 'payload.get("last_session", {}).get("result", "pending")' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'payload.get("last_session", {}).get("result", "pending")' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
+  [ "$status" -eq 0 ]
+
+  # The README watchdog must compare against the real success label.
+  run grep -nF '"$last_result" = "success"' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+}
+
 @test "help and README keep the env example block aligned" {
   run "$DVB_GRIND" --help
   [ "$status" -eq 0 ]

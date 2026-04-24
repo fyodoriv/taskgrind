@@ -2,13 +2,6 @@
 
 ## P0
 
-- [ ] Status file `last_session.result` docs match the four values the code actually writes
-  **ID**: doc-status-result-values-drift
-  **Tags**: docs, status-file, accuracy, operator-facing
-  **Details**: `bin/taskgrind` only ever writes one of four values for `last_session.result`: `pending` (initial and pre-session, `bin/taskgrind:976,1995,2154`), `success` (exit 0, `bin/taskgrind:2054,2535`), `failure` (non-zero exit, `bin/taskgrind:2056,2537`), and `blocked` (audit-focus refused without discovery-lane task, `bin/taskgrind:2133`). The README status payload table (`README.md:314`) and the man page (`man/taskgrind.1:378-380`) both list the value set as `completed`, `timeout`, `network_wait`, `none` — none of which exist in the code. Operators writing watchdog scripts against those strings will silently miss every real transition. The passing unit test `status file captures startup and completion states` already asserts `result == "success"` (`tests/logging.bats:98`), so the code side is correct and the docs are wrong. Align both docs to the actual `pending|success|failure|blocked` set, keep the user-stories watchdog example referring to real values, and add a doc-freshness bats assertion so the table cannot drift again silently.
-  **Files**: `README.md`, `man/taskgrind.1`, `docs/user-stories.md`, `tests/logging.bats`, `tests/basics.bats`
-  **Acceptance**: (1) README status payload table and the man page `last_session.result` entry (`man/taskgrind.1:378-380`) list exactly `pending`, `success`, `failure`, `blocked` with one-line meanings that match the code paths. (2) User-stories watchdog snippets in `docs/user-stories.md:344` and `README.md:255-291` use one of those four strings. (3) A bats test greps the README/man page to confirm the phantom values `timeout`, `network_wait`, and `completed` are absent from the status-result description. (4) `make check` passes.
-
 - [ ] `preflight validates models through claude-code backend resolution` test fixture matches the current backend-probe contract
   **ID**: fix-preflight-claude-code-probe-fixture
   **Tags**: tests, preflight, backend-probe, regression

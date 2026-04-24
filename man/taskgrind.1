@@ -376,8 +376,17 @@ Last write timestamp in the local %Y\-%m\-%dT%H:%M:%S%z format.
 Most recently finished session number, or 0 before any session completes.
 .TP
 .B last_session.result
-Result label for the most recent session, such as completed, timeout,
-network_wait, or none before the first session.
+Exactly one of
+.BR pending
+(initial value before the first session completes, and re-set at the
+start of every session),
+.BR success
+(most recent backend exit was 0),
+.BR failure
+(most recent backend exit was non-zero), or
+.BR blocked
+(audit-only focus refused because TASKS.md lacked a discovery-lane
+standing-loop task).
 .TP
 .B last_session.exit_code
 Backend exit code for the most recent session, or null before the first
@@ -410,7 +419,7 @@ Lifecycle example:
   "updated_at": "2026-04-11T18:33:44-0700",
   "last_session": {
     "number": 2,
-    "result": "completed",
+    "result": "success",
     "exit_code": 0,
     "shipped": 1,
     "duration_seconds": 742,
