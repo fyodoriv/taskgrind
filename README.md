@@ -178,7 +178,7 @@ Use `**Blocked by**` only when another task or external dependency truly prevent
 - **Per-task retry cap** — skips tasks attempted 3+ times without shipping
 - **Fast-failure backoff** — linear backoff with cap when sessions crash quickly
 - **Ship-rate tracking** — logs cumulative effectiveness in `grind_done` summary, including inferred shipped work when a session removes a completed task but concurrent queue churn keeps the raw task count flat
-- **Productive timeout warning** — detects when timeout kills sessions that were shipping
+- **Productive timeout auto-increase** — when a session ships work but hits `TG_MAX_SESSION`, taskgrind logs a `productive_timeout` marker and adds 1800 s (30 min) to the next session's budget, up to a hard cap of 7200 s (2 h). Operators who need a strict time budget should plan around the cap instead of the initial value.
 - **Unique log names** — includes repo basename + PID to prevent collisions
 - **External injection detection** — logs when other processes add tasks mid-run
 - **Graceful shutdown** — SIGINT/SIGTERM waits for running session, pushes commits, ignores duplicate shutdown signals, then exits
@@ -203,7 +203,7 @@ Before deploying, ensure:
 | `TG_SKILL` | `next-task` | Skill to run each session |
 | `TG_PROMPT` | (none) | Focus prompt for every session |
 | `TG_COOL` | `5` | Seconds between sessions |
-| `TG_MAX_SESSION` | `3600` | Max seconds per session |
+| `TG_MAX_SESSION` | `3600` | Max seconds per session. Auto-increases by 1800 s (cap 7200 s) after a session that shipped but hit the timeout; see the "Productive timeout auto-increase" feature. |
 | `TG_MIN_SESSION` | `30` | Fast-failure threshold in seconds |
 | `TG_MAX_FAST` | `20` | Max consecutive fast failures before bail |
 | `TG_MAX_ZERO_SHIP` | `50` | Consecutive zero-ship sessions before bail |

@@ -34,6 +34,39 @@ The counter is intentionally scoped to the live queue snapshot, not to raw histo
 
 The same principle now applies to shipped-work accounting. Raw queue deltas are still useful, but they miss real completions when a session removes a finished task and simultaneously rolls the queue forward, when another agent injects new tasks before the session ends, or when the completed task lives in a non-root `TASKS.md`. Taskgrind therefore treats explicit task-removal evidence as authoritative enough to infer shipped work even if the queue ends at the same size. That keeps stall detection focused on genuinely unproductive sessions instead of punishing healthy queue churn.
 
+## Why productive-timeout sessions get a bigger budget next time
+
+The per-session timeout (`TG_MAX_SESSION`, default 3600 s) exists to stop runaway
+sessions from chewing through the marathon budget, but treating it as a hard
+cap punishes healthy work. A session that shipped something before the clock
+ran out was not runaway — it was proving the task was real and making real
+progress, then got killed mid-flight. Starting the next session with the same
+ceiling would likely repeat the outcome on tasks that genuinely need more than
+an hour (architectural refactors, multi-file doc sweeps, epic decomposition).
+
+Taskgrind resolves the tension with a one-way ratchet. After any session that
+reports `session_shipped > 0` but also hit `max_session`, taskgrind adds 1800
+seconds (30 minutes) to `max_session` for the rest of the grind, capped at
+7200 s (2 hours). The cap keeps the ratchet from drifting into "unbounded" so
+no single session can burn an entire overnight window, and 7200 s fits
+comfortably inside the typical autonomous run. The bump is announced on stdout
+and written to the log as `productive_timeout session=N shipped=X timeout=Ys
+new_timeout=Zs`, so operators watching the log or tailing the status file can
+see exactly when the ratchet fired. Sessions that hit the cap log
+`productive_timeout session=N shipped=X timeout=Ys (at cap)` instead, so the
+log still names the event without promising another bump that will never
+arrive.
+
+This is asymmetric on purpose. Timeouts never shrink during a grind: a
+productive session that finishes faster does not claw the budget back, because
+the point is to match the worst-case task in the queue, not the average. The
+ratchet also does not persist across taskgrind processes — every new grind
+starts from the operator's `TG_MAX_SESSION`, because a fresh run usually means
+the work has changed. That keeps the rule auditable ("what does `--help` say?
+that is what the first session gets") while still letting long autonomous
+runs adapt to tasks that need more runway than the operator originally
+guessed.
+
 ## Why session boundaries are the context-budget guard
 
 Taskgrind assumes each AI run is a bounded unit of work: start with fresh

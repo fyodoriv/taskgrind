@@ -69,7 +69,12 @@ Extra focus prompt for every session.
 Seconds between sessions (default: 5).
 .TP
 .B TG_MAX_SESSION
-Max seconds per session before timeout (default: 3600).
+Max seconds per session before timeout (default: 3600). When a session ships
+work but hits this timeout, taskgrind logs a
+.BR productive_timeout
+marker and adds 1800 seconds (30 minutes) to the next session's budget, up to
+a hard cap of 7200 seconds (2 hours). Operators who need a strict time budget
+should plan around the 7200 s cap rather than the initial value.
 .TP
 .B TG_MIN_SESSION
 Fast\-failure threshold in seconds (default: 30).

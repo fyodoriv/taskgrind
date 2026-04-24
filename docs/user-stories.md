@@ -361,6 +361,7 @@ Recovery cheat sheet:
 | Empty queue or blocked queue | `current_phase=queue_empty_wait` or `blocked_wait` | Add or unblock tasks, then let the next wait cycle refill naturally |
 | Slot contention | `slots: N/M active` plus slot owners in `--preflight` | Wait for a free slot or raise `TG_MAX_INSTANCES`; keep higher slots on non-overlapping work |
 | Repeated zero-ship sessions | `last_session.shipped`, `productive_zero_ship`, `shipped_inferred` in the log | Check whether another agent changed `TASKS.md`; split or unblock the task before resuming |
+| Productive sessions still hitting the clock | `productive_timeout session=N shipped=X timeout=Ys new_timeout=Zs` in the log | No action required — taskgrind already bumps `TG_MAX_SESSION` by 1800 s (cap 7200 s) so the next session gets more runway. If the log shows `(at cap)` and tasks still time out, split the task instead of raising the budget further. |
 | Resume rejected | `taskgrind --resume` stderr | Re-run with the original `--backend`, `--model`, `--skill`, and baseline `--prompt` / `TG_PROMPT` inputs, or start a fresh grind if the deadline expired |
 | Final push rejected | Last `git push` line in the log | Repair the branch with `git pull --rebase`, then rerun `--resume` with the original startup overrides if the interrupted grind did not use pure defaults |
 

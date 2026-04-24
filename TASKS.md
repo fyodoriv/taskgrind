@@ -1,13 +1,6 @@
 # Tasks
 
 ## P0
-- [ ] Document the productive-timeout auto-increase behavior across all docs
-  **ID**: doc-productive-timeout-auto-increase
-  **Tags**: docs, accuracy, operator-facing
-  **Details**: When a session ships work but hits the `TG_MAX_SESSION` timeout, taskgrind silently increases `max_session` by 1800 s (capped at 7200 s / 2 h) so the next session gets more runway. This behavior is not mentioned anywhere: the README feature bullet says only "detects when timeout kills sessions that were shipping", the man page `TG_MAX_SESSION` entry says only "Max seconds per session before timeout (default: 3600)", `docs/architecture.md` does not cover the rationale, and no user story shows the auto-increase log line. An operator who sets `TG_MAX_SESSION=3600` expecting a hard 1 h cap would be surprised by sessions running up to 2 h. Add the auto-increase behavior, its 7200 s ceiling, and the `productive_timeout` log marker to: the README feature bullet and env var table note, the man page `TG_MAX_SESSION` entry, a new architecture.md section explaining the design trade-off, and a brief mention in the user stories monitoring or troubleshooting context.
-  **Files**: `README.md`, `man/taskgrind.1`, `docs/architecture.md`, `docs/user-stories.md`
-  **Acceptance**: All four docs explain that `TG_MAX_SESSION` can auto-increase after a productive timeout, state the 7200 s cap, and mention the `productive_timeout` log marker. Existing tests in `tests/user-stories-docs.bats` or `tests/basics.bats` still pass.
-
 - [ ] Document the diminishing-returns detection mechanism behind `TG_EARLY_EXIT_ON_STALL`
   **ID**: doc-diminishing-returns-mechanism
   **Tags**: docs, accuracy, operator-facing
@@ -37,6 +30,34 @@
   **Acceptance**: README + man page explain the 3-attempt cap, the skip-list injection, the counter-reset on ship, and the `task_attempt_cap_reached` log marker. If the cap is configurable via an env var, that var is documented alongside other `TG_` knobs; if it is a constant, the docs say so explicitly.
 
 ## P1
+
+- [ ] Fix stale `--model` help-output assertion so `tests/features.bats:265` passes
+  **ID**: fix-help-model-test-drift
+  **Tags**: tests, bug, drift, help-output
+  **Details**: `@test "--help shows --model in usage"` (tests/features.bats:265) asserts `--model "gpt-5-4 XHigh thinking fast"` appears in `taskgrind --help`, but the actual help text prints `--model "gpt-5.4 XHigh thinking fast"` (dotted version, matching the man page). The test string used hyphens but the code was updated to dots. `make test` reports this as a real failure so `make check` cannot pass cleanly. Either fix the test to match the dotted form that the help already prints, or change the help text — the man page uses dots, so the test is the one that drifted. Do NOT regenerate the help; just align the assertion string with the live output.
+  **Files**: `tests/features.bats`
+  **Acceptance**: `bats tests/features.bats` passes the `--help shows --model in usage` test without modifying `bin/taskgrind`. No other test regresses.
+
+- [ ] Fix stale `pre_session_recovery rebase_aborted` structural assertion in `tests/features.bats`
+  **ID**: fix-pre-session-recovery-test-drift
+  **Tags**: tests, bug, drift, git-recovery
+  **Details**: `@test "structural: pre-session git state recovery checks for rebase"` (tests/features.bats:504) greps the script for the literal string `pre_session_recovery rebase_aborted`. The code was refactored so the script now calls `emit_rebase_conflict_logs "$repo" "pre_session_recovery"` to emit a structured rebase-conflict log with `pre_session_recovery` as the phase label, then aborts. The structural assertion never updated. Decide whether the test should grep for `emit_rebase_conflict_logs "$repo" "pre_session_recovery"` (matching the refactor) or the code should keep writing a literal `pre_session_recovery rebase_aborted` marker. The log shape is what operators actually rely on — verify the refactor still emits the same marker in practice and align the test accordingly.
+  **Files**: `tests/features.bats`, possibly `bin/taskgrind`
+  **Acceptance**: `bats tests/features.bats` passes the "pre-session git state recovery checks for rebase" test. If the refactor already emits an equivalent marker, just update the grep to match. If it does not, restore the marker so existing operator docs/logs stay accurate.
+
+- [ ] Investigate `--preflight runs health checks and exits 0 on healthy repo` test failure
+  **ID**: fix-preflight-healthy-repo-test
+  **Tags**: tests, bug, preflight
+  **Details**: `@test "--preflight runs health checks and exits 0 on healthy repo"` (tests/preflight.bats:43) fails on main with `[ "$status" -eq 0 ]` — the preflight run exits non-zero against a repo that should be healthy (git-init'd with `TASKS.md`, `DVB_GRIND_CMD` unset). This fails before any of my current doc work was touched, which means preflight now rejects something on a clean repo. Reproduce with `bats tests/preflight.bats` and capture the stderr from `--preflight`; likely one of the 8 preflight checks (backend binary, network, task queue, disk, slot state) is stricter than the fixture provides. Decide whether to fix the fixture (add missing prerequisites) or relax the check.
+  **Files**: `tests/preflight.bats`, possibly `bin/taskgrind`
+  **Acceptance**: `bats tests/preflight.bats` passes the "runs health checks and exits 0 on healthy repo" test. The root cause is noted in the commit so the next failure can be triaged faster.
+
+- [ ] Investigate `preflight validates models through claude-code backend resolution` test failure
+  **ID**: fix-preflight-claude-code-model-test
+  **Tags**: tests, bug, preflight, claude-code
+  **Details**: `@test "preflight validates models through claude-code backend resolution"` (tests/preflight.bats:254) fails on main because the claude-code backend path does not emit `"backend said invalid model: invalid-model"` when handed an unknown model. Either the model validation logic changed, the backend stub test fixture no longer exercises the right code path, or a rename dropped the error message. Reproduce with `bats tests/preflight.bats` and trace the `preflight_claude_code_model` path from `bin/taskgrind` to see what error string is actually printed. Re-align the test or the error message.
+  **Files**: `tests/preflight.bats`, possibly `bin/taskgrind`
+  **Acceptance**: `bats tests/preflight.bats` passes the "preflight validates models through claude-code backend resolution" test. Preflight still blocks unknown models for the claude-code backend with an actionable error message.
 
 - [ ] An operator pressing Ctrl+C during a long grind has a user story showing what they will see
   **ID**: doc-graceful-shutdown-user-story
