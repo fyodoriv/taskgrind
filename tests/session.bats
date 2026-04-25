@@ -1974,3 +1974,235 @@ _run_is_audit_only_focus_request() {
   run _run_is_audit_only_focus_request "next-task" "ship features and write tests"
   [ "$status" -ne 0 ]
 }
+
+# ── extract_task_signatures() — direct unit-style coverage ─────────────
+# This function feeds the productive_zero_ship / shipped_inferred markers
+# that keep stall detection honest under task churn. Today it is only
+# exercised through the integration tests further up. A regression that
+# always returned an empty signature, mishandled `**ID**:`, or stopped
+# sorting would silently break inferred-shipped detection.
+
+_extract_extract_task_signatures() {
+  awk '/^extract_task_signatures\(\) \{/,/^}$/' "$BATS_TEST_DIRNAME/../bin/taskgrind"
+}
+
+_run_extract_task_signatures() {
+  local tasks_file="$1"
+  local fn
+  fn=$(_extract_extract_task_signatures)
+  bash -c "$fn"$'\n'"extract_task_signatures \"$tasks_file\""
+}
+
+@test "extract_task_signatures: missing TASKS.md prints nothing and returns 0" {
+  local tasks_file="$TEST_DIR/no-such-tasks.md"
+  run _run_extract_task_signatures "$tasks_file"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "extract_task_signatures: empty TASKS.md prints nothing" {
+  local tasks_file="$TEST_DIR/empty-tasks.md"
+  : > "$tasks_file"
+  run _run_extract_task_signatures "$tasks_file"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "extract_task_signatures: single open task without **ID** emits task_line with empty id" {
+  local tasks_file="$TEST_DIR/no-id-tasks.md"
+  cat > "$tasks_file" <<'TASKS'
+# Tasks
+
+## P1
+
+- [ ] Task with no id field
+TASKS
+  run _run_extract_task_signatures "$tasks_file"
+  [ "$status" -eq 0 ]
+  [ "$output" = "- [ ] Task with no id field|||" ]
+}
+
+@test "extract_task_signatures: single open task with **ID**: emits task_line and id" {
+  local tasks_file="$TEST_DIR/with-id-tasks.md"
+  cat > "$tasks_file" <<'TASKS'
+# Tasks
+
+## P1
+
+- [ ] Outcome description
+  **ID**: task-with-id
+  **Tags**: tests
+TASKS
+  run _run_extract_task_signatures "$tasks_file"
+  [ "$status" -eq 0 ]
+  [ "$output" = "- [ ] Outcome description|||task-with-id" ]
+}
+
+@test "extract_task_signatures: multiple tasks emit one line each, sorted" {
+  local tasks_file="$TEST_DIR/multi-tasks.md"
+  cat > "$tasks_file" <<'TASKS'
+# Tasks
+
+## P1
+
+- [ ] Zeta task
+  **ID**: zeta-id
+- [ ] Alpha task
+  **ID**: alpha-id
+- [ ] Mu task
+  **ID**: mu-id
+TASKS
+  run _run_extract_task_signatures "$tasks_file"
+  [ "$status" -eq 0 ]
+  # sort -u by line — sorted ASCII order on the full task_line.
+  local expected
+  expected=$(printf '%s\n' \
+    "- [ ] Alpha task|||alpha-id" \
+    "- [ ] Mu task|||mu-id" \
+    "- [ ] Zeta task|||zeta-id")
+  [ "$output" = "$expected" ]
+}
+
+@test "extract_task_signatures: completed [x] tasks are ignored" {
+  local tasks_file="$TEST_DIR/mixed-checkbox-tasks.md"
+  cat > "$tasks_file" <<'TASKS'
+# Tasks
+
+## P1
+
+- [x] Already done task
+  **ID**: done-id
+- [ ] Open task
+  **ID**: open-id
+TASKS
+  run _run_extract_task_signatures "$tasks_file"
+  [ "$status" -eq 0 ]
+  [ "$output" = "- [ ] Open task|||open-id" ]
+}
+
+@test "extract_task_signatures: CRLF line endings still produce a signature" {
+  # Some editors save TASKS.md with Windows-style line endings. The CR
+  # gets included in the matched line; the regression we care about is
+  # the function still emitting a non-empty signature so churn detection
+  # can compare before/after snapshots.
+  local tasks_file="$TEST_DIR/crlf-tasks.md"
+  printf '# Tasks\r\n\r\n## P1\r\n\r\n- [ ] CRLF task\r\n  **ID**: crlf-id\r\n' > "$tasks_file"
+  run _run_extract_task_signatures "$tasks_file"
+  [ "$status" -eq 0 ]
+  [ -n "$output" ]
+  # The id field is space-stripped so it should not contain the trailing
+  # \r — the match logic uses [[:space:]] which includes carriage returns.
+  [[ "$output" == *"crlf-id"* ]]
+  # And the line is matched by `- [ ]` so the signature must include it.
+  [[ "$output" == *"- [ ]"* ]]
+}
+
+# ── extract_task_checkbox_changes() — direct unit-style coverage ───────
+# This function detects whether a commit range adds/removes `- [ ]` lines
+# in a TASKS.md path so the productive_zero_ship inference can flag
+# "session committed code AND removed a task" as real shipped work even
+# when the queue delta is zero. A silent regression here would let real
+# productive sessions get classified as zero-ship stalls.
+
+_extract_extract_task_checkbox_changes() {
+  awk '/^extract_task_checkbox_changes\(\) \{/,/^}$/' "$BATS_TEST_DIRNAME/../bin/taskgrind"
+}
+
+_run_extract_task_checkbox_changes() {
+  local repo="$1"
+  local before="$2"
+  local after="$3"
+  local path="$4"
+  local fn
+  fn=$(_extract_extract_task_checkbox_changes)
+  bash -c "$fn"$'\n'"extract_task_checkbox_changes \"$repo\" \"$before\" \"$after\" \"$path\""
+}
+
+_init_checkbox_repo() {
+  local repo="$1"
+  git init -q -b main "$repo"
+  git -C "$repo" config user.email "test@test.com"
+  git -C "$repo" config user.name "Test"
+  printf '# Tasks\n' > "$repo/TASKS.md"
+  git -C "$repo" add TASKS.md
+  git -C "$repo" commit -q -m "init"
+}
+
+@test "extract_task_checkbox_changes: empty commit range reports no change" {
+  local repo="$TEST_DIR/cb-empty-range"
+  _init_checkbox_repo "$repo"
+  local sha
+  sha=$(git -C "$repo" rev-parse HEAD)
+  run _run_extract_task_checkbox_changes "$repo" "$sha" "$sha" "TASKS.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"removed=0"* ]]
+  [[ "$output" == *"added=0"* ]]
+}
+
+@test "extract_task_checkbox_changes: commit that only adds - [ ] reports added=1" {
+  local repo="$TEST_DIR/cb-only-add"
+  _init_checkbox_repo "$repo"
+  local before
+  before=$(git -C "$repo" rev-parse HEAD)
+  printf '# Tasks\n\n- [ ] New task\n' > "$repo/TASKS.md"
+  git -C "$repo" commit -q -am "add task"
+  local after
+  after=$(git -C "$repo" rev-parse HEAD)
+  run _run_extract_task_checkbox_changes "$repo" "$before" "$after" "TASKS.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"removed=0"* ]]
+  [[ "$output" == *"added=1"* ]]
+}
+
+@test "extract_task_checkbox_changes: commit that only removes - [ ] reports removed=1" {
+  local repo="$TEST_DIR/cb-only-remove"
+  _init_checkbox_repo "$repo"
+  printf '# Tasks\n\n- [ ] Doomed task\n' > "$repo/TASKS.md"
+  git -C "$repo" commit -q -am "add doomed"
+  local before
+  before=$(git -C "$repo" rev-parse HEAD)
+  printf '# Tasks\n' > "$repo/TASKS.md"
+  git -C "$repo" commit -q -am "remove doomed"
+  local after
+  after=$(git -C "$repo" rev-parse HEAD)
+  run _run_extract_task_checkbox_changes "$repo" "$before" "$after" "TASKS.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"removed=1"* ]]
+  [[ "$output" == *"added=0"* ]]
+}
+
+@test "extract_task_checkbox_changes: commit that adds and removes reports both" {
+  local repo="$TEST_DIR/cb-add-and-remove"
+  _init_checkbox_repo "$repo"
+  printf '# Tasks\n\n- [ ] Old task\n' > "$repo/TASKS.md"
+  git -C "$repo" commit -q -am "add old"
+  local before
+  before=$(git -C "$repo" rev-parse HEAD)
+  # Replace old task with new task — single commit drops one and adds one.
+  printf '# Tasks\n\n- [ ] New task\n' > "$repo/TASKS.md"
+  git -C "$repo" commit -q -am "swap tasks"
+  local after
+  after=$(git -C "$repo" rev-parse HEAD)
+  run _run_extract_task_checkbox_changes "$repo" "$before" "$after" "TASKS.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"removed=1"* ]]
+  [[ "$output" == *"added=1"* ]]
+}
+
+@test "extract_task_checkbox_changes: commit touching a different file reports no change" {
+  local repo="$TEST_DIR/cb-other-file"
+  _init_checkbox_repo "$repo"
+  local before
+  before=$(git -C "$repo" rev-parse HEAD)
+  # Edit something OTHER than TASKS.md — the function targets a specific
+  # path, so this commit must NOT register as a checkbox change.
+  printf 'hello\n' > "$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q -m "add readme"
+  local after
+  after=$(git -C "$repo" rev-parse HEAD)
+  run _run_extract_task_checkbox_changes "$repo" "$before" "$after" "TASKS.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"removed=0"* ]]
+  [[ "$output" == *"added=0"* ]]
+}
