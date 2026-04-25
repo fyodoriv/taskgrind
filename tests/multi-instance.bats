@@ -23,6 +23,14 @@ echo "$@" >> "${PROD_FAKE_DEVIN_LOG:-/tmp/taskgrind-prod-invocations.log}"
 if [[ "$*" == *"--help"* ]]; then
   exit 0
 fi
+# run_backend_probe treats exit=0 with empty stdout as a stub signal,
+# so the fake must emit a non-empty pseudo-version string when called
+# with --version. Without this the multi-instance concurrent grinds
+# abort at the probe stage before ever acquiring a slot.
+if [[ "$*" == *"--version"* ]]; then
+  echo "fake-devin 0.0.1"
+  exit 0
+fi
 sleep "${PROD_FAKE_DEVIN_SLEEP:-4}"
 exit 0
 SCRIPT
@@ -501,5 +509,108 @@ TASKS
   **ID**: ship-feature
 TASKS
   run _run_has_supported_audit_lane_task "$TEST_REPO/TASKS.md"
+  [ "$status" -eq 1 ]
+}
+
+# ── slot_lock_pid() and slot_lock_active() — direct coverage ──────────
+# These probe helpers back `--preflight`'s `slots: N/M active` report and
+# the multi-instance path's stale-lock detection. They were previously
+# only exercised through the full concurrent grind flows at the top of
+# this file — a regression that always returned "not active" would
+# silently break the "all slots full" refusal without any integration
+# test tripping. Add direct coverage.
+
+_extract_slot_lock_pid() {
+  awk '/^slot_lock_pid\(\) \{/,/^}$/' "$BATS_TEST_DIRNAME/../bin/taskgrind"
+}
+
+_extract_slot_lock_active() {
+  awk '/^slot_lock_pid\(\) \{/,/^}$/' "$BATS_TEST_DIRNAME/../bin/taskgrind"
+  printf '\n'
+  awk '/^slot_lock_active\(\) \{/,/^}$/' "$BATS_TEST_DIRNAME/../bin/taskgrind"
+}
+
+_run_slot_lock_pid() {
+  local lock_file="$1"
+  local fn
+  fn=$(_extract_slot_lock_pid)
+  run bash -c "$fn"$'\n'"slot_lock_pid \"\$1\"" _ "$lock_file"
+}
+
+_run_slot_lock_active() {
+  local lock_file="$1"
+  local fns
+  fns=$(_extract_slot_lock_active)
+  run bash -c "$fns"$'\n'"slot_lock_active \"\$1\"" _ "$lock_file"
+}
+
+@test "slot_lock_pid: missing file returns 1 and prints nothing" {
+  local lock_file="$TEST_DIR/no-such-lock"
+  _run_slot_lock_pid "$lock_file"
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+}
+
+@test "slot_lock_pid: empty lock file returns 0 but prints nothing" {
+  local lock_file="$TEST_DIR/empty-lock"
+  : > "$lock_file"
+  _run_slot_lock_pid "$lock_file"
+  # Function returns 0 (file exists) but sed finds no pid=<N> — the
+  # caller is responsible for treating empty output as "no pid".
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "slot_lock_pid: file with pid=<N> prints that pid" {
+  local lock_file="$TEST_DIR/valid-lock"
+  printf 'repo=/tmp/foo pid=12345 start=2026-01-01T00:00:00Z\n' > "$lock_file"
+  _run_slot_lock_pid "$lock_file"
+  [ "$status" -eq 0 ]
+  [ "$output" = "12345" ]
+}
+
+@test "slot_lock_pid: multiline file returns only the first pid=" {
+  local lock_file="$TEST_DIR/multi-pid-lock"
+  # Defensive: the lock writer emits one line today, but sed's `head -1`
+  # keeps the function robust against accidental multi-line writes.
+  printf 'pid=111\npid=222\n' > "$lock_file"
+  _run_slot_lock_pid "$lock_file"
+  [ "$status" -eq 0 ]
+  [ "$output" = "111" ]
+}
+
+@test "slot_lock_active: live pid (the bats runner) returns 0" {
+  local lock_file="$TEST_DIR/live-lock"
+  # $$ is the live pid of the bash subshell running this test. kill -0
+  # against it must succeed regardless of the OS.
+  printf 'pid=%s\n' "$$" > "$lock_file"
+  _run_slot_lock_active "$lock_file"
+  [ "$status" -eq 0 ]
+}
+
+@test "slot_lock_active: clearly-dead pid returns 1" {
+  local lock_file="$TEST_DIR/dead-lock"
+  # Pick a pid that is vanishingly unlikely to exist on either macOS
+  # (32-bit pid space capped near 2^31 - 1) or Linux (kernel.pid_max
+  # default 4194304). 2147483647 is the max signed 32-bit int; no kernel
+  # allocates a real pid there in normal operation, so kill -0 will fail
+  # deterministically.
+  printf 'pid=2147483647\n' > "$lock_file"
+  _run_slot_lock_active "$lock_file"
+  [ "$status" -eq 1 ]
+}
+
+@test "slot_lock_active: missing lock file returns 1" {
+  local lock_file="$TEST_DIR/no-such-lock"
+  _run_slot_lock_active "$lock_file"
+  [ "$status" -eq 1 ]
+}
+
+@test "slot_lock_active: empty lock file returns 1" {
+  # Empty file → slot_lock_pid prints nothing → slot_lock_active's
+  # `[[ -n "$lock_pid" ]]` guard triggers the 1 return.
+  local lock_file="$TEST_DIR/empty-lock"
+  : > "$lock_file"
+  _run_slot_lock_active "$lock_file"
   [ "$status" -eq 1 ]
 }
