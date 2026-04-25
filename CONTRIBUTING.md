@@ -176,5 +176,14 @@ tests/test_helper.bash  Shared test helpers
 man/taskgrind.1         Man page
 docs/                   Architecture docs and user stories
 .devin/skills/          Repo-local audit loop skills
+.editorconfig           Indent style for shell/bats/markdown/Makefile
 Makefile                lint + test targets
 ```
+
+### `.editorconfig`
+
+The repo ships an [`.editorconfig`](https://editorconfig.org) so any editor that honors it (VS Code, JetBrains IDEs, Vim/Neovim with a plugin) picks up the right indent width and line endings on first open:
+
+- `*.{sh,bash,bats}` — 2-space indent, LF, final newline
+- `*.md` — 2-space indent, LF, final newline; trailing spaces are preserved because Markdown uses `  ` at end-of-line for a hard break
+- `Makefile` — tab indent, 8-char width (GNU Make requires tabs in recipe lines)

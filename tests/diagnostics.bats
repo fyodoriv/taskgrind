@@ -788,7 +788,9 @@ SCRIPT
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"backend binary may be a stub or broken"* ]]
-  grep -q 'backend_probe_failed exit=0 duration=0s backend=devin' "$TEST_LOG"
+  # Duration floats from 0s on a cold machine up to a couple seconds
+  # under parallel load; detection no longer depends on it.
+  grep -qE 'backend_probe_failed exit=0 duration=[0-9]+s backend=devin' "$TEST_LOG"
   ! [ -f "$DVB_GRIND_INVOKE_LOG" ]
 }
 
