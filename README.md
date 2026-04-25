@@ -163,7 +163,7 @@ Use `**Blocked by**` only when another task or external dependency truly prevent
 ## Features
 
 - **Multi-backend support** — works with Devin, Claude Code, and Codex via `--backend`
-- **Model selection** — `--model claude-opus-4-7-max` or `TG_MODEL=claude-opus-4-7-max` to use any model the backend supports; quote multi-word model names such as `--model "gpt-5.4 XHigh thinking fast"`; short aliases like `opus` and `sonnet` resolve to the current preferred model IDs
+- **Model selection** — `--model claude-opus-4-7-max` or `TG_MODEL=claude-opus-4-7-max` to use any model the backend supports; quote multi-word model names such as `--model "gpt-5.4 XHigh thinking fast"`; short aliases `opus`, `sonnet`, `haiku`, `swe`, `codex`, and `gpt` resolve to the current preferred model IDs
 - **Live model switching** — create/edit `.taskgrind-model` in the repo while running; changes take effect at the next session, including short alias resolution. Delete the file to revert to the startup model. Files larger than 1 KB are ignored with a warning.
 - **Live prompt injection** — create/edit `.taskgrind-prompt` in the repo while running; changes take effect at the next session. Files larger than 10 KB are ignored with a warning.
 - **Preflight checks** — validates the backend, network, repo, disk, queue, and optional watchdog setup before launch, plus active slot reporting. `network-watchdog` is optional; if missing, taskgrind falls back to `curl` for connectivity checks.

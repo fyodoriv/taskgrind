@@ -31,32 +31,6 @@
     assertion on the resolved absolute path; `make test TESTS=tests/<file>.bats`
     plus `make check` both pass.
 
-- [ ] Direct unit coverage for `dvb_resolve_model_alias()` guards the `opus`/`sonnet`/`codex` shortcuts
-  - **ID**: model-alias-direct-coverage
-  - **Tags**: test, constants, model-selection
-  - **Details**: `dvb_resolve_model_alias()` in `lib/constants.sh:15-28` reads
-    the newline-separated `DVB_MODEL_ALIASES` table and powers every alias
-    shortcut the docs promise — `opus`, `sonnet`, `haiku`, `swe`, `codex`,
-    `gpt`. The only coverage today is implicit integration tests such as
-    `tests/features.bats:233` ("--model alias resolves before backend
-    invocation"), which means a future edit to the alias table or the parsing
-    loop could silently change which concrete model ID `sonnet` resolves to
-    without a focused failure. Add a direct bats suite for the constants file:
-    source `lib/constants.sh` in each test (see
-    `tests/logging.bats:485+` for the established `source
-    "$BATS_TEST_DIRNAME/../lib/constants.sh"` pattern) and assert that every
-    documented alias in the README ("Live model switching" section) plus
-    "unknown values pass through unchanged" behaves as promised. Include a
-    regression test that the alias table contains exactly the aliases the
-    README documents so a future addition to one file forces the other to
-    follow.
-  - **Files**: `tests/features.bats` (or a new
-    `tests/model-alias.bats`), `lib/constants.sh`, `README.md`
-  - **Acceptance**: Each documented alias gets a focused test that asserts the
-    resolved model ID; a "pass-through unchanged" test covers unknown input; a
-    doc-drift test fails if `DVB_MODEL_ALIASES` and the README alias list
-    disagree on the set of aliases; `make check` passes.
-
 - [ ] Document the exported `TG_INSTANCE_ID` contract for child sessions and wrapper scripts
   - **ID**: document-tg-instance-id
   - **Tags**: docs, multi-instance, env-var
