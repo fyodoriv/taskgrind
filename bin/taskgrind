@@ -894,7 +894,11 @@ if [[ "$dry_run" -eq 1 ]]; then
   echo "  skill:    $skill"
   echo "  model:    $model"
   echo "  cooldown: ${cooldown}s"
-  echo "  log:      ${DVB_LOG:-$_dvb_tmp/taskgrind-\$(date '+%Y-%m-%d-%H%M')-$(basename "$repo")-\$\$.log}"
+  # Show a fully-expanded example path rather than literal $(date …) / $$ tokens
+  # so operators can copy-paste the result into a supervisor config or tail
+  # command. The launch-time PID and minute will differ, but the path shape
+  # (tmpdir, repo basename, extension) is pinned by the constant prefix.
+  echo "  log:      ${DVB_LOG:-$_dvb_tmp/taskgrind-$(date '+%Y-%m-%d-%H%M')-$(basename "$repo")-$$.log}"
   echo "  status:   ${DVB_STATUS_FILE:-disabled}"
   echo "  notify:   ${DVB_NOTIFY:-1}"
   echo "  max_session: ${max_session}s"

@@ -112,24 +112,4 @@
     appear in the cache key so future edits can't silently drop them;
     `make check` passes.
 
-- [ ] `--dry-run` surfaces the resolved log-file path without substitution placeholders
-  - **ID**: dry-run-resolved-log-path
-  - **Tags**: dx, dry-run, observability
-  - **Details**: `bin/taskgrind:897` prints the log path for `--dry-run` as
-    `"$_dvb_tmp/taskgrind-\$(date '+%Y-%m-%d-%H%M')-$(basename "$repo")-\$\$.log"`
-    — literally showing `$(date …)` and `$$` tokens instead of a concrete
-    example, which makes the dry-run output awkward to copy-paste into a
-    supervisor config or tailed command. The startup banner and actual log
-    header already resolve those expansions (see `bin/taskgrind:941` and
-    `bin/taskgrind:1383`). Change the `--dry-run` line to either (a) evaluate
-    the same expansion the real run would use, so operators see a concrete
-    `/var/folders/.../taskgrind-2026-04-24-2235-myrepo-12345.log` path, or
-    (b) add an explicit `(placeholders expanded at launch)` annotation. Add a
-    bats assertion that the emitted path is either concrete (matches
-    `taskgrind-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-.*-[0-9]+\.log`) or
-    contains the annotation text, so the UX stays pinned in either direction.
-  - **Files**: `bin/taskgrind`, `tests/basics.bats` (the existing
-    `--dry-run` tests at lines ~148-184 are the natural home)
-  - **Acceptance**: Running `bin/taskgrind --dry-run 1 .` prints a log-file
-    line that is either fully expanded or annotated; the new bats test
-    enforces that contract; `make check` passes.
+

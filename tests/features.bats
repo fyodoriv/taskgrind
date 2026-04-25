@@ -111,6 +111,41 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [[ "$output" == *"$repo_name"* ]]
 }
 
+@test "--dry-run log path is fully expanded (no literal \$(date) or \$\$ placeholders)" {
+  # The dry-run line is meant to be copy-pasteable into a supervisor config
+  # or tail command. Emitting literal $(date '+%Y-%m-%d-%H%M') and $$ tokens
+  # forced operators to remember how taskgrind actually names its log file.
+  # This test pins the "fully expanded" output so a future edit to the echo
+  # line can't silently regress the UX back to literal placeholders.
+  #
+  # test_helper.bash exports DVB_LOG to a fixed path so the session log is
+  # predictable for other tests; unset it here so the dry-run echo falls
+  # back to the default taskgrind-YYYY-MM-DD-HHMM-<repo>-<pid>.log template
+  # that real users see on first launch.
+  unset DVB_LOG
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  local log_line
+  log_line=$(printf '%s\n' "$output" | grep '^  log:')
+  [ -n "$log_line" ]
+
+  # No unexpanded placeholders
+  [[ "$log_line" != *'$(date'* ]]
+  [[ "$log_line" != *'$$'* ]]
+
+  # Either the path is concrete (matches the real naming pattern) OR the
+  # line carries an explicit "(placeholders expanded at launch)" annotation.
+  if [[ "$log_line" == *"placeholders expanded at launch"* ]]; then
+    return 0
+  fi
+
+  # Concrete pattern: taskgrind-YYYY-MM-DD-HHMM-<repo>-<pid>.log
+  local repo_name
+  repo_name=$(basename "$TEST_REPO")
+  local pattern="taskgrind-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-${repo_name}-[0-9]+\.log"
+  printf '%s\n' "$log_line" | grep -Eq "$pattern"
+}
+
 @test "build_session_args produces --permission-mode dangerous for devin backend" {
   grep -q "permission-mode dangerous" "$DVB_GRIND"
 }
