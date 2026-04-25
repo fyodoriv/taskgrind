@@ -149,8 +149,21 @@ When adding a new env var:
 
 ## Known Issues
 
-- **Flaky tests** — a handful of timing-dependent tests (network recovery, branch cleanup) may fail intermittently on slow CI. These are pre-existing and not regressions.
 - **`network-watchdog`** — preflight checks for a `network-watchdog` binary (optional). If missing, taskgrind falls back to `curl` for connectivity checks. You can safely ignore the preflight warning.
+
+## Diagnosing a Flaky Bats Test
+
+The bats suite is split across many `tests/*.bats` files and runs with auto-capped parallelism (`TEST_JOBS=6` by default; see `Makefile`). Most flakes seen historically were timing-dependent tests with deadlines that were too tight to survive parallel CPU contention, or fake-backend fixtures that did not satisfy the startup probe contract. If a test fails intermittently:
+
+1. **Reproduce in isolation first.** `bats tests/<file>.bats -f "<test name>"` — if it always passes alone, the failure is parallel-load specific.
+2. **Force serial execution.** `make test TEST_JOBS=1 TESTS=tests/<file>.bats` — if it now passes, parallelism is the trigger.
+3. **Reproduce the auto-capped CI load.** `make test-force TESTS=tests/<file>.bats TEST_JOBS=6` reproduces the bats `--jobs 6` setting that `make test` uses on CI runners.
+
+Common root causes to check before declaring a flake:
+
+- **Deadlines under 30s.** `DVB_DEADLINE=$(( $(date +%s) + 5 ))` will lose the race with bats fixture setup under load. Bump the deadline; the fake devin still exits in <100ms, so the test stays fast in the common case.
+- **Inline fake devin missing `--version` output.** Tests that `unset DVB_GRIND_CMD` and rely on a fake on PATH must emit a non-empty pseudo-version string when called with `--version`, or `run_backend_probe` rejects the binary as a stub. See `_install_fake_backend_binary` in `tests/preflight.bats` for the canonical shape.
+- **Counter-driven fixtures racing taskgrind startup.** Fixtures that increment a counter on each `git -C rev-parse HEAD` call must account for the probe and preflight paths that may also call git before session 1.
 
 ## Project Structure
 

@@ -39,9 +39,4 @@
   **Files**: `.editorconfig`, `CONTRIBUTING.md`
   **Acceptance**: A new `.editorconfig` covers `*.{sh,bash,bats}` (2-space indent, LF line endings, final newline), `*.md` (preserve trailing spaces for hard breaks, LF line endings, final newline), and `Makefile` (tab indentation, 8-char width). `CONTRIBUTING.md` mentions it in the Quick Start or Project Structure section. `make check` still passes.
 
-- [ ] `CONTRIBUTING.md` has a short "Diagnosing a flaky bats test" section that matches the parallel-load reality
-  **ID**: contributing-flaky-test-runbook
-  **Tags**: docs, contributor-dx, tests, flakiness
-  **Details**: `CONTRIBUTING.md:133-136` mentions flaky network/branch tests but offers no playbook. Given the `TEST_JOBS` auto-cap, the focused-file `make test TESTS=tests/<file>.bats` pattern, and the cache behavior, a contributor hitting a flake has to piece the recovery together from `Makefile`, AGENTS.md, and this doc. Add a short subsection that lists: (1) run the one failing test alone with `bats tests/<file>.bats -f "<name>"`, (2) rerun under `TEST_JOBS=1` to rule out parallelism, (3) rerun under `TEST_JOBS=6` (the auto cap) to reproduce. Include the specific failure modes from `CONTRIBUTING.md`'s Known Issues so the runbook and the known-issues list agree.
-  **Files**: `CONTRIBUTING.md`
-  **Acceptance**: `CONTRIBUTING.md` has a "Diagnosing a flaky bats test" subsection with the three-step reproduce/isolate/diagnose recipe. The existing Known Issues bullet references it instead of duplicating. `tests/basics.bats` (or the most appropriate docs test) grep-asserts the runbook still links to `TEST_JOBS` and the `-f` flag, so the subsection cannot silently drop the key guidance.
+

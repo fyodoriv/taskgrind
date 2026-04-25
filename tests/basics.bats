@@ -519,6 +519,31 @@ EOF
   [ "$status" -eq 0 ]
 }
 
+@test "CONTRIBUTING has a flaky-test runbook with the reproduce/isolate/diagnose recipe" {
+  # The runbook must call out the three repro steps so contributors hit the
+  # parallel-load edge cases on purpose instead of guessing.
+  run grep -nF 'Diagnosing a Flaky Bats Test' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
+  [ "$status" -eq 0 ]
+
+  # Step 1: isolate via -f.
+  run grep -nF 'bats tests/<file>.bats -f' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
+  [ "$status" -eq 0 ]
+
+  # Step 2: serial execution.
+  run grep -nF 'TEST_JOBS=1' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
+  [ "$status" -eq 0 ]
+
+  # Step 3: reproduce the CI cap.
+  run grep -nF 'TEST_JOBS=6' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
+  [ "$status" -eq 0 ]
+
+  # The legacy "Flaky tests" Known Issues bullet must not reappear — it would
+  # contradict the runbook by claiming the flakes are pre-existing and not
+  # regressions, the exact mindset the runbook is meant to displace.
+  run grep -nF '**Flaky tests**' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
+  [ "$status" -ne 0 ]
+}
+
 @test "CONTRIBUTING mentions the Bash 3.2 compatibility guard only once" {
   run python3 - "$BATS_TEST_DIRNAME/../CONTRIBUTING.md" <<'PY'
 import pathlib
