@@ -1,14 +1,5 @@
 # Tasks
 
-## P1
-
-- [ ] Test flakiness in `TG_STATUS_FILE writes status snapshots` and `does not launch another session after the deadline expires during pre-session setup` is fixed or quarantined
-  **ID**: stabilize-flaky-full-suite-tests
-  **Tags**: tests, flakiness, ci
-  **Details**: Running `make check` locally with the auto-capped `TEST_JOBS=6` reports two intermittent failures in otherwise green runs: `not ok 318 TG_STATUS_FILE writes status snapshots` (asserts `last_session.result == "success"` at `tests/logging.bats:111-123`) and `not ok 510 does not launch another session after the deadline expires during pre-session setup` (`tests/session.bats:609-615`). Both pass deterministically when run in isolation with `bats tests/logging.bats -f "TG_STATUS_FILE writes"` and `bats tests/session.bats -f "does not launch another session"`. That points at parallel-load contention (CPU pressure changing the race window rather than a real product bug). Reproduce under `TEST_JOBS=6`, find the shared-resource contention (likely `DVB_DEADLINE` timing or shared `$DVB_GRIND_INVOKE_LOG` path when tests share `$TEST_DIR` under stress), and either make the test deterministic or move the offending test into a serial phase. `CONTRIBUTING.md:133-135` already calls out flaky tests as a known issue — replace that acknowledgement with a fix.
-  **Files**: `tests/logging.bats`, `tests/session.bats`, `tests/test_helper.bash`, `CONTRIBUTING.md`
-  **Acceptance**: 10 consecutive `make test-force` runs at the default `TEST_JOBS=6` all pass. The `Known Issues` note in `CONTRIBUTING.md` loses the "flaky tests" bullet or references a new, tighter list that does not include tests 318 and 510.
-
 ## P2
 
 - [ ] `extract_task_signatures()` and `extract_task_checkbox_changes()` have direct unit-style test coverage

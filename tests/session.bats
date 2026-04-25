@@ -580,9 +580,16 @@ TASKS
 
   init_test_repo
 
+  # The fake devin emits a non-empty pseudo-version on --version so
+  # run_backend_probe accepts the binary (probe needs non-empty stdout from
+  # a fast --version invocation; an empty exit 0 trips "stub or broken").
   cat > "$fake_devin" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+if [[ "$*" == *"--version"* ]]; then
+  echo "fake-devin 0.0.1"
+  exit 0
+fi
 exit 0
 SCRIPT
   chmod +x "$fake_devin"

@@ -103,7 +103,12 @@ PY
 @test "TG_STATUS_FILE writes status snapshots" {
   local status_file="$TEST_DIR/tg-status.json"
   export TG_STATUS_FILE="$status_file"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  # The default fake devin is a no-op so the queue never drains. The grind
+  # therefore loops on a single task until DVB_DEADLINE fires. 5s is too
+  # tight under TEST_JOBS=6 parallel load (bats fixture setup can eat most
+  # of that budget) — bump to 30s so session 1 always lands well inside the
+  # deadline.
+  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
@@ -118,7 +123,19 @@ with open(path, "r", encoding="utf-8") as handle:
 
 assert data["repo"] == expected_repo
 assert data["current_phase"] == "complete"
-assert data["terminal_reason"] is None
+# A finite-hour grind can exit via two clean paths:
+#   1. The while-loop condition `date +%s -lt deadline` evaluates false at
+#      the top of the next iteration — current_phase stays at the previous
+#      `session_complete`/`cooldown` value and cleanup leaves
+#      `terminal_reason` empty (None in JSON).
+#   2. `prepare_next_session_start` sees `now >= deadline` and explicitly
+#      calls `set_phase "deadline_expired"`, which cleanup propagates to
+#      `terminal_reason="deadline_expired"`.
+# Both paths end in `current_phase == "complete"` and represent a healthy
+# stop; which one wins depends on whether the deadline lands inside the
+# fast pre-session prep window or between iterations. Accept either so the
+# test cannot flake on that race.
+assert data["terminal_reason"] in (None, "deadline_expired"), data["terminal_reason"]
 assert data["last_session"]["result"] == "success"
 PY
 }
