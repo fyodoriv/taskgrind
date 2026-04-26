@@ -5,32 +5,6 @@
 
 ## P2
 
-- [ ] Direct unit coverage for `resolve_script_path()` locks the symlink-resolution contract for `make install`
-  - **ID**: resolve-script-path-direct-coverage
-  - **Tags**: test, install, symlink
-  - **Details**: `resolve_script_path()` at `bin/taskgrind:67-82` runs before
-    any constants are sourced, walks symlink chains to resolve the real script
-    path, and is what lets `make install` symlink `/usr/local/bin/taskgrind` →
-    `bin/taskgrind` while still letting the executable resolve
-    `$TASKGRIND_DIR/lib/constants.sh` correctly. A regression here breaks
-    `make install`, brew packaging, and every caller that runs taskgrind via a
-    wrapper symlink — but there is no direct unit-style coverage today. Add a
-    bats suite that extracts the function via the awk pattern already used for
-    `extract_first_task_context` and `format_conflict_paths_for_log`, sources
-    it in a subshell, and asserts the resolver handles: plain file (no
-    symlink), single-hop relative symlink, single-hop absolute symlink, nested
-    symlink chains two and three hops deep, a symlink whose target is in a
-    parent directory (`../bin/taskgrind`), and a symlink whose target is in a
-    sibling directory. Use `mktemp -d` per test and clean up in `teardown()`.
-    The goal is to pin behavior so a future edit to the `while [[ -L ]]` loop
-    can't silently break packaging.
-  - **Files**: `tests/install.bats` (or a new focused
-    `tests/resolve-script-path.bats`), `bin/taskgrind`
-  - **Acceptance**: New `@test` cases exercise `resolve_script_path` directly
-    without spawning a grind; each supported topology above has at least one
-    assertion on the resolved absolute path; `make test TESTS=tests/<file>.bats`
-    plus `make check` both pass.
-
 - [ ] Document the exported `TG_INSTANCE_ID` contract for child sessions and wrapper scripts
   - **ID**: document-tg-instance-id
   - **Tags**: docs, multi-instance, env-var
