@@ -100,7 +100,8 @@ Collect every occurrence of:
 | Repo missing | `repo_missing path=<path>` | path |
 | Productive timeout (raised) | `productive_timeout session=N shipped=N timeout=Ns new_timeout=Zs` | session, shipped, timeout, new_timeout |
 | Productive timeout (at cap) | `productive_timeout session=N shipped=N timeout=Ns (at cap)` | session, shipped, timeout |
-| Task skip threshold | `task_skip_threshold ids=<id1> <id2>` | task IDs |
+| Task skip threshold | `task_skip_threshold ids=<id1> <id2>` | task IDs (claim-based — only IDs claimed via `(@<agent-id>)` and not shipped count toward the 3-attempt cap; see `bin/taskgrind` per-task-attempt block) |
+| Task attempts reset | `task_attempts_reset id=<id> reason=claim_dropped` | task ID, reason (logged when a previously-claimed ID lost its `(@…)` marker between sessions, dropping its accumulated attempt count back to zero) |
 | Attempt write failed | `attempt_write_failed: could not update task attempts file` | — |
 | Productive zero-ship | `productive_zero_ship session=N commits=N reason=<r>` (multiple variants) | session, commits, reason |
 | Shipped inferred | `shipped_inferred session=N count=N reason=<r>` | session, count, reason |

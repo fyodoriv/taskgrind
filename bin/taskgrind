@@ -1490,6 +1490,39 @@ extract_task_ids() {
   fi
 }
 
+# Extract task IDs whose title line carries a `(@<agent-id>)` claim marker
+# per the tasks.md spec. One ID per line, sorted for diffing. Used by the
+# per-task attempt tracker so an agent that never claimed a task cannot
+# rack up "attempts" merely by leaving it in the queue. Lines that match
+# the open-task title shape `^[ \t]*- \[ \]` open a block; a `(@…)`
+# substring on that title flags the block as claimed; the block's
+# `**ID**:` line is emitted only when the block is claimed. Closed tasks
+# `- [x]` are intentionally ignored — the tasks.md spec requires removing
+# completed tasks rather than checking them off, so an `[x]` line is
+# either malformed or already shipped and should not influence the
+# attempt counter. A new title line resets the claim flag, so a claimed
+# block followed by an unclaimed block emits only the first ID.
+extract_claimed_task_ids() {
+  local tasks_file="$1"
+  [[ -f "$tasks_file" ]] || return 0
+  awk '
+    BEGIN { claimed = 0 }
+    /^[[:space:]]*- \[ \]/ {
+      claimed = ($0 ~ /\(@[^)]+\)/) ? 1 : 0
+      next
+    }
+    /^[[:space:]]*- \[x\]/ {
+      claimed = 0
+      next
+    }
+    claimed && /\*\*ID\*\*:/ {
+      sub(/.*\*\*ID\*\*:[[:space:]]*/, "")
+      print $1
+      claimed = 0
+    }
+  ' "$tasks_file" | sort
+}
+
 # Extract task signatures so before/after snapshots can detect local queue churn
 # even when git history becomes non-linear mid-session.
 extract_task_signatures() {
@@ -1959,6 +1992,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
   tasks_before=$(count_tasks "$repo/TASKS.md")
   tasks_remaining_snapshot=$tasks_before
   _ids_before=$(extract_task_ids "$repo/TASKS.md")
+  _claimed_ids_before=$(extract_claimed_task_ids "$repo/TASKS.md")
   _task_signatures_before=$(extract_task_signatures "$repo/TASKS.md")
   # Capture git HEAD before session — used to detect commits during session
   _git_head_before=$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)
@@ -2164,6 +2198,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
     tasks_before=$(count_tasks "$repo/TASKS.md")
     tasks_remaining_snapshot=$tasks_before
     _ids_before=$(extract_task_ids "$repo/TASKS.md")
+    _claimed_ids_before=$(extract_claimed_task_ids "$repo/TASKS.md")
   fi
 
   if is_audit_only_focus_request "$skill" "$extra_prompt" && ! has_supported_audit_lane_task "$repo/TASKS.md"; then
@@ -2466,16 +2501,41 @@ while [[ $(date +%s) -lt $deadline ]]; do
   fi
 
   # ── Per-task attempt tracking ──────────────────────────────────────
-  # Track how many sessions each task ID has survived without being shipped.
-  # Tasks with 3+ attempts get added to the skip list in the next prompt.
-  # _ids_after was already computed above for shipped tracking.
-  if [[ -n "$_ids_after" ]]; then
+  # Track how many times each task ID was *claimed* (via the
+  # `(@<agent-id>)` marker the next-task skill writes onto the title
+  # line) but didn't ship in the session that claimed it. Tasks with
+  # 3+ such claimed-but-unshipped attempts get added to the skip list
+  # in the next prompt. Unclaimed tasks never increment — sitting
+  # unread in the queue does not count as an attempt, which used to
+  # punish low-priority tasks the agent had only ever skimmed.
+  # If a task carried a claim marker before the session and the marker
+  # is gone afterwards (the agent or another worker un-claimed it), the
+  # counter resets and `task_attempts_reset` is logged so post-mortems
+  # can see the cycle. _ids_after was already computed above for
+  # shipped tracking; _claimed_ids_after recomputes the claimed subset.
+  _claimed_ids_after=$(extract_claimed_task_ids "$repo/TASKS.md")
+  # Reset on claim-drop: any ID in claimed_before but not in
+  # claimed_after has been un-claimed mid-session — drop its prior
+  # count so a future re-claim starts the cycle from zero.
+  if [[ -n "${_claimed_ids_before:-}" ]]; then
+    _claim_lost=$(comm -23 <(echo "${_claimed_ids_before:-}") <(echo "${_claimed_ids_after:-}") 2>/dev/null)
+    if [[ -n "$_claim_lost" ]]; then
+      while IFS= read -r _lost_id; do
+        [[ -z "$_lost_id" ]] && continue
+        if grep -q "^${_lost_id} " "$_task_attempts_file" 2>/dev/null; then
+          log_write "[$(date '+%H:%M')] task_attempts_reset id=$_lost_id reason=claim_dropped"
+        fi
+      done <<< "$_claim_lost"
+    fi
+  fi
+  if [[ -n "$_claimed_ids_after" ]]; then
     _new_attempts="${_task_attempts_file}.new"
     while IFS= read -r _tid; do
+      [[ -z "$_tid" ]] && continue
       _prev_count=$(awk -v id="$_tid" '$1 == id { print $2 }' "$_task_attempts_file" 2>/dev/null)
       _prev_count="${_prev_count:-0}"
       echo "$_tid $((_prev_count + 1))" >> "$_new_attempts"
-    done <<< "$_ids_after"
+    done <<< "$_claimed_ids_after"
     if ! mv "$_new_attempts" "$_task_attempts_file" 2>/dev/null; then
       log_write "[$(date '+%H:%M')] attempt_write_failed: could not update task attempts file"
       rm -f "$_new_attempts" 2>/dev/null || true

@@ -23,10 +23,15 @@ PY
 @test "attempt write failures are logged and later sessions still reach skip threshold" {
   local real_mv shim_dir state_file
 
+  # The task must carry a `(@<agent-id>)` claim marker on its title line
+  # so the per-task attempt counter (claim-based, not survival-based)
+  # actually increments across sessions; an unclaimed task would never
+  # reach the skip threshold and the test would only cover the
+  # `attempt_write_failed` half of the assertion.
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
 ## P0
-- [ ] Persistent test task
+- [ ] Persistent test task (@stuck-agent)
   **ID**: persistent-test-task
 TASKS
 
@@ -168,6 +173,187 @@ TASKS
   run bash -lc "source '$function_file'; prune_task_attempts_file '$attempts_file' '$tasks_file'; awk '\$2 >= 3 { printf \"%s \", \$1 }' '$attempts_file'"
   [ "$status" -eq 0 ]
   [[ "$output" == "live-task " ]]
+}
+
+# ── Claim-based attempt counter behavior ──────────────────────────────
+#
+# The per-task attempt counter only increments for tasks the agent has
+# actively *claimed* via the `(@<agent-id>)` title-line marker that the
+# next-task skill writes when it picks a task. Tasks that sit unread in
+# the queue must never accumulate attempts — the previous
+# survival-based counter punished low-priority tasks the agent had only
+# ever skimmed past, which polluted the skip list and hid real work.
+#
+# The fixtures below run a fake backend that exits cleanly without
+# touching TASKS.md, so the queue stays exactly as the test seeds it.
+# That keeps the test focused on the counter semantics rather than on
+# git/skill behavior.
+
+@test "unclaimed task surviving multiple sessions never reaches skip threshold" {
+  local fast_devin="$TEST_DIR/fast-devin"
+  create_fake_devin "$fast_devin" <<'SCRIPT'
+#!/bin/bash
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+SCRIPT
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Untouched task that nobody claims
+  **ID**: untouched-task
+TASKS
+
+  export DVB_GRIND_CMD="$fast_devin"
+  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_MAX_SESSION=1
+  export DVB_MAX_ZERO_SHIP=999
+
+  run "$DVB_GRIND" 4 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+
+  ! grep -q 'task_skip_threshold' "$TEST_LOG"
+  ! grep -q 'untouched-task' "$TEST_LOG"
+}
+
+@test "claimed task that doesn't ship across 3 sessions hits skip threshold" {
+  local fast_devin="$TEST_DIR/fast-devin"
+  create_fake_devin "$fast_devin" <<'SCRIPT'
+#!/bin/bash
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+SCRIPT
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stuck claimed task (@stuck-agent)
+  **ID**: stuck-claimed-task
+TASKS
+
+  export DVB_GRIND_CMD="$fast_devin"
+  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_MAX_SESSION=1
+  export DVB_MAX_ZERO_SHIP=999
+
+  run "$DVB_GRIND" 4 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+
+  grep -q 'task_skip_threshold ids=stuck-claimed-task' "$TEST_LOG"
+}
+
+@test "claim drop between sessions resets the attempt counter" {
+  local toggling_devin="$TEST_DIR/toggling-devin"
+  local counter_file="$TEST_DIR/session-counter"
+  echo "0" > "$counter_file"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Toggling claim task (@first-agent)
+  **ID**: toggling-task
+TASKS
+
+  # Session 1 sees the seeded claim; session 2 strips the claim marker.
+  # The counter must drop to zero on the un-claim instead of climbing
+  # toward the skip threshold across the surviving sessions.
+  create_fake_devin "$toggling_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "${DVB_GRIND_INVOKE_LOG}"
+count=\$(cat "$counter_file")
+count=\$((count + 1))
+echo "\$count" > "$counter_file"
+if [[ "\$count" -eq 2 ]]; then
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Toggling claim task
+  **ID**: toggling-task
+TASKS
+fi
+SCRIPT
+  export DVB_GRIND_CMD="$toggling_devin"
+  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_MAX_SESSION=1
+  export DVB_MAX_ZERO_SHIP=999
+
+  run "$DVB_GRIND" 4 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+
+  grep -q 'task_attempts_reset id=toggling-task reason=claim_dropped' "$TEST_LOG"
+  ! grep -q 'task_skip_threshold ids=toggling-task' "$TEST_LOG"
+}
+
+# ── extract_claimed_task_ids() — direct unit-style coverage ───────────
+# Extract the function the same way the other `extract_*` helpers are
+# unit-tested: pull the awk-defined function out of bin/taskgrind, source
+# it in a clean subshell, and call it against fixture TASKS.md files.
+
+_extract_claimed_task_ids_fn() {
+  awk '/^extract_claimed_task_ids\(\) \{/,/^}$/' "$BATS_TEST_DIRNAME/../bin/taskgrind"
+}
+
+_run_claimed_task_ids() {
+  local tasks_file="$1"
+  local fn
+  fn=$(_extract_claimed_task_ids_fn)
+  # shellcheck disable=SC2016  # $fn contains the literal function definition
+  bash -c "$fn"$'\n'"extract_claimed_task_ids \"$tasks_file\""
+}
+
+@test "extract_claimed_task_ids: missing file prints nothing and returns 0" {
+  run _run_claimed_task_ids "$TEST_REPO/no-such-tasks.md"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "extract_claimed_task_ids: returns IDs only for claimed open tasks" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Claimed alpha (@devin)
+  **ID**: claimed-alpha
+- [ ] Unclaimed beta
+  **ID**: unclaimed-beta
+- [ ] Claimed gamma (@another-agent)
+  **ID**: claimed-gamma
+TASKS
+  run _run_claimed_task_ids "$TEST_REPO/TASKS.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"claimed-alpha"* ]]
+  [[ "$output" == *"claimed-gamma"* ]]
+  [[ "$output" != *"unclaimed-beta"* ]]
+}
+
+@test "extract_claimed_task_ids: closed [x] tasks are ignored even when marked" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [x] Closed task with marker (@bob)
+  **ID**: closed-with-marker
+- [ ] Open task no marker
+  **ID**: open-no-marker
+- [ ] Open task with marker (@carol)
+  **ID**: open-with-marker
+TASKS
+  run _run_claimed_task_ids "$TEST_REPO/TASKS.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "open-with-marker" ]]
+}
+
+@test "extract_claimed_task_ids: a fresh title resets the claim flag" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Claimed first (@devin)
+- [ ] Unclaimed second
+  **ID**: unclaimed-second
+- [ ] Claimed third (@devin)
+  **ID**: claimed-third
+TASKS
+  # The first task has a claim but no **ID**: line, so nothing emits
+  # for it. The second task has an ID but no claim — the awk reset on
+  # title must skip it. The third task is fully formed and claimed,
+  # and is the only ID emitted.
+  run _run_claimed_task_ids "$TEST_REPO/TASKS.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "claimed-third" ]]
 }
 
 # ── extract_first_task_context() — direct unit-style coverage ─────────

@@ -240,7 +240,7 @@ SCRIPT
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
 ## P0
-- [ ] Stubborn task
+- [ ] Stubborn task (@stuck-agent)
   **ID**: stubborn-task
 TASKS
   export DVB_DEADLINE=$(( $(date +%s) + 40 ))
@@ -300,7 +300,7 @@ SCRIPT
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
 ## P0
-- [ ] Stubborn task
+- [ ] Stubborn task (@stuck-agent)
   **ID**: stubborn-task
 TASKS
   export DVB_DEADLINE=$(( $(date +%s) + 40 ))
@@ -328,7 +328,7 @@ SCRIPT
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
 ## P0
-- [ ] Stubborn task
+- [ ] Stubborn task (@stuck-agent)
   **ID**: stubborn-task
 TASKS
   export DVB_DEADLINE=$(( $(date +%s) + 5 ))

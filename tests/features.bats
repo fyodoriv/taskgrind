@@ -676,6 +676,7 @@ SCRIPT
     "shipped_inferred"
     "zero_ship_stall_ignored"
     "task_skip_threshold"
+    "task_attempts_reset"
     "attempt_write_failed"
     "audit_focus_without_task"
 
