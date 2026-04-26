@@ -367,6 +367,56 @@ Recovery cheat sheet:
 | Resume rejected | `taskgrind --resume` stderr | Re-run with the original `--backend`, `--model`, `--skill`, and baseline `--prompt` / `TG_PROMPT` inputs, or start a fresh grind if the deadline expired |
 | Final push rejected | Last `git push` line in the log | Repair the branch with `git pull --rebase`, then rerun `--resume` with the original startup overrides if the interrupted grind did not use pure defaults |
 
+## 7b. Producing work for review without auto-publishing
+
+You want a grind to build a stack of local commits you can review before
+anything reaches `origin`. The default grind pushes on every exit path and
+tells the agent to merge PRs, so "do not publish" only sticks when both the
+script and the prompt agree.
+
+```bash
+# CLI flag
+taskgrind --no-push 8 ~/apps/myproject
+
+# Or via env (useful in launchd / cron / wrapper scripts)
+TG_NO_PUSH=1 taskgrind 8 ~/apps/myproject
+```
+
+What happens:
+- The session prompt's COMPLETION PROTOCOL is rewritten to NO-PUBLISH MODE:
+  the agent is told not to run `git push`, `gh pr create`, or `gh pr merge`,
+  and to finish each task by removing the block from `TASKS.md` and
+  committing locally only
+- `final_sync` no longer pushes on exit. When local commits are ahead of
+  origin, taskgrind logs
+  `final_sync would_push commits=N head=<sha>`
+  and prints a one-line "ready for review" notice instead of running
+  `git push`
+- The flag survives `--resume`: an interrupted no-publish grind stays
+  no-publish on restart unless you pass an explicit override
+- Multi-instance grinds (`TG_MAX_INSTANCES > 1`) inherit the flag through
+  the standard CLI re-exec, so every slot honours the same gate
+- Between-session `git_sync` is unaffected — it still does `fetch` and
+  `rebase`, both of which are read-only against origin
+
+Operator follow-up after the grind exits:
+
+```bash
+# Review what the grind staged on main (or the working branch)
+git -C ~/apps/myproject log --oneline @{u}..HEAD
+git -C ~/apps/myproject diff @{u}..HEAD
+
+# Push manually once you are satisfied
+git -C ~/apps/myproject push origin HEAD
+```
+
+Sample log lines:
+
+```
+[pid=…] [HH:MM] final_sync would_push commits=4 head=<sha>
+   🛑 No-publish mode: 4 local commit(s) ready for review (head=<sha>). Push manually after review.
+```
+
 ## 8. Switching models mid-grind
 
 You start a long grind with a stronger model for ambiguous work, then switch to a faster one once the remaining tasks are mostly straightforward docs or tests.

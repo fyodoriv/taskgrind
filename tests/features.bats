@@ -705,6 +705,7 @@ SCRIPT
     "final_sync push_ok"
     "final_sync push_failed"
     "final_sync push_stderr"
+    "final_sync would_push"
 
     # Git sync
     "git_sync ok"
@@ -775,4 +776,144 @@ SCRIPT
     printf '  - %s\n' "${missing[@]}" >&2
     return 1
   fi
+}
+
+# ── No-publish mode ────────────────────────────────────────────────────
+#
+# `--no-push` / `TG_NO_PUSH=1` must do two things at once: (1) flip the
+# session prompt's COMPLETION PROTOCOL to NO-PUBLISH MODE so the agent
+# is told not to run `git push`, `gh pr create`, or `gh pr merge`, and
+# (2) short-circuit `final_sync` before its `git push` call, replacing
+# `final_sync push_ok` with `final_sync would_push commits=N head=<sha>`
+# so the operator can review and push manually.
+
+@test "--dry-run defaults to no_push=0 and the standard COMPLETION PROTOCOL" {
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no_push:  0"* ]]
+  [[ "$output" == *"merge it first"* ]]
+  [[ "$output" != *"NO-PUBLISH MODE"* ]]
+}
+
+@test "--no-push flag flips no_push=1 and rewrites the COMPLETION PROTOCOL" {
+  run "$DVB_GRIND" --dry-run --no-push 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no_push:  1"* ]]
+  [[ "$output" == *"NO-PUBLISH MODE"* ]]
+  [[ "$output" == *"Do NOT push to any remote"* ]]
+  [[ "$output" == *"Do NOT create pull requests"* ]]
+  [[ "$output" == *"Do NOT merge pull requests"* ]]
+  [[ "$output" != *"merge it first"* ]]
+}
+
+@test "TG_NO_PUSH=1 has the same effect as --no-push" {
+  export TG_NO_PUSH=1
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no_push:  1"* ]]
+  [[ "$output" == *"NO-PUBLISH MODE"* ]]
+}
+
+@test "DVB_NO_PUSH=1 is honoured as the legacy alias" {
+  export DVB_NO_PUSH=1
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no_push:  1"* ]]
+  [[ "$output" == *"NO-PUBLISH MODE"* ]]
+}
+
+@test "--no-push CLI flag overrides TG_NO_PUSH=0 from the environment" {
+  export TG_NO_PUSH=0
+  run "$DVB_GRIND" --dry-run --no-push 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no_push:  1"* ]]
+}
+
+@test "TG_NO_PUSH rejects non-boolean values at startup" {
+  export TG_NO_PUSH=yes
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"TG_NO_PUSH must be 0 or 1"* ]]
+}
+
+@test "structural: final_sync logs would_push instead of pushing when no_push=1" {
+  # The branch must precede the `git push origin HEAD` invocation so
+  # the push call is skipped entirely. Anchor the assertion on both
+  # the marker emission and the surrounding short-circuit.
+  grep -q 'final_sync would_push' "$DVB_GRIND"
+  grep -q 'no_push" == "1"' "$DVB_GRIND"
+}
+
+@test "structural: would_push branch sits before the git push call" {
+  # The two line numbers are recovered with awk so the test stays
+  # robust against unrelated edits above the function.
+  local would_push_line push_line
+  would_push_line=$(awk '/final_sync would_push/{print NR; exit}' "$DVB_GRIND")
+  push_line=$(awk '/git -C "\$repo" push origin HEAD/{print NR; exit}' "$DVB_GRIND")
+  [ -n "$would_push_line" ]
+  [ -n "$push_line" ]
+  [ "$would_push_line" -lt "$push_line" ]
+}
+
+@test "structural: NO-PUBLISH MODE wording lives in both the dry-run mirror and the live session prompt" {
+  local nopublish_count
+  nopublish_count=$(grep -c 'NO-PUBLISH MODE' "$DVB_GRIND" 2>/dev/null) || nopublish_count=0
+  # One occurrence in the dry-run echo, one in the runtime prompt.
+  [ "$nopublish_count" -ge 2 ]
+}
+
+@test "no_push value is persisted in resume state and restored on --resume" {
+  local state_file="$TEST_DIR/resume-state"
+  local slow_devin="$TEST_DIR/slow-devin"
+  create_fake_devin "$slow_devin" <<'SCRIPT'
+#!/bin/bash
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG}"
+sleep 5
+SCRIPT
+  export DVB_GRIND_CMD="$slow_devin"
+  export DVB_STATE_FILE="$state_file"
+  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+
+  "$DVB_GRIND" --no-push 1 "$TEST_REPO" >"$TEST_DIR/stdout.log" 2>"$TEST_DIR/stderr.log" &
+  local grind_pid=$!
+
+  local attempts=0
+  while [[ "$attempts" -lt 50 ]]; do
+    if [[ -f "$state_file" ]] && grep -q "^session=1$" "$state_file"; then
+      break
+    fi
+    sleep 0.1
+    attempts=$((attempts + 1))
+  done
+
+  grep -q "^no_push=1$" "$state_file"
+
+  kill -9 "$grind_pid"
+  wait "$grind_pid" 2>/dev/null || true
+}
+
+@test "operator docs name --no-push and TG_NO_PUSH alongside the other gates" {
+  # Doc-drift guard: any rename or scope change to the no-push gate must
+  # update the operator-facing references in lockstep with the script.
+  local readme="$BATS_TEST_DIRNAME/../README.md"
+  local man="$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  local arch="$BATS_TEST_DIRNAME/../docs/architecture.md"
+  local stories="$BATS_TEST_DIRNAME/../docs/user-stories.md"
+  local resume="$BATS_TEST_DIRNAME/../docs/resume-state.md"
+
+  grep -q -- '--no-push' "$readme"
+  grep -q 'TG_NO_PUSH' "$readme"
+  grep -q 'final_sync would_push' "$readme"
+
+  grep -q 'no\\-push' "$man"
+  grep -q 'TG_NO_PUSH' "$man"
+  grep -q 'final_sync would_push' "$man"
+
+  grep -q -- '--no-push' "$arch"
+  grep -q 'no-publish mode is two-sided' "$arch"
+
+  grep -q '7b. Producing work for review without auto-publishing' "$stories"
+  grep -q 'TG_NO_PUSH=1 taskgrind' "$stories"
+
+  grep -q '`no_push`' "$resume"
 }

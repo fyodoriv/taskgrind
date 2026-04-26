@@ -49,6 +49,9 @@ Current keys:
 - `model` — active model to resume with
 - `startup_model` — original startup model baseline shown to the operator
 - `startup_prompt` — original `--prompt` / `TG_PROMPT` baseline for resumed focus
+- `no_push` — `0` or `1`, mirroring whether the original run was launched with
+  `--no-push` / `TG_NO_PUSH=1`. State files written before this field existed
+  are read as `0` (the historical default).
 
 Example:
 
@@ -66,6 +69,7 @@ skill=next-task
 model=claude-opus-4-7-max
 startup_model=claude-opus-4-7-max
 startup_prompt=focus on reliability
+no_push=0
 ```
 
 ## What `--resume` restores
@@ -81,6 +85,11 @@ When validation succeeds, taskgrind restores:
 - model
 - startup model baseline
 - startup focus prompt baseline
+- no-publish mode (the saved `no_push` value, unless an explicit
+  `--no-push` flag on the resume CLI overrides it; the saved value
+  cannot be lowered from `1` to `0` via env var alone, only by passing
+  a fresh CLI invocation without `--no-push` and without `TG_NO_PUSH=1`
+  on a brand-new state file)
 
 Resume does not restore every startup flag. In particular, taskgrind does not
 persist git-sync cadence or retry maps in the state file. Repo-local

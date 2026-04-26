@@ -191,6 +191,7 @@ origin actually shipped:
 | Final sync ok | `final_sync push_ok` | Push succeeded |
 | Final sync failed | `final_sync push_failed [error=<msg>]` | Push refused — work may be unshipped |
 | Final sync stderr | `final_sync push_stderr <line>` | Captured stderr line per failed push |
+| Final sync would-push (no-publish) | `final_sync would_push commits=N head=<sha>` | `--no-push` / `TG_NO_PUSH=1` short-circuit — operator pushes manually |
 
 ### 2.7 — Grind summary
 

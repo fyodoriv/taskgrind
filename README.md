@@ -95,6 +95,7 @@ taskgrind --backend claude-code 8       # use Claude Code backend
 taskgrind --dry-run 8 ~/apps/myrepo    # print config without running
 taskgrind --preflight ~/apps/myrepo    # run health checks only
 taskgrind --resume ~/apps/myrepo       # resume an interrupted grind
+taskgrind --no-push 8 ~/apps/myrepo    # commit locally, never auto-push to origin
 taskgrind --help / -h                  # show usage and environment variables
 taskgrind --version / -V               # print version (commit hash + date)
 TG_MODEL=sonnet taskgrind 8            # pick a model alias without changing shell history
@@ -224,6 +225,7 @@ Before deploying, ensure:
 | `TG_LOG` | auto | Override log file path |
 | `TG_STATUS_FILE` | (disabled) | Write machine-readable runtime status JSON to this path |
 | `TG_NOTIFY` | `1` | Desktop notification on completion |
+| `TG_NO_PUSH` | `0` | Set `1` to commit locally only — `final_sync` logs `final_sync would_push commits=N head=<sha>` instead of pushing, and the session prompt forbids `git push` / `gh pr create` / `gh pr merge`. Equivalent to passing `--no-push`; preserved across `--resume`. |
 | `TG_SHUTDOWN_GRACE` | `120` | Seconds to wait for current session on exit |
 | `TG_SESSION_GRACE` | `15` | Seconds to wait after session SIGINT before SIGTERM |
 

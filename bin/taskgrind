@@ -17,6 +17,7 @@
 #        taskgrind --dry-run 8 ~/apps/myrepo  → print config without running
 #        taskgrind --preflight ~/apps/myrepo  → run health checks only
 #        taskgrind --resume ~/apps/myrepo     → resume an interrupted grind
+#        taskgrind --no-push 8 ~/apps/myrepo  → commit locally, never auto-push to origin
 #        taskgrind --help / -h                → show this help and exit
 #        taskgrind --version / -V             → print version (commit hash + date)
 #        TG_MODEL=sonnet taskgrind 8           → 8h grind, sonnet model
@@ -55,6 +56,8 @@
 #        TG_SESSION_GRACE — seconds to wait after session SIGINT before SIGTERM (default: 15)
 #        TG_EARLY_EXIT_ON_STALL — exit early on low throughput (default: 0)
 #        TG_MAX_INSTANCES — max concurrent instances per repo (default: 2)
+#        TG_NO_PUSH     — 1 = never auto-push commits to origin; agent prompt
+#                         also forbids `git push` / `gh pr merge` (default: 0)
 #
 #        DVB_ prefix is supported as a backward-compatible alias for all TG_ vars.
 #
@@ -126,7 +129,7 @@ _dvb_is_tty="${_dvb_is_tty:-0}"
 for _tg_var in BACKEND BACKOFF_BASE BACKOFF_MAX COOL DEVIN_PATH \
                EARLY_EXIT_ON_STALL EMPTY_QUEUE_WAIT GIT_SYNC_TIMEOUT LOG MAX_FAST MAX_INSTANCES \
                MAX_SESSION MAX_ZERO_SHIP MIN_SESSION MODEL NET_CHECK_URL NET_MAX_WAIT \
-               NET_RETRIES NET_RETRY_DELAY NET_WAIT NOTIFY PROMPT \
+               NET_RETRIES NET_RETRY_DELAY NET_WAIT NO_PUSH NOTIFY PROMPT \
                SESSION_GRACE SHUTDOWN_GRACE SKILL STATUS_FILE SYNC_INTERVAL; do
   _tg_ref="TG_${_tg_var}"
   if [[ -n "${!_tg_ref:-}" ]]; then
@@ -148,6 +151,7 @@ _cli_model=""
 dry_run=0
 preflight_only=0
 resume_run=0
+_cli_no_push=""  # tri-state: "" = unset, "0" / "1" = explicit CLI choice
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --help|-h) sed -n '/^#!/d; /^$/q; /^[^#]/q; /^# shellcheck/d; s/^# \{0,1\}//p' "$0"; exit 0 ;;
@@ -155,6 +159,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) dry_run=1; shift ;;
     --preflight) preflight_only=1; shift ;;
     --resume) resume_run=1; shift ;;
+    --no-push) _cli_no_push=1; shift ;;
     --model=*) _cli_model="${1#--model=}"; [[ -z "$_cli_model" ]] && { echo "Error: --model requires a non-empty name (example: --model claude-opus-4-7-max). See 'taskgrind --help'." >&2; exit 1; }; shift ;;
     --model)
       if [[ $# -lt 2 ]]; then
@@ -278,6 +283,19 @@ fi
 if [[ -n "${DVB_NOTIFY:-}" ]] && ! [[ "${DVB_NOTIFY}" =~ ^[01]$ ]]; then
   echo "Error: TG_NOTIFY must be 0 or 1, got '${DVB_NOTIFY}'" >&2; exit 1
 fi
+if [[ -n "${DVB_NO_PUSH:-}" ]] && ! [[ "${DVB_NO_PUSH}" =~ ^[01]$ ]]; then
+  echo "Error: TG_NO_PUSH must be 0 or 1, got '${DVB_NO_PUSH}'" >&2; exit 1
+fi
+# Resolve no-push: CLI flag wins, then env var, default 0.
+# When set, final_sync emits a `would_push` log line instead of pushing,
+# and the session prompt's COMPLETION PROTOCOL forbids any publishing
+# (no `git push`, no `gh pr create`, no `gh pr merge`). Operators review
+# the local commits and push manually after the grind exits.
+if [[ -n "$_cli_no_push" ]]; then
+  no_push="$_cli_no_push"
+else
+  no_push="${DVB_NO_PUSH:-0}"
+fi
 
 # Validate backend
 case "$backend" in
@@ -320,6 +338,7 @@ state_startup_prompt=""
 state_repo=""
 state_status=""
 state_version=""
+state_no_push=""
 resume_loaded=0
 resume_reason=""
 
@@ -340,6 +359,7 @@ load_resume_state() {
       model) state_model="$value" ;;
       startup_model) state_startup_model="$value" ;;
       startup_prompt) state_startup_prompt="$value" ;;
+      no_push) state_no_push="$value" ;;
     esac
   done < "$state_file"
 }
@@ -385,6 +405,12 @@ if [[ "$resume_run" -eq 1 ]]; then
   skill="$state_skill"
   _startup_model="${state_startup_model:-$state_model}"
   _cli_prompt="$state_startup_prompt"
+  # Preserve no-publish across resume. Explicit --no-push on the resume
+  # CLI overrides; otherwise the saved value wins. Older state files
+  # without a no_push field are treated as no_push=0 (the prior default).
+  if [[ -z "$_cli_no_push" && "$state_no_push" =~ ^[01]$ ]]; then
+    no_push="$state_no_push"
+  fi
   resume_loaded=1
 fi
 
@@ -903,6 +929,7 @@ if [[ "$dry_run" -eq 1 ]]; then
   echo "  notify:   ${DVB_NOTIFY:-1}"
   echo "  max_session: ${max_session}s"
   echo "  early_exit_on_stall: ${DVB_EARLY_EXIT_ON_STALL:-0}"
+  echo "  no_push:  $no_push"
   if [[ "$max_instances" -gt 1 ]]; then
     echo "  max_instances: $max_instances (slot=$_dvb_slot)"
   fi
@@ -912,7 +939,11 @@ if [[ "$dry_run" -eq 1 ]]; then
   echo ""
   echo "Prompt:"
   echo "  Run the $skill skill. Session 1, $((hours * 60)) minutes remaining, timeout ${max_session}s."
-  echo "  COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. If you created a PR, merge it first (use 'gh pr merge --squash' or merge directly). If you committed directly to main, just remove the task. A session that commits code but doesn't remove the task from TASKS.md is a failed session."
+  if [[ "$no_push" == "1" ]]; then
+    echo "  COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. NO-PUBLISH MODE: commit locally only. Do NOT push to any remote. Do NOT create pull requests. Do NOT merge pull requests. Do NOT use 'gh pr create', 'gh pr merge', 'git push', or any tool that publishes to origin. Remove the completed task block from TASKS.md and commit locally — that is the entire publish step. The operator will review and push manually after the grind exits."
+  else
+    echo "  COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. If you created a PR, merge it first (use 'gh pr merge --squash' or merge directly). If you committed directly to main, just remove the task. A session that commits code but doesn't remove the task from TASKS.md is a failed session."
+  fi
   echo "  AUTONOMY: You are fully autonomous. Never skip a task claiming it requires manual steps, human intervention, or external service access. You have browser automation, MCP tools, CLI access, and can interact with any web service. If a task involves a UI portal, use your browser skills. If it needs an API, call it. If it needs Jira, use MCP. Do not leave tasks saying 'requires manual work' — figure it out and do it."
   if [[ -n "$extra_prompt" ]]; then
     echo "  FOCUS: $extra_prompt"
@@ -1026,6 +1057,7 @@ skill=$skill
 model=$model
 startup_model=$_startup_model
 startup_prompt=$_cli_prompt
+no_push=$no_push
 EOF
   mv -f "$state_tmp" "$state_file" 2>/dev/null || rm -f "$state_tmp"
 }
@@ -1180,6 +1212,12 @@ final_sync() {
   fi
   _dvb_final_sync_attempted_head="$_current_head"
   _dvb_final_sync_attempted_ahead="$ahead"
+  # No-publish mode: log the intent and stop. Operator pushes manually.
+  if [[ "$no_push" == "1" ]]; then
+    echo "   🛑 No-publish mode: $ahead local commit(s) ready for review (head=$_current_head). Push manually after review."
+    log_write "[$(date '+%H:%M')] final_sync would_push commits=$ahead head=$_current_head"
+    return 0
+  fi
   echo "   📤 Pushing $ahead local commit(s) to origin..."
   log_write "[$(date '+%H:%M')] final_sync pushing commits=$ahead"
   local push_output push_first_line push_status=0
@@ -2179,8 +2217,15 @@ while [[ $(date +%s) -lt $deadline ]]; do
   prompt="Run the $skill skill."
   prompt+=" Session $session, ${remaining_min} minutes remaining, timeout ${max_session}s."
 
-  # Task completion protocol — the agent MUST close the loop
-  prompt+=" COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. If you created a PR, merge it first (use 'gh pr merge --squash' or merge directly). If you committed directly to main, just remove the task. A session that commits code but doesn't remove the task from TASKS.md is a failed session."
+  # Task completion protocol — the agent MUST close the loop. In no-publish
+  # mode the protocol forbids any push / PR action so the operator can
+  # review locally before publishing. The dry-run mirror at the help block
+  # above carries the same two-branch wording — keep them in sync.
+  if [[ "$no_push" == "1" ]]; then
+    prompt+=" COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. NO-PUBLISH MODE: commit locally only. Do NOT push to any remote. Do NOT create pull requests. Do NOT merge pull requests. Do NOT use 'gh pr create', 'gh pr merge', 'git push', or any tool that publishes to origin. Remove the completed task block from TASKS.md and commit locally — that is the entire publish step. The operator will review and push manually after the grind exits."
+  else
+    prompt+=" COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. If you created a PR, merge it first (use 'gh pr merge --squash' or merge directly). If you committed directly to main, just remove the task. A session that commits code but doesn't remove the task from TASKS.md is a failed session."
+  fi
 
   # Autonomy — the agent must not defer to humans
   prompt+=" AUTONOMY: You are fully autonomous. Never skip a task claiming it requires manual steps, human intervention, or external service access. You have browser automation, MCP tools, CLI access, and can interact with any web service. If a task involves a UI portal, use your browser skills. If it needs an API, call it. If it needs Jira, use MCP. Do not leave tasks saying 'requires manual work' — figure it out and do it."

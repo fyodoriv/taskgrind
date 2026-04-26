@@ -3,7 +3,7 @@
 taskgrind \- autonomous multi-session grind tool
 .SH SYNOPSIS
 .B taskgrind
-[\fIhours\fR] [\fIrepo\fR] [\fB\-\-model\fR \fIname\fR] [\fB\-\-skill\fR \fIname\fR] [\fB\-\-backend\fR \fIname\fR] [\fB\-\-prompt\fR \fItext\fR] [\fB\-\-dry\-run\fR] [\fB\-\-preflight\fR] [\fB\-\-resume\fR] [\fB\-\-help\fR] [\fB\-\-version\fR]
+[\fIhours\fR] [\fIrepo\fR] [\fB\-\-model\fR \fIname\fR] [\fB\-\-skill\fR \fIname\fR] [\fB\-\-backend\fR \fIname\fR] [\fB\-\-prompt\fR \fItext\fR] [\fB\-\-dry\-run\fR] [\fB\-\-preflight\fR] [\fB\-\-resume\fR] [\fB\-\-no\-push\fR] [\fB\-\-help\fR] [\fB\-\-version\fR]
 .SH DESCRIPTION
 Runs sequential AI coding sessions against a TASKS.md repo until a deadline.
 Each session starts with full context, picks a task from TASKS.md, implements
@@ -44,6 +44,20 @@ Run health checks and exit.
 .TP
 .BR \-\-resume
 Resume an interrupted grind from the saved state in the target repo.
+.TP
+.BR \-\-no\-push
+Commit locally only \(em never auto\-push to origin. Equivalent to setting
+.BR TG_NO_PUSH=1 .
+The agent prompt is rewritten to forbid
+.BR "git push" ,
+.BR "gh pr create" ,
+and
+.BR "gh pr merge" ,
+and the final\-sync step logs
+.BR "final_sync would_push commits=N head=<sha>"
+instead of pushing. Operators review and push manually after the grind
+exits. Preserved across
+.BR \-\-resume .
 .TP
 .BR \-\-help ", " \-h
 Show usage and environment variables.
@@ -128,6 +142,21 @@ Write machine\-readable runtime status JSON to this path.
 .TP
 .B TG_NOTIFY
 Desktop notification on completion (default: 1, 0 to disable).
+.TP
+.B TG_NO_PUSH
+Set to 1 to commit locally only \(em
+.B final_sync
+logs
+.BR "final_sync would_push commits=N head=<sha>"
+instead of pushing, and the session prompt forbids
+.BR "git push" ,
+.BR "gh pr create" ,
+and
+.BR "gh pr merge"
+(default: 0). Equivalent to passing
+.BR \-\-no\-push ;
+preserved across
+.BR \-\-resume .
 .TP
 .B TG_DEVIN_PATH
 Override devin binary path (default: auto\-detect from PATH).
