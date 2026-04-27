@@ -9,7 +9,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 # ── Multi-backend support ─────────────────────────────────────────────
 
 @test "default backend is devin" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"backend=devin"* ]]
 }
@@ -34,7 +34,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "TG_BACKEND takes precedence over DVB_BACKEND during a real run" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export DVB_BACKEND=codex
   export TG_BACKEND=devin
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -64,13 +64,13 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "backend shows in startup banner" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"backend=devin"* ]]
 }
 
 @test "backend shows in log file header" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'backend=devin' "$TEST_LOG"
 }
@@ -160,19 +160,19 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "devin backend invokes with --permission-mode dangerous" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" --backend devin 1 "$TEST_REPO"
   [ -f "$DVB_GRIND_INVOKE_LOG" ] && grep -q -- '--permission-mode dangerous' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "claude-code backend invokes with --dangerously-skip-permissions" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" --backend claude-code 1 "$TEST_REPO"
   [ -f "$DVB_GRIND_INVOKE_LOG" ] && grep -q -- '--dangerously-skip-permissions' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "codex backend invokes with -q flag" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" --backend codex 1 "$TEST_REPO"
   [ -f "$DVB_GRIND_INVOKE_LOG" ] && grep -q -- '-q' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -253,20 +253,20 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "--model passes through to backend invocation" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" --model gpt-5-4 1 "$TEST_REPO"
   grep -q -- '--model gpt-5-4' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--model preserves quoted multi-word values" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" --model "gpt-5-4 XHigh thinking fast" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q -- '--model gpt-5-4 XHigh thinking fast' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--model alias resolves before backend invocation" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" --model opus 1 "$TEST_REPO"
   grep -q -- '--model claude-opus-4-7-max' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -280,13 +280,13 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "--model shows in startup banner" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" --model custom-model 1 "$TEST_REPO"
   [[ "$output" == *"model=custom-model"* ]]
 }
 
 @test "--model shows in log file header" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" --model custom-model 1 "$TEST_REPO"
   grep -q 'model=custom-model' "$TEST_LOG"
 }
@@ -306,7 +306,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 # ── Dynamic prompt file (prompt injection between sessions) ──────────
 
 @test "reads prompt file between sessions" {
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   _prompt_file="$TEST_REPO/.taskgrind-prompt"
   echo "focus on testing" > "$_prompt_file"
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -315,7 +315,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 
 @test "prompt file updates are picked up between sessions" {
   # Second session should see updated prompt file content
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   _prompt_file="$TEST_REPO/.taskgrind-prompt"
   echo "focus on testing" > "$_prompt_file"
   # Multiple sessions — fake devin runs fast, so both sessions will see the prompt
@@ -324,14 +324,14 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "missing prompt file is fine (no error)" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   rm -f "$TEST_REPO/.taskgrind-prompt"
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
 }
 
 @test "--prompt and prompt file combine" {
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   _prompt_file="$TEST_REPO/.taskgrind-prompt"
   echo "also do this" > "$_prompt_file"
   run "$DVB_GRIND" --prompt "do that" 1 "$TEST_REPO"
@@ -341,7 +341,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "prompt file shown in startup banner when present" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   _prompt_file="$TEST_REPO/.taskgrind-prompt"
   echo "file-based focus" > "$_prompt_file"
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -379,7 +379,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 @test "prompt file with trailing whitespace is trimmed" {
   _prompt_file="$TEST_REPO/.taskgrind-prompt"
   printf "clean prompt\n\n\n" > "$_prompt_file"
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # The prompt should end with "clean prompt" not trailing whitespace
   grep -q 'clean prompt' "$DVB_GRIND_INVOKE_LOG"
@@ -412,7 +412,7 @@ EOF
 # ── Dynamic model file (live model switching between sessions) ────────
 
 @test "model file overrides startup model" {
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   echo "gpt-5-4" > "$TEST_REPO/.taskgrind-model"
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -420,7 +420,7 @@ EOF
 }
 
 @test "missing model file uses startup model (no error)" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   rm -f "$TEST_REPO/.taskgrind-model"
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -436,7 +436,7 @@ EOF
 }
 
 @test "deleting model file reverts to startup model" {
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   # Create a fake devin that removes the model file on first run
   FAKE_DEVIN_V2="$TEST_DIR/fake-devin-v2"
   cat > "$FAKE_DEVIN_V2" <<'SCRIPT'
@@ -456,7 +456,7 @@ SCRIPT
 }
 
 @test "model file alias resolves on live reload" {
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   FAKE_DEVIN_V3="$TEST_DIR/fake-devin-v3"
   cat > "$FAKE_DEVIN_V3" <<'SCRIPT'
 #!/bin/bash
@@ -483,13 +483,13 @@ SCRIPT
 
 @test "model file with trailing whitespace is trimmed" {
   printf "gpt-5-4\n\n\n" > "$TEST_REPO/.taskgrind-model"
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q -- '--model gpt-5-4' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "model file shown in startup banner when active" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   echo "sonnet" > "$TEST_REPO/.taskgrind-model"
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"Live model:"* ]]
@@ -497,7 +497,7 @@ SCRIPT
 }
 
 @test "model file alias is shown in the session banner as the resolved model" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   echo "sonnet" > "$TEST_REPO/.taskgrind-model"
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"Session 1"* ]]
@@ -514,7 +514,7 @@ SCRIPT
 }
 
 @test "model file overrides --model flag" {
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   echo "gpt-5-4" > "$TEST_REPO/.taskgrind-model"
   run "$DVB_GRIND" --model opus 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -522,7 +522,7 @@ SCRIPT
 }
 
 @test "unknown model alias passes through unchanged" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" --model custom-unknown-model 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q -- '--model custom-unknown-model' "$DVB_GRIND_INVOKE_LOG"
@@ -606,55 +606,55 @@ SCRIPT
 # ── Prompt hardening ───────────────────────────────────────────────────
 
 @test "--prompt adds priority framing to pick matching tasks first" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "focus on test coverage"
   grep -q 'Pick tasks from TASKS.md that relate to this focus' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt priority framing mentions unrelated tasks fallback" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "taskgrind stability"
   grep -q 'Only work on unrelated tasks if no matching tasks remain' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "log header includes prompt= when --prompt is set" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "test focus"
   grep -q 'prompt=test focus' "$TEST_LOG"
 }
 
 @test "log header omits prompt= when no --prompt given" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   ! grep -q 'prompt=' "$(head -2 "$TEST_LOG")"
 }
 
 @test "grind_done log includes prompt when --prompt is set" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "ship features"
   grep 'grind_done' "$TEST_LOG" | grep -q 'prompt=ship features'
 }
 
 @test "grind_done log omits prompt when no --prompt given" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   ! grep 'grind_done' "$TEST_LOG" | grep -q 'prompt='
 }
 
 @test "--prompt with single quotes passes through safely" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "it's a test"
   grep -q "FOCUS: it's a test" "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt with dollar sign passes through without expansion" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt 'fix $HOME paths'
   grep -q 'FOCUS: fix \$HOME paths' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt with double quotes passes through safely" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt 'multi word with "quotes"'
   grep -q 'FOCUS: multi word with "quotes"' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -915,7 +915,7 @@ sleep 5
 SCRIPT
   export DVB_GRIND_CMD="$slow_devin"
   export DVB_STATE_FILE="$state_file"
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
 
   "$DVB_GRIND" --no-push 1 "$TEST_REPO" >"$TEST_DIR/stdout.log" 2>"$TEST_DIR/stderr.log" &
   local grind_pid=$!
@@ -1037,7 +1037,7 @@ SCRIPT
 # Tasks
 ## P0
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'sweep_done exit=' "$TEST_LOG"
@@ -1056,7 +1056,7 @@ SCRIPT
   chmod +x "$sweep_devin"
   export DVB_GRIND_CMD="$sweep_devin"
   printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'sweep_efficiency tasks=2 elapsed=[0-9]\+s tasks_per_min=' "$TEST_LOG"
@@ -1142,7 +1142,7 @@ SCRIPT
 ## P0
 - [ ] Stubborn task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
+  export DVB_DEADLINE_OFFSET=15
   export DVB_MAX_ZERO_SHIP=20
   export TG_NO_STALL_EXIT=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -1156,7 +1156,7 @@ TASKS
 ## P0
 - [ ] Stubborn task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
   # Keep DVB_MAX_ZERO_SHIP higher than the diminishing-returns trip
   # window so the stall_bail path does not fire first.
   export DVB_MAX_ZERO_SHIP=20
@@ -1172,7 +1172,7 @@ TASKS
 ## P0
 - [ ] Stubborn task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
+  export DVB_DEADLINE_OFFSET=15
   export DVB_MAX_ZERO_SHIP=20
   export TG_NO_STALL_EXIT=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -1188,7 +1188,7 @@ TASKS
 ## P0
 - [ ] Stubborn task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
+  export DVB_DEADLINE_OFFSET=15
   export DVB_MAX_ZERO_SHIP=20
   export TG_EXIT_ON_STALL=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -1234,7 +1234,7 @@ EOF
 fi
 SCRIPT
   export DVB_GRIND_CMD="$toggle_devin"
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
   export DVB_MAX_ZERO_SHIP=20
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]

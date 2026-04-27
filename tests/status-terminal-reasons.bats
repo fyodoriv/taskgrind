@@ -7,7 +7,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 @test "status file preserves blocked-queue stop reason after a clean exit" {
   local status_file="$TEST_DIR/blocked-status.json"
   export DVB_STATUS_FILE="$status_file"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
 ## P1

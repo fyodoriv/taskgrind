@@ -52,13 +52,13 @@ PY
 # ── Log file ─────────────────────────────────────────────────────────
 
 @test "creates log file" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ -f "$TEST_LOG" ]
 }
 
 @test "log file contains header with config" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q '# taskgrind started' "$TEST_LOG"
   grep -q "hours=1" "$TEST_LOG"
@@ -66,7 +66,7 @@ PY
 }
 
 @test "log file records session start entries" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'session=1' "$TEST_LOG"
 }
@@ -79,7 +79,7 @@ PY
   # of that budget on fixture setup. Match the longer 30 s deadline
   # used by the sibling TG_STATUS_FILE tests so the assertion on
   # `last_session.result == "success"` always has a session to record.
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
   # The default test fixture has one no-ship task; over a 30 s window
   # the grind churns through enough zero-ship sessions to trip the new
   # diminishing-returns default exit, which would set current_phase to
@@ -130,7 +130,7 @@ PY
   # tight under TEST_JOBS=6 parallel load (bats fixture setup can eat most
   # of that budget) — bump to 30s so session 1 always lands well inside the
   # deadline.
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
   # 30 s is also long enough for the new diminishing-returns default exit
   # to trigger after ~6 zero-ship sessions, which would set current_phase
   # to "failed". This test asserts the deadline path, so opt out.
@@ -171,7 +171,7 @@ PY
   local legacy_status_file="$TEST_DIR/legacy-status.json"
   export TG_STATUS_FILE="$tg_status_file"
   export DVB_STATUS_FILE="$legacy_status_file"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   # See `status file captures startup and completion states` for the
   # rationale behind disabling the new diminishing-returns default exit
   # in this test.
@@ -198,7 +198,7 @@ PY
   local status_file="$blocked_parent/status.json"
   touch "$blocked_parent"
   export DVB_STATUS_FILE="$status_file"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
@@ -219,7 +219,7 @@ SCRIPT
   chmod +x "$slow_devin"
   export DVB_GRIND_CMD="$slow_devin"
   export DVB_STATUS_FILE="$status_file"
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
 
   "$DVB_GRIND" 1 "$TEST_REPO" > "$TEST_DIR/live-status.out" 2>&1 &
   local grind_pid=$!
@@ -257,7 +257,7 @@ SCRIPT
   export DVB_GRIND_CMD="$slow_sweep_devin"
   export DVB_STATUS_FILE="$status_file"
   export DVB_EMPTY_QUEUE_WAIT=2
-  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
+  export DVB_DEADLINE_OFFSET=15
   printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
 
   "$DVB_GRIND" 1 "$TEST_REPO" > "$TEST_DIR/empty-queue-status.out" 2>&1 &
@@ -281,7 +281,7 @@ PY
 }
 
 @test "session banner and log entry include active model" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"Session 1"* ]]
   [[ "$output" == *"tasks queued — model=claude-opus-4-7-max"* ]]
@@ -289,7 +289,7 @@ PY
 }
 
 @test "log file records session end entries" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'ended' "$TEST_LOG"
 }
@@ -300,13 +300,13 @@ PY
 ## P0
 - [ ] Task one
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'tasks_after=' "$TEST_LOG"
 }
 
 @test "log file records shipped count per session" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'shipped=' "$TEST_LOG"
 }
@@ -314,7 +314,7 @@ TASKS
 @test "DVB_LOG overrides log file path" {
   local custom_log="$TEST_DIR/custom.log"
   export DVB_LOG="$custom_log"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ -f "$custom_log" ]
 }
@@ -324,7 +324,7 @@ TASKS
   local tg_log="$TEST_DIR/tg.log"
   export DVB_LOG="$legacy_log"
   export TG_LOG="$tg_log"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [ -f "$tg_log" ]
@@ -333,7 +333,7 @@ TASKS
 
 @test "default log file uses timestamp format" {
   unset DVB_LOG
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Output should show a log path with YYYY-MM-DD-HHMM-reponame-PID pattern
   [[ "$output" =~ taskgrind-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[a-zA-Z0-9_.-]+-[0-9]+\.log ]]
@@ -342,7 +342,7 @@ TASKS
 # ── Banner and summary ───────────────────────────────────────────────
 
 @test "shows startup banner with hours and model" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"taskgrind"* ]]
   [[ "$output" == *"1h"* ]]
@@ -350,26 +350,26 @@ TASKS
 }
 
 @test "shows startup banner with repo path" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"$TEST_REPO"* ]]
 }
 
 @test "shows session restart message" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"Each session runs"* ]]
 }
 
 @test "shows completion summary with session count" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"Grind complete"* ]]
   [[ "$output" == *"sessions"* ]]
 }
 
 @test "shows completion summary with task count" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"tasks"* ]]
 }
@@ -383,20 +383,20 @@ TASKS
 }
 
 @test "shows log file path in summary" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"$TEST_LOG"* ]]
 }
 
 @test "shows cooldown message between sessions" {
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_COOL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"Cooling down"* ]]
 }
 
 @test "live model log includes resolved model and raw alias" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   echo "sonnet" > "$TEST_REPO/.taskgrind-model"
   run "$DVB_GRIND" --model gpt-5-4 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -427,7 +427,9 @@ exec /bin/sleep "\$@"
 SCRIPT
   chmod +x "$fake_bin/sleep"
   export PATH="$fake_bin:$PATH"
-  export DVB_DEADLINE=$(( $(date +%s) + 4 ))
+  # Need ≥2 sessions to launch; under 8x parallel bats load setup overhead
+  # alone can eat 3s, so give the loop a generous 10s window.
+  export DVB_DEADLINE_OFFSET=10
   export DVB_COOL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -438,7 +440,9 @@ SCRIPT
 }
 
 @test "TG_COOL takes precedence over DVB_COOL" {
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  # Need ≥1 session + the post-session cool to complete before deadline;
+  # the 3s window failed under parallel bats load.
+  export DVB_DEADLINE_OFFSET=8
   export DVB_COOL=0
   export TG_COOL=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -457,7 +461,7 @@ pwd >> "$TEST_DIR/cwd.log"
 SCRIPT
   chmod +x "$cwd_devin"
   export DVB_GRIND_CMD="$cwd_devin"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q "$TEST_REPO" "$TEST_DIR/cwd.log"
 }
@@ -499,7 +503,7 @@ SCRIPT
 }
 
 @test "grind log includes elapsed in seconds" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Log should contain elapsed=Ns where N is a number
   grep -qE 'elapsed=[0-9]+s' "$TEST_LOG"
@@ -545,21 +549,21 @@ SCRIPT
 
 @test "default log file name includes repo and PID for uniqueness" {
   unset DVB_LOG
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Log path in output should include repo basename and PID segment before .log
   [[ "$output" =~ taskgrind-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[a-zA-Z0-9_.-]+-[0-9]+\.log ]]
 }
 
 @test "log lines include pid= prefix" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # At least one log_write line should have the [pid=N] prefix
   grep -qE '^\[pid=[0-9]+\]' "$TEST_LOG"
 }
 
 @test "grind_done log line includes pid= prefix" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -qE '^\[pid=[0-9]+\].*grind_done' "$TEST_LOG"
 }
@@ -602,7 +606,7 @@ SCRIPT
   export PATH="$fake_bin:$PATH"
   export DVB_NOTIFY=1
   export TG_NOTIFY=0
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [ ! -f "$notify_log" ]
@@ -626,7 +630,7 @@ SCRIPT
 # ── Log File Security ────────────────────────────────────────────────
 
 @test "log file permissions are 600 (owner-only)" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ -f "$TEST_LOG" ]
   local perms
@@ -636,7 +640,7 @@ SCRIPT
 
 @test "DVB_LOG pointing to directory exits with error" {
   export DVB_LOG="$TEST_DIR"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -ne 0 ]
   [[ "$output" == *"points to a directory"* ]]
@@ -644,7 +648,7 @@ SCRIPT
 
 @test "DVB_LOG with nonexistent parent creates parent directory" {
   export DVB_LOG="$TEST_DIR/deep/nested/dir/grind.log"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [ -f "$TEST_DIR/deep/nested/dir/grind.log" ]

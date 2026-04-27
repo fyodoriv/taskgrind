@@ -16,13 +16,13 @@ echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 exit 42
 SCRIPT
   export DVB_GRIND_CMD="$failing_devin"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'exit=42' "$TEST_LOG"
 }
 
 @test "exit code shows in terminal session end message" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"exit=0"* ]]
 }
@@ -37,7 +37,7 @@ SCRIPT
   export DVB_MAX_FAST=3
   export DVB_BACKOFF_BASE=0
   export DVB_COOL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
+  export DVB_DEADLINE_OFFSET=15
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Giving up"* ]]
@@ -56,7 +56,7 @@ SCRIPT
   export DVB_MAX_FAST=3
   export DVB_BACKOFF_BASE=0
   export DVB_COOL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Should have exactly 3 invocations (bail at 3, not more)
   local count
@@ -81,7 +81,9 @@ SCRIPT
   export DVB_MAX_FAST=2
   export DVB_BACKOFF_BASE=0
   export DVB_COOL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  # Need 2 fast-failure sessions to complete; under heavy parallel suite
+  # load 3s wasn't enough — startup overhead alone can eat 3s.
+  export DVB_DEADLINE_OFFSET=10
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'session.*output' "$TEST_LOG"
   grep -q 'ERROR: something went wrong' "$TEST_LOG"
@@ -104,7 +106,8 @@ SCRIPT
   export DVB_MAX_FAST=2
   export DVB_BACKOFF_BASE=0
   export DVB_COOL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  # Same parallel-load envelope rationale as the previous fast-failure test.
+  export DVB_DEADLINE_OFFSET=10
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'session.*output' "$TEST_LOG"
   grep -q "Error: Unknown model: 'broken-model'" "$TEST_LOG"
@@ -124,7 +127,7 @@ SCRIPT
   export DVB_MAX_FAST=3
   export DVB_BACKOFF_BASE=0
   export DVB_COOL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"FATAL: cannot connect to API"* ]]
 }
@@ -135,7 +138,9 @@ SCRIPT
   export DVB_MAX_FAST=3
   export DVB_BACKOFF_BASE=0
   export DVB_COOL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  # 5s window was tight under 8x parallel bats load — startup overhead can
+  # eat ~3s before session 1 begins, leaving no time for 3 fast failures.
+  export DVB_DEADLINE_OFFSET=12
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -qE 'bail_out consecutive=3 exit=[0-9]+' "$TEST_LOG"
 }
@@ -149,7 +154,7 @@ SCRIPT
 }
 
 @test "--skill=fleet-grind equals syntax works" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill=fleet-grind
   [ "$status" -eq 0 ]
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
@@ -201,7 +206,7 @@ SCRIPT
 }
 
 @test "TG_MAX_SESSION takes precedence over DVB_MAX_SESSION" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export DVB_MAX_SESSION=9
   export TG_MAX_SESSION=17
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -503,7 +508,7 @@ SCRIPT
   git -C "$TEST_REPO" remote add origin "$bare"
   git -C "$TEST_REPO" push -q origin HEAD 2>/dev/null
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -512,7 +517,7 @@ SCRIPT
 
 @test "skips git pull for non-git repos" {
   # TEST_REPO is a plain directory (no .git)
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -528,7 +533,7 @@ SCRIPT
   git -C "$TEST_REPO" commit -q --no-verify -m "init"
   # No remote added
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -542,7 +547,7 @@ SCRIPT
   export DVB_MIN_SESSION=999
   export DVB_BACKOFF_BASE=0
   export DVB_COOL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -qE 'fast_fail.*exit=[0-9]+' "$TEST_LOG"
 }
@@ -550,7 +555,7 @@ SCRIPT
 # ── Print mode and session timeout ────────────────────────────────────
 
 @test "uses -p (print mode) not -- (interactive mode)" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Must use -p for non-interactive mode (exits after completion)
   grep -q -- '-p ' "$DVB_GRIND_INVOKE_LOG"
@@ -671,7 +676,7 @@ SCRIPT
 ## P0
 - [ ] Hard task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Log should contain the session output capture
@@ -702,7 +707,7 @@ SCRIPT
       echo "- [ ] Task $i"
     done
   } > "$TEST_REPO/TASKS.md"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Every session ships a task, so no zero-ship output captures
@@ -712,7 +717,7 @@ SCRIPT
 # ── Efficiency summary in grind_done ──────────────────────────────────
 
 @test "grind_done terminal output includes rate and avg session" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Rate:"* ]]
@@ -722,14 +727,14 @@ SCRIPT
 }
 
 @test "grind_done log line includes rate and sessions_zero_ship" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'grind_done.*rate=.*sessions_zero_ship=' "$TEST_LOG"
 }
 
 @test "grind_done log includes avg_session field" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'avg_session=' "$TEST_LOG"
@@ -741,7 +746,7 @@ SCRIPT
 ## P0
 - [ ] Stubborn task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
+  export DVB_DEADLINE_OFFSET=15
   export DVB_MAX_ZERO_SHIP=3
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -782,7 +787,7 @@ SCRIPT
   export DVB_DEVIN_PATH="$silent_stub"
   export DVB_CAFFEINATED=1
   export _DVB_SELF_COPY="/dev/null"
-  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
+  export DVB_DEADLINE_OFFSET=20
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
@@ -810,7 +815,7 @@ SCRIPT
   export DVB_DEVIN_PATH="$versioned_devin"
   export DVB_CAFFEINATED=1
   export _DVB_SELF_COPY="/dev/null"
-  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
+  export DVB_DEADLINE_OFFSET=20
   export DVB_MAX_ZERO_SHIP=1
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -827,7 +832,7 @@ SCRIPT
 
 @test "test backend normalizes simple injected commands like /bin/true" {
   export DVB_GRIND_CMD="/bin/true"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
@@ -857,7 +862,7 @@ SCRIPT
 # plus every sweep's `tasks_found`), capped at 100 %.
 
 @test "grind_done log line surfaces tasks_starting and tasks_added" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   # Disable the new diminishing-returns default exit so the grind ends
   # via deadline rather than `failed`. The grind_done line is emitted
   # on every clean exit path, so the test only needs the new fields to
@@ -869,7 +874,7 @@ SCRIPT
 }
 
 @test "ship_rate human summary shows started=N added=N alongside the percent" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export TG_NO_STALL_EXIT=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -893,7 +898,7 @@ SCRIPT
   chmod +x "$sweep_devin"
   export DVB_GRIND_CMD="$sweep_devin"
   printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export TG_NO_STALL_EXIT=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -932,7 +937,7 @@ SCRIPT
   **ID**: beta
 TASKS
   export DVB_GRIND_CMD="$shipping_devin"
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export TG_NO_STALL_EXIT=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -960,7 +965,7 @@ TASKS
 # and that share was invisible from the grind_done summary.
 
 @test "grind_done log line surfaces sweeps and sweep_seconds even when zero" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export TG_NO_STALL_EXIT=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -968,7 +973,7 @@ TASKS
 }
 
 @test "human summary reports sweep count and seconds-of-elapsed" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export TG_NO_STALL_EXIT=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -984,7 +989,7 @@ TASKS
   # empty-queue wait + deadline. The aggregate counters must reflect
   # at least one sweep.
   printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export TG_NO_STALL_EXIT=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -998,7 +1003,7 @@ TASKS
   # `sweep_done` line. This is the contract the analyze skill relies
   # on when it computes sweep cost share without re-grepping.
   printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export TG_NO_STALL_EXIT=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]

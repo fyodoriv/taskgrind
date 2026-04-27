@@ -522,8 +522,23 @@ net_check_url="${DVB_NET_CHECK_URL:-https://connectivitycheck.gstatic.com/genera
 
 _check_network_once() {
   if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
-    # Test mode: network state controlled by sentinel file
-    [[ -f "${DVB_NET_FILE:-/dev/null}" ]]
+    # Test mode: network state controlled by sentinel file. Optional counter
+    # mode (`DVB_NET_FLIP_AFTER=N` + `DVB_NET_FILE=<path>`) returns false for
+    # the first N calls and true on every call after, with the call counter
+    # persisted in `$DVB_NET_FILE`. Counter mode lets recovery tests drive
+    # `wait_for_network` deterministically without a wall-clock race against
+    # parallel-load test setup overhead — under 8 bats workers, a `nohup
+    # sleep 2 && touch` would routinely fire before taskgrind even reached
+    # the first network check, leaving `wait_for_network` unentered.
+    if [[ -n "${DVB_NET_FLIP_AFTER:-}" && -n "${DVB_NET_FILE:-}" ]]; then
+      local _net_count
+      _net_count=$(cat "$DVB_NET_FILE" 2>/dev/null || echo 0)
+      _net_count=$((_net_count + 1))
+      echo "$_net_count" > "$DVB_NET_FILE"
+      [[ "$_net_count" -gt "$DVB_NET_FLIP_AFTER" ]]
+    else
+      [[ -f "${DVB_NET_FILE:-/dev/null}" ]]
+    fi
   elif command -v network-watchdog >/dev/null 2>&1; then
     network-watchdog --check-only >/dev/null 2>&1
   else
@@ -689,6 +704,32 @@ preflight_pass()  { echo "  ✓ $1"; _pf_pass=$((_pf_pass + 1)); }
 preflight_warn()  { echo "  ⚠ $1"; _pf_warn=$((_pf_warn + 1)); }
 preflight_fail()  { echo "  ✗ $1"; _pf_fail=$((_pf_fail + 1)); }
 
+# _preflight_check_remote_reachable <repo> <unreachable_warning_text>
+#
+# Probe `git ls-remote origin HEAD` for <repo> with a 10-second cap and
+# emit a preflight pass/warn line. Uses git's own
+# GIT_HTTP_LOW_SPEED_LIMIT / GIT_HTTP_LOW_SPEED_TIME knobs so the timeout
+# is enforced inside git itself — no shell-level watchdog.
+#
+# Why no shell watchdog: the previous implementation forked a sleep
+# subshell and `wait`ed on it as a sibling pid, which works on bash 4+
+# (Linux) but returns 127 immediately on macOS /bin/bash 3.2 (which
+# refuses `wait` on non-children). The watchdog then SIGTERMed
+# git ls-remote milliseconds after fork and the outer wait returned
+# 143, firing the "Git remote unreachable" warning unconditionally on
+# every macOS run regardless of actual network state. The repo's
+# bash 3.2 compatibility guard is deliberate (see AGENTS.md), so the
+# fix is to drop the broken pattern and let git enforce the timeout.
+_preflight_check_remote_reachable() {
+  local repo="$1" unreachable_msg="$2"
+  if GIT_HTTP_LOW_SPEED_LIMIT=1 GIT_HTTP_LOW_SPEED_TIME=10 \
+      git -C "$repo" ls-remote origin HEAD >/dev/null 2>&1; then
+    dvb_spinner_stop; preflight_pass "Git remote reachable"
+  else
+    dvb_spinner_stop; preflight_warn "$unreachable_msg"
+  fi
+}
+
 slot_lock_file() {
   local slot="$1"
   echo "$_dvb_tmp/taskgrind-lock-${_lock_hash}-${slot}"
@@ -788,21 +829,7 @@ preflight_check() {
   # 5. Git remote reachable — required for between-session sync
   if [[ -n "$git_dir" ]] && [[ -n "$(git -C "$repo" remote 2>/dev/null)" ]]; then
     dvb_spinner_start "Checking git remote..."
-    # Use background + sleep pattern since timeout/gtimeout may not exist on macOS
-    if (git -C "$repo" ls-remote origin HEAD >/dev/null 2>&1 &
-        _ls_pid=$!
-        sleep 10 &
-        _sleep_pid=$!
-        (wait "$_sleep_pid" 2>/dev/null; kill "$_ls_pid" 2>/dev/null) &
-        _timer=$!
-        wait "$_ls_pid" 2>/dev/null
-        _rc=$?
-        kill "$_timer" "$_sleep_pid" 2>/dev/null; wait "$_timer" 2>/dev/null
-        exit "$_rc"); then
-      dvb_spinner_stop; preflight_pass "Git remote reachable"
-    else
-      dvb_spinner_stop; preflight_warn "Git remote unreachable (may affect between-session sync)"
-    fi
+    _preflight_check_remote_reachable "$repo" "Git remote unreachable (may affect between-session sync)"
   else
     preflight_warn "No git remote configured"
   fi
@@ -1005,10 +1032,26 @@ if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
   # window before the loop begins, making invocation-log assertions flaky.
   # Keep past deadlines untouched (tests use them to skip the loop), but give
   # near-future test deadlines a small minimum window.
+  #
+  # The threshold matters for suite throughput: every test that hits the
+  # deadline (empty-queue wait, blocked-queue wait, diminishing-returns exit)
+  # waits up to this many seconds before exiting. 5s is enough margin for
+  # parallel-load setup overhead while keeping deadline-bounded tests cheap.
+  # Tests that legitimately need more wall-clock budget should use the
+  # explicit `DVB_DEADLINE_OFFSET=N` knob below.
   _test_deadline_window=$(( deadline - start_epoch ))
-  if [[ "$_test_deadline_window" -gt 0 && "$_test_deadline_window" -lt 15 ]]; then
-    deadline=$(( start_epoch + 15 ))
+  if [[ "$_test_deadline_window" -gt 0 && "$_test_deadline_window" -lt 5 ]]; then
+    deadline=$(( start_epoch + 5 ))
   fi
+fi
+# `DVB_DEADLINE_OFFSET=N` sets the deadline to `start_epoch + N` AFTER any
+# auto-extension above. This is the parallel-safe alternative to setting
+# `DVB_DEADLINE=$(( $(date +%s) + N ))`: the latter measures N from when bats
+# composes the env, the former measures N from when taskgrind itself reads
+# the clock, so heavy parallel-setup latency cannot shrink the window.
+# Test-only knob — production code never sets this var.
+if [[ -n "${DVB_DEADLINE_OFFSET:-}" && "$DVB_DEADLINE_OFFSET" =~ ^[0-9]+$ ]]; then
+  deadline=$(( start_epoch + DVB_DEADLINE_OFFSET ))
 fi
 end_time=$(date -v+"${hours}"H +%H:%M 2>/dev/null || date -d "+${hours} hours" +%H:%M 2>/dev/null || echo "??:??")
 _repo_basename=$(basename "$repo")

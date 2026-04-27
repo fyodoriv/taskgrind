@@ -48,7 +48,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .test-cache-*
-          key: tests-${{ runner.os }}-${{ hashFiles('Makefile', 'bin/taskgrind', 'lib/*.sh', 'tests/*.bats', 'tests/test_helper.bash') }}
+          key: tests-${{ runner.os }}-${{ hashFiles('Makefile', 'bin/taskgrind', 'lib/*.sh', 'tests/*.bats', 'tests/test_helper.bash', 'tests/verify-bash32-compat.sh', 'install.sh') }}
 
       - name: Install bats (Linux)
         if: runner.os == 'Linux' && steps.test-cache.outputs.cache-hit != 'true'

@@ -15,7 +15,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   # Verify the test-mode sentinel mechanism works
   setup_network_sentinel "$TEST_DIR/net-up"
   export DVB_MIN_SESSION=999
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Network is up, so no network_down in log
@@ -30,7 +30,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   # Fake devin exits instantly (0s < min_session_secs), network is up
   setup_network_sentinel "$TEST_DIR/net-up"
   export DVB_MIN_SESSION=999
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Sessions ran (network was up, so no pause)
@@ -43,7 +43,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   export DVB_MIN_SESSION=999
   export DVB_NET_WAIT=0
   export DVB_NET_MAX_WAIT=0
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Should have logged network_down
   grep -q 'network_down' "$TEST_LOG"
@@ -55,7 +55,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   export DVB_MIN_SESSION=999
   export DVB_NET_WAIT=0
   export DVB_NET_MAX_WAIT=0
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'network_timeout' "$TEST_LOG"
@@ -66,7 +66,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   export DVB_MIN_SESSION=999
   export DVB_NET_WAIT=0
   export DVB_NET_MAX_WAIT=0
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Task-spec check: exits 1 path still emits network_timeout with waited=N
   grep -Eq 'network_timeout waited=[0-9]+s' "$TEST_LOG"
@@ -79,7 +79,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   export DVB_NET_WAIT=0
   export DVB_NET_MAX_WAIT=0
   export DVB_STATUS_FILE="$status_file"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # When the run exits cleanly after timeout, the status file rewrites to
   # 'complete' with terminal_reason set. But the log records every phase
@@ -90,24 +90,32 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "wait_for_network: network_restored log marker includes waited=N" {
-  # Flip the sentinel from down → up after a short delay so wait_for_network
-  # actually returns 0 rather than timing out. We need enough delta that
-  # waited>=1 so the log line reflects a measurable wait.
-  nohup bash -c "sleep 2; touch '$TEST_DIR/net-up'" &>/dev/null &
+  # Drive `_check_network_once` deterministically with the counter mode so
+  # this test does not depend on a `nohup sleep 2 && touch` race against
+  # parallel-load test setup overhead. With `DVB_NET_FLIP_AFTER=1`, the
+  # first check (in the fast-failure branch) returns false → forces
+  # `wait_for_network` to enter; the second check (inside the polling loop)
+  # returns true → loop exits, marker fires. No wall-clock timing.
+  #
+  # `DVB_SKIP_PREFLIGHT=1` is required so preflight does not consume the
+  # first counter tick — without it, preflight's network check would flip
+  # the counter to true before the fast-failure path runs.
   local restore_devin="$TEST_DIR/restore-devin"
   create_fake_devin "$restore_devin" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 SCRIPT
   export DVB_GRIND_CMD="$restore_devin"
-  setup_network_sentinel "$TEST_DIR/net-up" down
+  export DVB_NET_FILE="$TEST_DIR/net-counter"
+  export DVB_NET_FLIP_AFTER=1
+  export DVB_SKIP_PREFLIGHT=1
   export DVB_MIN_SESSION=999
   export DVB_BACKOFF_BASE=0
   export DVB_MAX_FAST=999
   export DVB_MAX_ZERO_SHIP=999
   export DVB_NET_WAIT=0
   export DVB_NET_MAX_WAIT=60
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Recovery path: exits 0, logs network_restored with waited=N tracked
@@ -127,47 +135,51 @@ SCRIPT
 }
 
 @test "network recovery extends deadline and logs network_restored" {
-  # Sentinel file created after 4s — long enough for the grind to start,
-  # run the first session, hit fast-failure, and enter wait_for_network.
-  # Extra margin for parallel test load.
-  nohup bash -c "sleep 4; touch '$TEST_DIR/net-up'" &>/dev/null &
-
+  # Counter-mode network state — flips from down→up after the fast-failure
+  # check. Replaces a `nohup sleep 4 && touch` race that was flaking under
+  # parallel load (bats setup overhead routinely consumed the 4s window
+  # before taskgrind even checked the sentinel).
   local restore_devin="$TEST_DIR/restore-devin"
   create_fake_devin "$restore_devin" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 SCRIPT
   export DVB_GRIND_CMD="$restore_devin"
-  setup_network_sentinel "$TEST_DIR/net-up" down
+  export DVB_NET_FILE="$TEST_DIR/net-counter"
+  export DVB_NET_FLIP_AFTER=1
+  export DVB_SKIP_PREFLIGHT=1
   export DVB_MIN_SESSION=999
   export DVB_BACKOFF_BASE=0
   export DVB_MAX_FAST=999
   export DVB_MAX_ZERO_SHIP=999
   export DVB_NET_WAIT=0
   export DVB_NET_MAX_WAIT=60
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=10
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'network_restored' "$TEST_LOG"
 }
 
 @test "session number rolls back after network recovery" {
-  nohup bash -c "sleep 2; touch '$TEST_DIR/net-up'" &>/dev/null &
-
+  # Counter-mode network state — same pattern as the previous test. Forces
+  # wait_for_network to enter (via FLIP_AFTER=1) without depending on a
+  # wall-clock race against bats setup overhead.
   local restore_devin="$TEST_DIR/restore-devin"
   create_fake_devin "$restore_devin" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 SCRIPT
   export DVB_GRIND_CMD="$restore_devin"
-  setup_network_sentinel "$TEST_DIR/net-up" down
+  export DVB_NET_FILE="$TEST_DIR/net-counter"
+  export DVB_NET_FLIP_AFTER=1
+  export DVB_SKIP_PREFLIGHT=1
   export DVB_MIN_SESSION=999
   export DVB_BACKOFF_BASE=0
   export DVB_MAX_FAST=999
   export DVB_MAX_ZERO_SHIP=999
   export DVB_NET_WAIT=0
   export DVB_NET_MAX_WAIT=30
-  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
+  export DVB_DEADLINE_OFFSET=10
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # First session=1 fails fast → network down → network back → session counter rolled back
@@ -185,7 +197,7 @@ SCRIPT
   export DVB_MIN_SESSION=999
   export DVB_BACKOFF_BASE=0
   export DVB_COOL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # After 3+ fast failures, should log fast_fail with backoff
@@ -200,7 +212,9 @@ SCRIPT
   export DVB_BACKOFF_MAX=10
   export DVB_COOL=0
   export DVB_MAX_ZERO_SHIP=10
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  # Need 4 fast failures + 1+2+3=6s of backoff sleeps; under 8x parallel
+  # bats load startup also costs 2-3s, so 18s is the safe envelope.
+  export DVB_DEADLINE_OFFSET=18
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # With base=1: consecutive=3 → 3s, consecutive=4 → 4s, etc.
@@ -218,7 +232,9 @@ SCRIPT
   export DVB_BACKOFF_MAX=10
   export DVB_COOL=0
   export DVB_MAX_ZERO_SHIP=10
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  # Same envelope rationale as the previous test — 4 fast fails + cumulative
+  # backoff sleeps + parallel-load startup overhead.
+  export DVB_DEADLINE_OFFSET=18
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # TG_BACKOFF_BASE=1 → backoff=3s on consecutive=3 (3 * 1, capped at 10)
@@ -236,7 +252,7 @@ SCRIPT
   export TG_BACKOFF_MAX=3
   export DVB_COOL=0
   export DVB_MAX_ZERO_SHIP=10
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # At consecutive=4+, backoff should be capped at 3, not ramping to 4+.
@@ -249,7 +265,7 @@ SCRIPT
   export DVB_BACKOFF_BASE=0
   export DVB_BACKOFF_MAX=5
   export DVB_COOL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # With base=0 all backoffs are 0, capped at 5 (but 0 < 5 so cap never triggers)
@@ -289,7 +305,9 @@ SCRIPT
   export DVB_BACKOFF_BASE=0
   export DVB_COOL=0
   export DVB_MAX_ZERO_SHIP=10
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  # Need 4+ sessions including a 2s slow one; under heavy parallel suite
+  # load 10s wasn't enough — startup overhead can eat 3s before session 1.
+  export DVB_DEADLINE_OFFSET=18
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [ -f "$DVB_GRIND_INVOKE_LOG" ]
@@ -303,7 +321,7 @@ SCRIPT
   # This means fast-failure detection is disabled — no fast_fail log entries
   unset DVB_MIN_SESSION 2>/dev/null || true
   unset DVB_NET_FILE 2>/dev/null || true
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   ! grep -q 'fast_fail' "$TEST_LOG"
@@ -317,7 +335,7 @@ SCRIPT
   export DVB_MIN_SESSION=999
   export DVB_BACKOFF_BASE=0
   export DVB_COOL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # With min_session=999, every instant session is a fast failure
@@ -340,17 +358,17 @@ SCRIPT
   export DVB_MIN_SESSION=999
   export DVB_NET_WAIT=0
   export DVB_NET_MAX_WAIT=0
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  # 3s window was too tight under heavy parallel suite load; needs ≥1
+  # session to launch + fast-fail + reach the network check path.
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"Network down"* ]]
 }
 
 @test "network restored message shows in terminal output" {
-  # Schedule network recovery after a delay — must be long enough that the
-  # first fast-failure check sees network down before the file appears.
-  (sleep 4; touch "$TEST_DIR/net-up") &
-  local _touch_pid=$!
-
+  # Counter-mode network state — flips down→up after the fast-failure check
+  # so wait_for_network enters and then exits cleanly with the "Network back"
+  # message. No wall-clock race against parallel-load test setup overhead.
   local restore_devin="$TEST_DIR/restore-devin"
   cat > "$restore_devin" <<'SCRIPT'
 #!/bin/bash
@@ -358,17 +376,17 @@ echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 SCRIPT
   chmod +x "$restore_devin"
   export DVB_GRIND_CMD="$restore_devin"
-  export DVB_NET_FILE="$TEST_DIR/net-up"
+  export DVB_NET_FILE="$TEST_DIR/net-counter"
+  export DVB_NET_FLIP_AFTER=1
+  export DVB_SKIP_PREFLIGHT=1
   export DVB_MIN_SESSION=999
   export DVB_BACKOFF_BASE=0
   export DVB_MAX_FAST=999
   export DVB_MAX_ZERO_SHIP=10
   export DVB_NET_WAIT=0
   export DVB_NET_MAX_WAIT=60
-  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
+  export DVB_DEADLINE_OFFSET=10
   run "$DVB_GRIND" 1 "$TEST_REPO"
-  kill "$_touch_pid" 2>/dev/null || true
-  wait "$_touch_pid" 2>/dev/null || true
   [[ "$output" == *"Network back"* ]]
 }
 
@@ -379,14 +397,14 @@ SCRIPT
   export DVB_MIN_SESSION=999
   export DVB_BACKOFF_BASE=0
   export DVB_COOL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
+  export DVB_DEADLINE_OFFSET=15
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"fast failures"* ]]
   [[ "$output" == *"exit="* ]]
 }
 
 @test "session end log includes exit code and duration" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -qE 'session=1 ended exit=[0-9]+ duration=[0-9]+s' "$TEST_LOG"
 }

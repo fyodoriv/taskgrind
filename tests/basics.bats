@@ -628,6 +628,25 @@ PY
   [ "$status" -eq 0 ]
 }
 
+@test "GitHub Actions test cache key covers every shell file make check touches" {
+  # tests/bash-compat.bats sources tests/verify-bash32-compat.sh to enforce
+  # the Bash 3.2 runtime contract, and `make lint` shellchecks install.sh.
+  # Both files affect the outcome of `make test` / `make check`, so both
+  # must be in the cache key — otherwise an edit to either one leaves a
+  # stale green cache in place and the regression slips through CI.
+  local workflow="$BATS_TEST_DIRNAME/../.github/workflows/check.yml"
+  run grep -n "tests/verify-bash32-compat.sh" "$workflow"
+  [ "$status" -eq 0 ]
+
+  run grep -n "install.sh" "$workflow"
+  [ "$status" -eq 0 ]
+
+  # The paths must live inside the hashFiles(...) tuple of the test cache
+  # key, not somewhere unrelated (e.g. a comment or a different step).
+  run grep -nE "tests-.*hashFiles.*tests/verify-bash32-compat.sh.*install.sh" "$workflow"
+  [ "$status" -eq 0 ]
+}
+
 @test "GitHub Actions runs make audit on pull requests" {
   run grep -n 'make audit$' "$BATS_TEST_DIRNAME/../.github/workflows/check.yml"
   [ "$status" -eq 0 ]
@@ -835,7 +854,7 @@ PY
 # ── Model selection ──────────────────────────────────────────────────
 
 @test "defaults to claude-opus-4-7-max" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Must be the exact default model string
@@ -843,7 +862,7 @@ PY
 }
 
 @test "default model does not use 'opus' shortname" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Should NOT contain bare '--model opus ' (the shortname)
@@ -886,7 +905,7 @@ PY
 }
 
 @test "default model passes through to backend invocation" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # The default model string must appear in the invocation log
@@ -896,7 +915,7 @@ PY
 }
 
 @test "every session gets the same model flag" {
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Every invocation line must contain the exact model flag
@@ -908,7 +927,7 @@ PY
 }
 
 @test "DVB_MODEL overrides default completely" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export DVB_MODEL=sonnet
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q -- '--model claude-sonnet-4.6' "$DVB_GRIND_INVOKE_LOG"
@@ -917,7 +936,7 @@ PY
 }
 
 @test "DVB_MODEL=claude-sonnet-4.5 passes through exactly" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export DVB_MODEL=claude-sonnet-4.5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q -- '--model claude-sonnet-4.5' "$DVB_GRIND_INVOKE_LOG"
@@ -926,14 +945,14 @@ PY
 # ── TG_ prefix support ─────────────────────────────────────────────────
 
 @test "TG_MODEL overrides default" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export TG_MODEL=sonnet
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q -- '--model claude-sonnet-4.6' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "TG_MODEL takes precedence over DVB_MODEL" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export DVB_MODEL=old-model
   export TG_MODEL=new-model
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -942,7 +961,7 @@ PY
 }
 
 @test "TG_SKILL overrides default skill" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export TG_SKILL=custom-skill
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"custom-skill"* ]]
@@ -961,14 +980,14 @@ PY
 }
 
 @test "model shows in startup banner" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"claude-opus-4-7-max"* ]]
 }
 
 @test "model shows in log file header" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'model=claude-opus-4-7-max' "$TEST_LOG"

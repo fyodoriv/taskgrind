@@ -28,7 +28,7 @@ sleep 5
 SCRIPT
   export DVB_GRIND_CMD="$slow_devin"
   export DVB_STATE_FILE="$state_file"
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
 
   "$DVB_GRIND" 1 "$TEST_REPO" >"$TEST_DIR/stdout.log" 2>"$TEST_DIR/stderr.log" &
   local grind_pid=$!
@@ -66,7 +66,7 @@ fi
 SCRIPT
   export DVB_GRIND_CMD="$resumable_devin"
   export DVB_STATE_FILE="$state_file"
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
 
   "$DVB_GRIND" 1 "$TEST_REPO" >"$TEST_DIR/stdout.log" 2>"$TEST_DIR/stderr.log" &
   local grind_pid=$!
@@ -234,7 +234,7 @@ fi
 SCRIPT
   export DVB_GRIND_CMD="$resumable_devin"
   export DVB_STATE_FILE="$state_file"
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
 
   "$DVB_GRIND" --prompt "focus on backend docs" 1 "$TEST_REPO" >"$TEST_DIR/stdout.log" 2>"$TEST_DIR/stderr.log" &
   local grind_pid=$!

@@ -38,7 +38,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   git -C "$TEST_REPO" add feature.txt
   git -C "$TEST_REPO" commit -q --no-verify -m "feature work"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -79,7 +79,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   echo "uncommitted work" > "$TEST_REPO/dirty.txt"
   git -C "$TEST_REPO" add dirty.txt
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -100,7 +100,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   git -C "$TEST_REPO" remote add origin "$bare"
   git -C "$TEST_REPO" push -q origin main 2>/dev/null
 
-  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
+  export DVB_DEADLINE_OFFSET=40
   export DVB_SYNC_INTERVAL=3
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -123,7 +123,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 
   export TG_SYNC_INTERVAL=2
   export DVB_SYNC_INTERVAL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
+  export DVB_DEADLINE_OFFSET=20
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -173,7 +173,7 @@ EOF
   echo "uncommitted work" > "$TEST_REPO/dirty.txt"
   git -C "$TEST_REPO" add dirty.txt
 
-  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
+  export DVB_DEADLINE_OFFSET=15
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -203,7 +203,7 @@ EOF
   git -C "$TEST_REPO" merge -q already-merged --no-edit
   git -C "$TEST_REPO" push -q origin main 2>/dev/null
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -228,7 +228,7 @@ EOF
   git -C "$TEST_REPO" commit -q --no-verify -m "wip"
   git -C "$TEST_REPO" checkout -q main
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -257,7 +257,7 @@ EOF
   git -C "$TEST_REPO" merge -q maintain-docs --no-edit
   git -C "$TEST_REPO" push -q origin main 2>/dev/null
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -290,7 +290,7 @@ EOF
   # Delete the remote branch (simulates GitHub merge+delete)
   git -C "$bare" branch -D stale-feature 2>/dev/null
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -322,7 +322,7 @@ EOF
     git -C "$bare" branch -D "$branch_name" 2>/dev/null
   done
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -352,7 +352,7 @@ EOF
   git -C "$TEST_REPO" branch --set-upstream-to=origin/active-feature active-feature 2>/dev/null
   git -C "$TEST_REPO" checkout -q main
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -388,7 +388,7 @@ EOF
   git -C "$TEST_REPO" add file.txt
   git -C "$TEST_REPO" commit -q --no-verify -m "local conflict"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -410,7 +410,7 @@ EOF
   git -C "$TEST_REPO" remote add origin "$bare"
   git -C "$TEST_REPO" push -q origin main 2>/dev/null
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -428,7 +428,7 @@ EOF
   # Point origin at a nonexistent path so fetch fails
   git -C "$TEST_REPO" remote add origin "/nonexistent/bare.git"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -460,7 +460,7 @@ EOF
   printf 'local-change\n' > "$TEST_REPO/README.md"
   git -C "$TEST_REPO" commit -qam "local change"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -528,7 +528,7 @@ EOF
 EOF
   git -C "$TEST_REPO" commit -qam "local queue change"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -565,7 +565,7 @@ EOF
   printf 'local-change\n' > "$TEST_REPO/README.md"
   git -C "$TEST_REPO" commit -qam "local change"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -617,7 +617,7 @@ EOF
   git -C "$TEST_REPO" remote add origin "$bare"
   git -C "$TEST_REPO" push -q -u origin main 2>/dev/null
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run env DVB_DEFAULT_BRANCH=release "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -655,7 +655,7 @@ EOF
   git -C "$TEST_REPO" remote add origin "$bare"
   git -C "$TEST_REPO" push -q -u origin master 2>/dev/null
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -704,7 +704,7 @@ EOF
   git -C "$TEST_REPO" remote add origin "$bare"
   git -C "$TEST_REPO" push -q -u origin release 2>/dev/null
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -751,7 +751,7 @@ EOF
   git -C "$TEST_REPO" push -q -u origin master 2>/dev/null
   rm -f "$TEST_REPO/.git/refs/remotes/origin/master"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   git -C "$TEST_REPO" checkout -q --detach
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -818,7 +818,7 @@ EOF
   export TG_GIT_SYNC_TIMEOUT=1
   export DVB_GIT_SYNC_TIMEOUT=5
   export DVB_SYNC_INTERVAL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
+  export DVB_DEADLINE_OFFSET=20
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -ne 0 ]

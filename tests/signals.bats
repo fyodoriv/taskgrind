@@ -31,7 +31,7 @@ _wait_for_file_pattern() {
 }
 
 @test "taskgrind prints summary on interrupt (INT/TERM)" {
-  export DVB_DEADLINE=$(( $(date +%s) + 180 ))
+  export DVB_DEADLINE_OFFSET=180
   local started_file="$TEST_DIR/session-started"
   local slow_devin="$TEST_DIR/slow-devin"
   cat > "$slow_devin" <<SCRIPT
@@ -58,7 +58,7 @@ SCRIPT
 - [ ] Second queued task
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 180 ))
+  export DVB_DEADLINE_OFFSET=180
   local started_file="$TEST_DIR/session-started"
   local slow_devin="$TEST_DIR/slow-devin"
   cat > "$slow_devin" <<SCRIPT
@@ -95,7 +95,7 @@ echo "session_finished" >> "$TEST_DIR/session-lifecycle.log"
 SCRIPT
   chmod +x "$slow_devin"
   export DVB_GRIND_CMD="$slow_devin"
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
   export DVB_SHUTDOWN_GRACE=10
 
   "$DVB_GRIND" 1 "$TEST_REPO" > "$TEST_DIR/graceful-output.txt" 2>&1 &
@@ -119,7 +119,7 @@ echo "session_finished" >> "$TEST_DIR/session-lifecycle.log"
 SCRIPT
   chmod +x "$slow_devin"
   export DVB_GRIND_CMD="$slow_devin"
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
   export DVB_SHUTDOWN_GRACE=10
 
   "$DVB_GRIND" 1 "$TEST_REPO" > "$TEST_DIR/graceful-term-output.txt" 2>&1 &
@@ -246,7 +246,7 @@ SCRIPT
   unset DVB_GRIND_CMD
   export DVB_DEVIN_PATH="$fake_devin"
   export DVB_CAFFEINATED=1
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
 
   "$DVB_GRIND" 1 "$grind_repo" >/dev/null 2>&1
   [ "$?" -eq 0 ]
@@ -296,7 +296,7 @@ SCRIPT
   unset DVB_GRIND_CMD
   export DVB_DEVIN_PATH="$fake_devin"
   export DVB_CAFFEINATED=1
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
 
   run "$DVB_GRIND" 1 "$grind_repo"
   [ "$status" -eq 0 ]
@@ -356,7 +356,7 @@ SCRIPT
   unset DVB_GRIND_CMD
   export DVB_DEVIN_PATH="$fake_devin"
   export DVB_CAFFEINATED=1
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
 
   run "$DVB_GRIND" 1 "$grind_repo"
   [ "$status" -eq 0 ]
@@ -418,7 +418,7 @@ SCRIPT
   unset DVB_GRIND_CMD
   export DVB_DEVIN_PATH="$fake_devin"
   export DVB_CAFFEINATED=1
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
   export DVB_SHUTDOWN_GRACE=10
 
   "$DVB_GRIND" 1 "$grind_repo" > "$TEST_DIR/graceful-final-sync-output.txt" 2>&1 &
@@ -486,7 +486,7 @@ SCRIPT
   unset DVB_GRIND_CMD
   export DVB_DEVIN_PATH="$fake_devin"
   export DVB_CAFFEINATED=1
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
   export DVB_SHUTDOWN_GRACE=10
 
   "$DVB_GRIND" 1 "$grind_repo" > "$TEST_DIR/repeated-signal-final-sync-output.txt" 2>&1 &
@@ -520,7 +520,7 @@ SCRIPT
 ## P0
 - [ ] Persistent task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'shipped=0' "$TEST_LOG"
 }
@@ -531,7 +531,7 @@ TASKS
 ## P0
 - [ ] Task that stays
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"0+ tasks"* ]]
 }
@@ -549,7 +549,7 @@ TASKS
 }
 
 @test "grind exits immediately when deadline reached mid-loop" {
-  export DVB_DEADLINE=$(( $(date +%s) + 1 ))
+  export DVB_DEADLINE_OFFSET=1
   export DVB_COOL=60
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -559,7 +559,7 @@ TASKS
 # ── Caffeinate re-exec ───────────────────────────────────────────────
 
 @test "caffeinate re-exec is skipped in test mode" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
 }
@@ -596,7 +596,7 @@ TASKS
 ## P0
 - [ ] Stubborn task that never completes
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
   export DVB_MAX_ZERO_SHIP=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -615,7 +615,7 @@ TASKS
 ## P0
 - [ ] Stubborn task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
   # If DVB_ won, bail would need 20 zero-ship sessions. TG_ should force the
   # bail to fire at 3, proving the mirror works for this knob.
   export DVB_MAX_ZERO_SHIP=20
@@ -634,7 +634,7 @@ TASKS
 ## P0
 - [ ] Stubborn task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
+  export DVB_DEADLINE_OFFSET=15
   export DVB_MAX_ZERO_SHIP=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'stall_warning consecutive_zero_ship=3' "$TEST_LOG"
@@ -680,7 +680,7 @@ SCRIPT
 ## P0
 - [ ] Stubborn task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
+  export DVB_DEADLINE_OFFSET=20
   export DVB_MAX_ZERO_SHIP=5
   export DVB_SKIP_SWEEP_ON_EMPTY=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -726,7 +726,7 @@ SCRIPT
 ## P0
 - [ ] Large task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
+  export DVB_DEADLINE_OFFSET=20
   export DVB_MAX_ZERO_SHIP=5
   export DVB_SKIP_SWEEP_ON_EMPTY=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -765,7 +765,7 @@ TASKS
   git -C "$TEST_REPO" add -f TASKS.md
   git -C "$TEST_REPO" commit -q -m "chore: seed stuck task"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   export DVB_MAX_ZERO_SHIP=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'productive_zero_ship' "$TEST_LOG"
@@ -804,7 +804,7 @@ TASKS
   git -C "$TEST_REPO" add -f TASKS.md
   git -C "$TEST_REPO" commit -q -m "chore: seed blocked task"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   export DVB_MAX_ZERO_SHIP=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'reason=no_local_task_removed task_id=approval-task blocker=IPSR approval' "$TEST_LOG"
@@ -843,7 +843,7 @@ SCRIPT
   **ID**: task-a
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   export DVB_MAX_ZERO_SHIP=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'productive_zero_ship' "$TEST_LOG"
@@ -892,7 +892,7 @@ SCRIPT
   **ID**: task-a
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   export DVB_MAX_ZERO_SHIP=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'productive_zero_ship' "$TEST_LOG"
@@ -911,6 +911,12 @@ TASKS
   git -C "$TEST_REPO" add -f TASKS.md
   git -C "$TEST_REPO" commit -q -m "chore: seed queue"
 
+  # Fake devin does the orphan-branch checkout + queue refresh once per
+  # session. The `sleep 2` is gone — that was a hack to keep session 1
+  # alive past the original `DVB_DEADLINE=$(( now + 1 ))` window, which
+  # itself was the parallel-load flake source. With `DVB_DEADLINE_OFFSET=15`
+  # the deadline is set relative to taskgrind's own clock read, so the
+  # session loop is guaranteed to enter once even under heavy bats load.
   local commit_devin="$TEST_DIR/commit-devin"
   cat > "$commit_devin" <<SCRIPT
 #!/bin/bash
@@ -926,13 +932,15 @@ EOF
 echo "audit refresh" > "$TEST_REPO/code.txt"
 git -C "$TEST_REPO" add -A
 git -C "$TEST_REPO" commit -q -m "chore: refresh audit queue"
-sleep 2
 SCRIPT
   chmod +x "$commit_devin"
   export DVB_GRIND_CMD="$commit_devin"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 1 ))
-  export DVB_MAX_ZERO_SHIP=5
+  # Use DVB_DEADLINE_OFFSET so heavy parallel-setup latency cannot push the
+  # deadline into the past before the session loop enters. 5s is plenty —
+  # the fake devin runs in <100ms; this is just guaranteeing one iteration.
+  export DVB_DEADLINE_OFFSET=5
+  export DVB_MAX_ZERO_SHIP=1  # bail after 1 zero-ship to keep the run short
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
   [ "$status" -eq 0 ]
@@ -977,7 +985,7 @@ SCRIPT
   chmod +x "$commit_devin"
   export DVB_GRIND_CMD="$commit_devin"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   export DVB_MAX_ZERO_SHIP=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'productive_zero_ship session=1 commits=1 reason=nonlocal_task_removed' "$TEST_LOG"
@@ -1036,7 +1044,7 @@ SCRIPT
 - [ ] Persistent task
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
+  export DVB_DEADLINE_OFFSET=20
   export DVB_MAX_ZERO_SHIP=5
   export DVB_SKIP_SWEEP_ON_EMPTY=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -1051,7 +1059,7 @@ TASKS
 - [ ] Task
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export DVB_MAX_ZERO_SHIP=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   ! grep -q 'productive_zero_ship' "$TEST_LOG"
@@ -1093,7 +1101,7 @@ SCRIPT
     done
   } > "$TEST_REPO/TASKS.md"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export DVB_MAX_ZERO_SHIP=3
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -1113,7 +1121,7 @@ SCRIPT
 # ── grind_done log ordering on Ctrl-C ──────────────────────────────────
 
 @test "grind_done is last log entry on Ctrl-C interrupt" {
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
   local slow_devin="$TEST_DIR/slow-devin"
   cat > "$slow_devin" <<'SCRIPT'
 #!/bin/bash
@@ -1202,7 +1210,7 @@ SCRIPT
   export DVB_MAX_SESSION=1
   export DVB_SESSION_GRACE=9
   export TG_SESSION_GRACE=0
-  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
+  export DVB_DEADLINE_OFFSET=20
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"still alive after 0s grace"* ]]
@@ -1217,7 +1225,7 @@ SCRIPT
 ## P0
 - [ ] Stubborn task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
+  export DVB_DEADLINE_OFFSET=15
   export DVB_MAX_ZERO_SHIP=10
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'diminishing_returns' "$TEST_LOG"
@@ -1230,7 +1238,7 @@ TASKS
 ## P0
 - [ ] Stubborn task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
+  export DVB_DEADLINE_OFFSET=15
   export DVB_MAX_ZERO_SHIP=10
   export DVB_EARLY_EXIT_ON_STALL=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -1245,7 +1253,7 @@ TASKS
 ## P0
 - [ ] Stubborn task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
+  export DVB_DEADLINE_OFFSET=15
   export DVB_MAX_ZERO_SHIP=6
   export DVB_EARLY_EXIT_ON_STALL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -1260,7 +1268,7 @@ TASKS
 ## P0
 - [ ] Stubborn task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
+  export DVB_DEADLINE_OFFSET=15
   export DVB_MAX_ZERO_SHIP=10
   export DVB_EARLY_EXIT_ON_STALL=0
   export TG_EARLY_EXIT_ON_STALL=1
@@ -1276,7 +1284,7 @@ TASKS
 ## P0
 - [ ] Stubborn task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
   export DVB_MAX_ZERO_SHIP=20
   export DVB_EARLY_EXIT_ON_STALL=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -1323,7 +1331,7 @@ SCRIPT
 
   # DVB_MAX_SESSION=0 means any elapsed time >= 0 triggers productive_timeout
   export DVB_MAX_SESSION=0
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'productive_timeout' "$TEST_LOG"
@@ -1364,7 +1372,7 @@ SCRIPT
   } > "$TEST_REPO/TASKS.md"
 
   export DVB_MAX_SESSION=0
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"Auto-increasing to"* ]]
   grep -q 'new_timeout=' "$TEST_LOG"
@@ -1388,7 +1396,7 @@ SCRIPT
 - [ ] Stubborn task
 TASKS
   export DVB_MAX_SESSION=0
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export DVB_MAX_ZERO_SHIP=3
   run "$DVB_GRIND" 1 "$TEST_REPO"
   ! grep -q 'productive_timeout' "$TEST_LOG"

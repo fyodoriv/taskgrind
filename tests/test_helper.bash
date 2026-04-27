@@ -51,6 +51,32 @@ TASKS
   # DVB_GRIND_CMD is set, but this also covers callers that source the
   # helper without going through the bats runner.
   export DVB_NOTIFY=0
+  # Test-mode timing defaults — production defaults are tuned for real
+  # multi-hour grinds (15s backoff base, 30s network poll), which add
+  # minutes to every fast-failure test that just wants to verify a log
+  # marker. Tests that explicitly exercise backoff or polling timing
+  # override these in their own setup.
+  #
+  # `DVB_BACKOFF_BASE=0` zeroes the per-fast-failure sleep so a test that
+  # does N fast sessions does not pay 15s × consecutive_fast on each one
+  # (one slow run measured ~277s on a single check_network test because
+  # of cumulative 45+60+75+90s backoffs).
+  #
+  # `DVB_NET_WAIT=0` makes wait_for_network's polling loop tight so a
+  # test with a 1s `DVB_NET_MAX_WAIT` does not have to sit through one
+  # full default 30s poll before the timeout fires.
+  #
+  # `DVB_EMPTY_QUEUE_WAIT=1` collapses the post-sweep "wait for external
+  # task injection" pause from 600s (production default, capped at
+  # remaining deadline) to 1s for any test that hits an empty queue
+  # without specifying its own value. Many session.bats tests only check
+  # that "Queue empty" output appears or that `sweep_done` was logged;
+  # they do not exercise the wait duration and were costing ~15s each
+  # because the wait clamped to the auto-extended 15s deadline.
+  : "${DVB_BACKOFF_BASE:=0}"
+  : "${DVB_NET_WAIT:=0}"
+  : "${DVB_EMPTY_QUEUE_WAIT:=1}"
+  export DVB_BACKOFF_BASE DVB_NET_WAIT DVB_EMPTY_QUEUE_WAIT
 
   # Create a fake devin that just exits immediately
   FAKE_DEVIN="$TEST_DIR/fake-devin"

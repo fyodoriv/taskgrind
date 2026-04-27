@@ -69,7 +69,7 @@ _wait_for_slot_file() {
 # ── Slot basics ──────────────────────────────────────────────────────
 
 @test "default max_instances is 2" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Instance slot: 0 of 2"* ]]
@@ -77,7 +77,7 @@ _wait_for_slot_file() {
 
 @test "TG_MAX_INSTANCES=3 shows slot in banner" {
   export DVB_MAX_INSTANCES=3
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Instance slot: 0 of 3"* ]]
@@ -85,7 +85,7 @@ _wait_for_slot_file() {
 
 @test "DVB_SLOT=0 sets slot 0 in test mode" {
   export DVB_SLOT=0
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # slot=0 in log header
@@ -95,14 +95,14 @@ _wait_for_slot_file() {
 @test "DVB_SLOT=1 sets slot 1 in test mode" {
   export DVB_SLOT=1
   export DVB_MAX_INSTANCES=2
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'slot=1' "$TEST_LOG"
 }
 
 @test "slot shows in log file header" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'slot=0' "$TEST_LOG"
 }
@@ -110,7 +110,7 @@ _wait_for_slot_file() {
 @test "TG_MAX_INSTANCES takes precedence over DVB_MAX_INSTANCES" {
   export TG_MAX_INSTANCES=3
   export DVB_MAX_INSTANCES=2
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Instance slot: 0 of 3"* ]]
@@ -134,7 +134,7 @@ _wait_for_slot_file() {
 
 @test "slot 0 does not get MULTI-INSTANCE prompt" {
   export DVB_SLOT=0
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   ! grep -q 'MULTI-INSTANCE' "$DVB_GRIND_INVOKE_LOG"
@@ -143,7 +143,7 @@ _wait_for_slot_file() {
 @test "slot 1 gets MULTI-INSTANCE conflict-avoidance in prompt" {
   export DVB_SLOT=1
   export DVB_MAX_INSTANCES=2
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'MULTI-INSTANCE' "$DVB_GRIND_INVOKE_LOG"
@@ -152,7 +152,7 @@ _wait_for_slot_file() {
 @test "slot 1 prompt mentions instance number and total" {
   export DVB_SLOT=1
   export DVB_MAX_INSTANCES=3
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'instance 1 of 3' "$DVB_GRIND_INVOKE_LOG"
@@ -161,7 +161,7 @@ _wait_for_slot_file() {
 @test "slot 1 prompt advises git pull --rebase" {
   export DVB_SLOT=1
   export DVB_MAX_INSTANCES=2
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'git pull --rebase' "$DVB_GRIND_INVOKE_LOG"
@@ -177,7 +177,7 @@ _wait_for_slot_file() {
 TASKS
   export DVB_SLOT=1
   export DVB_MAX_INSTANCES=2
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill standing-audit-gap-loop
   [ "$status" -eq 0 ]
   grep -q 'standing-audit-gap-loop' "$DVB_GRIND_INVOKE_LOG"
@@ -189,7 +189,7 @@ TASKS
 @test "slot 0 runs git sync normally" {
   export DVB_SLOT=0
   export DVB_SYNC_INTERVAL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   # Create a git repo with remote so sync is attempted
   git -C "$TEST_REPO" init -q -b main
   git -C "$TEST_REPO" config user.email "test@test.com"
@@ -208,7 +208,7 @@ TASKS
   export DVB_SLOT=1
   export DVB_MAX_INSTANCES=2
   export DVB_SYNC_INTERVAL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'git_sync skipped.*slot=1.*only slot 0 syncs' "$TEST_LOG"
@@ -218,7 +218,7 @@ TASKS
   export DVB_SLOT=2
   export DVB_MAX_INSTANCES=3
   export DVB_SYNC_INTERVAL=0
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'git_sync skipped.*slot=2.*only slot 0 syncs' "$TEST_LOG"
@@ -301,7 +301,7 @@ TASKS
 @test "two concurrent grinds on same repo acquire slots 0 and 1 by default" {
   _setup_production_multi_instance_backend
   unset DVB_MAX_INSTANCES
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   local first_output="$TEST_DIR/default-slot-0.out"
   local second_output="$TEST_DIR/default-slot-1.out"
 
@@ -331,7 +331,7 @@ TASKS
 
 @test "two concurrent grinds on same repo acquire slots 0 and 1" {
   _setup_production_multi_instance_backend
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   local first_output="$TEST_DIR/slot-0.out"
   local second_output="$TEST_DIR/slot-1.out"
 
@@ -357,7 +357,7 @@ TASKS
   _setup_production_multi_instance_backend
   export DVB_MAX_INSTANCES=1
   export PROD_FAKE_DEVIN_SLEEP=6
-  export DVB_DEADLINE=$(( $(date +%s) + 12 ))
+  export DVB_DEADLINE_OFFSET=12
   local first_output="$TEST_DIR/full-slot-0.out"
 
   "$DVB_GRIND" 1 "$TEST_REPO" > "$first_output" 2>&1 &
@@ -375,7 +375,7 @@ TASKS
 @test "--preflight reports active slots for running grinds" {
   _setup_production_multi_instance_backend
   export PROD_FAKE_DEVIN_SLEEP=6
-  export DVB_DEADLINE=$(( $(date +%s) + 12 ))
+  export DVB_DEADLINE_OFFSET=12
   local first_output="$TEST_DIR/preflight-slot-0.out"
 
   "$DVB_GRIND" 1 "$TEST_REPO" > "$first_output" 2>&1 &
@@ -392,7 +392,7 @@ TASKS
 # ── Existing single-instance behavior preserved ──────────────────────
 
 @test "single instance still works with default config" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"sessions"* ]]

@@ -184,6 +184,48 @@ EOF
   [[ "$output" == *"No git remote configured"* ]]
 }
 
+# Regression for preflight-remote-watchdog-bash32-bug: the previous shell
+# watchdog used `wait` on a sibling pid, which works on bash 4+ but
+# returns 127 immediately on macOS /bin/bash 3.2 — firing the
+# "Git remote unreachable" warning unconditionally on every macOS run
+# even when `git ls-remote` would succeed. These two tests pin the fix
+# (use git's GIT_HTTP_LOW_SPEED_TIME for the timeout, no shell-level
+# watchdog) and ensure neither half regresses.
+@test "preflight reports remote reachable for a working local origin (no false alarm on bash 3.2)" {
+  # Set up a local bare repo as origin so `git ls-remote` succeeds without
+  # depending on network or auth. This is the path that was always
+  # firing the warning before the fix on macOS bash 3.2.
+  _preflight_git_init
+  local bare="$TEST_DIR/origin.git"
+  git init --quiet --bare "$bare"
+  git -C "$TEST_REPO" remote add origin "$bare"
+  git -C "$TEST_REPO" push --quiet origin main 2>/dev/null
+
+  echo "# Tasks" > "$TEST_REPO/TASKS.md"
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Git remote reachable"* ]]
+  # The pre-fix bug presented as the "unreachable" warning firing
+  # alongside everything else passing — this assertion catches the
+  # regression directly.
+  [[ "$output" != *"Git remote unreachable"* ]]
+}
+
+@test "preflight still warns when origin URL is bogus (timeout path is not silently disabled)" {
+  # Negative case: the fix replaces the buggy watchdog with git's own
+  # timeout knobs. We need to confirm the timeout still fires — i.e.
+  # the warning DOES appear when the remote is genuinely unreachable.
+  # Use a non-existent local path as origin so `git ls-remote` fails
+  # fast (no real network call needed).
+  _preflight_git_init
+  git -C "$TEST_REPO" remote add origin "$TEST_DIR/does-not-exist.git"
+
+  echo "# Tasks" > "$TEST_REPO/TASKS.md"
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Git remote unreachable"* ]]
+}
+
 @test "preflight runs before main loop and blocks on failure" {
   # Structural: preflight_check is called before the while loop
   grep -q 'preflight_check' "$DVB_GRIND"
@@ -344,7 +386,7 @@ SCRIPT
   # (deadline_expired_before_session_loop) instead of 1
   # (backend_probe_failed). 30s is plenty — the probe still fails
   # immediately in the common case so the test stays fast.
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
@@ -381,7 +423,7 @@ SCRIPT
   # 5s would be too tight under TEST_JOBS=6 — session 1 needs to actually
   # run to completion here (we assert `session=1 ended`). 30s is plenty;
   # the fake backend exits immediately so the test stays fast.
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
 

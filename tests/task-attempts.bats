@@ -52,7 +52,7 @@ SCRIPT
   chmod +x "$shim_dir/mv"
 
   export PATH="$shim_dir:$PATH"
-  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
+  export DVB_DEADLINE_OFFSET=40
   export DVB_MAX_SESSION=1
 
   run "$DVB_GRIND" 4 "$TEST_REPO"
@@ -203,7 +203,7 @@ SCRIPT
 TASKS
 
   export DVB_GRIND_CMD="$fast_devin"
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
   export DVB_MAX_SESSION=1
   export DVB_MAX_ZERO_SHIP=999
 
@@ -228,7 +228,7 @@ SCRIPT
 TASKS
 
   export DVB_GRIND_CMD="$fast_devin"
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
   export DVB_MAX_SESSION=1
   export DVB_MAX_ZERO_SHIP=999
 
@@ -269,7 +269,7 @@ TASKS
 fi
 SCRIPT
   export DVB_GRIND_CMD="$toggling_devin"
-  export DVB_DEADLINE=$(( $(date +%s) + 30 ))
+  export DVB_DEADLINE_OFFSET=30
   export DVB_MAX_SESSION=1
   export DVB_MAX_ZERO_SHIP=999
 

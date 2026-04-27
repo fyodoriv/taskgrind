@@ -46,37 +46,37 @@ TASKS
 # ── Session loop ─────────────────────────────────────────────────────
 
 @test "runs devin with --permission-mode dangerous" {
-  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
+  export DVB_DEADLINE_OFFSET=40
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q -- '--permission-mode dangerous' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "runs devin in print mode with -p prompt" {
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q -- '-p Run the next-task skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "prompt includes session number" {
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'Session 1' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "prompt includes remaining minutes" {
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'minutes remaining' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "prompt includes commit-before-timeout guidance" {
-  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
+  export DVB_DEADLINE_OFFSET=40
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'Commit before timeout' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "prompt includes completion protocol with merge and remove instructions" {
-  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
+  export DVB_DEADLINE_OFFSET=40
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'COMPLETION PROTOCOL' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'PR.*merge' "$DVB_GRIND_INVOKE_LOG"
@@ -84,7 +84,7 @@ TASKS
 }
 
 @test "prompt includes autonomy block with automation guidance" {
-  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
+  export DVB_DEADLINE_OFFSET=40
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'AUTONOMY:' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'browser automation' "$DVB_GRIND_INVOKE_LOG"
@@ -114,7 +114,7 @@ SCRIPT
   export TASKPOLICY_LOG="$taskpolicy_log"
   export DEVIN_PARENT_LOG="$devin_parent_log"
   export DVB_GRIND_CMD="$TEST_DIR/fake-devin-with-ppid"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
@@ -168,7 +168,7 @@ SCRIPT
 ## P0
 - [ ] Persistent task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
+  export DVB_DEADLINE_OFFSET=20
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Session 2 prompt should mention the zero-ship from session 1
   [ -f "$prompt_dir/prompt-2.txt" ]
@@ -178,7 +178,7 @@ TASKS
 @test "pre-session recovery classifies TASKS-only rebase conflicts" {
   start_conflicted_rebase "TASKS.md"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=999
   export DVB_SKIP_PREFLIGHT=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -193,7 +193,7 @@ TASKS
 @test "pre-session recovery classifies non-queue rebase conflicts" {
   start_conflicted_rebase "README.md"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=999
   export DVB_SKIP_PREFLIGHT=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -243,7 +243,7 @@ SCRIPT
 - [ ] Stubborn task (@stuck-agent)
   **ID**: stubborn-task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
+  export DVB_DEADLINE_OFFSET=40
   export DVB_MAX_ZERO_SHIP=6
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ -f "$TEST_DIR/prompt-4.txt" ]
@@ -303,7 +303,7 @@ SCRIPT
 - [ ] Stubborn task (@stuck-agent)
   **ID**: stubborn-task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
+  export DVB_DEADLINE_OFFSET=40
   export DVB_MAX_ZERO_SHIP=6
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'task_skip_threshold ids=stubborn-task' "$TEST_LOG"
@@ -331,7 +331,7 @@ SCRIPT
 - [ ] Stubborn task (@stuck-agent)
   **ID**: stubborn-task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export DVB_MAX_ZERO_SHIP=6
   run "$DVB_GRIND" 1 "$TEST_REPO"
   ! find "$tmp_root" -maxdepth 1 -name 'taskgrind-*.task-attempts*' | grep -q .
@@ -360,7 +360,7 @@ EOF
 SCRIPT
   chmod +x "$queue_refresh_devin"
   export DVB_GRIND_CMD="$queue_refresh_devin"
-  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
+  export DVB_DEADLINE_OFFSET=40
 
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill standing-audit-gap-loop
 
@@ -379,7 +379,7 @@ SCRIPT
   **Tags**: audit, logs
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
+  export DVB_DEADLINE_OFFSET=40
 
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill standing-audit-gap-loop
 
@@ -399,7 +399,7 @@ TASKS
   **Details**: Continuously discover high-value follow-up work for slot 0 to ship.
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 40 ))
+  export DVB_DEADLINE_OFFSET=40
 
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill standing-audit-gap-loop
 
@@ -410,39 +410,39 @@ TASKS
 }
 
 @test "--skill flag changes the skill in the prompt" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill fleet-grind
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--skill flag shows in startup banner" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill fleet-grind
   [[ "$output" == *"skill=fleet-grind"* ]]
 }
 
 @test "DVB_SKILL env overrides default skill" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export DVB_SKILL=fleet-grind
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--skill flag overrides DVB_SKILL env" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export DVB_SKILL=sweep
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill fleet-grind
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "default skill is next-task when no --skill or DVB_SKILL" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'Run the next-task skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--skill works with repo path in any order" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 --skill fleet-grind "$TEST_REPO"
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -473,33 +473,33 @@ TASKS
 # ── --prompt flag ────────────────────────────────────────────────────
 
 @test "--prompt flag adds focus to session prompt" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "focus on test coverage"
   grep -q 'FOCUS: focus on test coverage' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt= syntax works" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt="improve error handling"
   grep -q 'FOCUS: improve error handling' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "DVB_PROMPT env sets focus prompt" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export DVB_PROMPT="fix flaky tests"
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'FOCUS: fix flaky tests' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "TG_PROMPT env sets focus prompt" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export TG_PROMPT="cover canonical env vars"
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'FOCUS: cover canonical env vars' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "TG_PROMPT takes precedence over DVB_PROMPT" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export DVB_PROMPT="legacy prompt"
   export TG_PROMPT="canonical prompt"
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -508,14 +508,14 @@ TASKS
 }
 
 @test "--prompt flag overrides DVB_PROMPT env" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   export DVB_PROMPT="env prompt"
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "flag prompt"
   grep -q 'FOCUS: flag prompt' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt shows focus in startup banner" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "test coverage"
   [[ "$output" == *"Focus: test coverage"* ]]
 }
@@ -527,13 +527,13 @@ TASKS
 }
 
 @test "no --prompt omits FOCUS from prompt" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   ! grep -q 'FOCUS:' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt works with --skill and repo in any order" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" --prompt "perf work" --skill fleet-grind "$TEST_REPO" 1
   grep -q 'FOCUS: perf work' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
@@ -541,7 +541,7 @@ TASKS
 
 @test "runs multiple sessions when deadline allows" {
   # Fake devin that exits instantly; generous deadline to avoid flake under load
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" 1 "$TEST_REPO"
   local count
   count=$(wc -l < "$DVB_GRIND_INVOKE_LOG")
@@ -549,7 +549,7 @@ TASKS
 }
 
 @test "session counter increments across sessions" {
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'session 1' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'session 2' "$DVB_GRIND_INVOKE_LOG"
@@ -611,7 +611,7 @@ SCRIPT
   export PATH="$fake_bin:$PATH"
   export GIT_HEAD_COUNTER="$git_counter"
   unset DVB_GRIND_CMD
-  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
+  export DVB_DEADLINE_OFFSET=20
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
@@ -632,7 +632,7 @@ exit 1
 SCRIPT
   chmod +x "$bad_devin"
   export DVB_GRIND_CMD="$bad_devin"
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   local count
@@ -655,14 +655,14 @@ SCRIPT
 
 - [ ] Refactor auth module
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"3 tasks queued"* ]]
 }
 
 @test "reports 0 tasks when TASKS.md is missing" {
   rm -f "$TEST_REPO/TASKS.md"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Queue empty"* ]]
@@ -670,7 +670,7 @@ TASKS
 
 @test "reports 0 tasks when TASKS.md has no checkboxes" {
   echo "# Tasks" > "$TEST_REPO/TASKS.md"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Queue empty"* ]]
@@ -679,7 +679,7 @@ TASKS
 @test "count_tasks returns clean integer 0 (no multiline) when no checkboxes" {
   # Regression: grep -c exits 1 on 0 matches, || echo "0" produced "0\n0"
   echo "# Tasks" > "$TEST_REPO/TASKS.md"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # With empty queue, sweep runs then exits cleanly without arithmetic errors
   [ "$status" -eq 0 ]
@@ -693,7 +693,7 @@ TASKS
 ## P0
 ## P1
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Sweep session should have been launched (fake devin records invocation)
@@ -708,7 +708,7 @@ TASKS
 # Tasks
 ## P0
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill standing-audit-gap-loop
   [ "$status" -eq 0 ]
   grep -q 'Run the standing-audit-gap-loop skill' "$DVB_GRIND_INVOKE_LOG"
@@ -717,7 +717,7 @@ TASKS
 
 @test "missing TASKS.md launches sweep then exits" {
   rm -f "$TEST_REPO/TASKS.md"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'sweep_empty' "$TEST_LOG"
@@ -738,7 +738,7 @@ SCRIPT
   export DVB_GRIND_CMD="$sweep_devin"
   # Start with empty queue
   printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Should have sweep session + at least 1 normal session
@@ -767,7 +767,7 @@ SCRIPT
 ## P0
 - [ ] Will be cleared
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -795,7 +795,7 @@ SCRIPT
   export DVB_GRIND_CMD="$smart_devin"
   # Start empty — first sweep adds tasks, session removes them, second sweep fires
   printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -812,8 +812,10 @@ SCRIPT
   printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
   export DVB_MIN_SESSION=999  # every session is "fast" failure
   export DVB_NET_FILE="$TEST_DIR/net-up"
-  # Network is down (no sentinel file) — should log network_down
-  export DVB_DEADLINE=$(( $(date +%s) + 3 ))
+  # Network is down (no sentinel file) — should log network_down.
+  # 3s window was too tight under 8x parallel bats load; the sweep needs
+  # to launch + fast-fail + check network within the deadline.
+  export DVB_DEADLINE_OFFSET=8
   export DVB_NET_MAX_WAIT=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Should have detected network down during sweep recovery
@@ -823,7 +825,7 @@ SCRIPT
 @test "empty queue wait honors DVB_EMPTY_QUEUE_WAIT" {
   printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
   export DVB_EMPTY_QUEUE_WAIT=2
-  export DVB_DEADLINE=$(( $(date +%s) + 6 ))
+  export DVB_DEADLINE_OFFSET=6
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"waiting 2s for external task injection"* ]]
@@ -834,7 +836,7 @@ SCRIPT
   printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
   export DVB_EMPTY_QUEUE_WAIT=10
   export TG_EMPTY_QUEUE_WAIT=2
-  export DVB_DEADLINE=$(( $(date +%s) + 6 ))
+  export DVB_DEADLINE_OFFSET=6
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # TG_ value (2) wins over DVB_ value (10) — deadline (6s) caps below both
@@ -862,7 +864,7 @@ SCRIPT
   export DVB_GRIND_CMD="$refill_devin"
   export DVB_STATUS_FILE="$status_file"
   export DVB_EMPTY_QUEUE_WAIT=4
-  export DVB_DEADLINE=$(( $(date +%s) + 15 ))
+  export DVB_DEADLINE_OFFSET=15
   printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
 
   "$DVB_GRIND" 1 "$TEST_REPO" > "$TEST_DIR/refill.out" 2>&1 &
@@ -908,7 +910,7 @@ TASKS
 ## P0
 - [ ] A real task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Should have launched at least one session
@@ -919,7 +921,7 @@ TASKS
 # ── Prompt hardening ──────────────────────────────────────────────────
 
 @test "prompt includes session timeout budget" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'timeout.*s' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -940,7 +942,7 @@ SCRIPT
 ## P0
 - [ ] Only task
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   export DVB_SYNC_INTERVAL=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -1010,7 +1012,9 @@ SCRIPT
   chmod +x "$empty_queue_devin"
   export DVB_GRIND_CMD="$empty_queue_devin"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  # Need a real session + sweep + git ops to all complete; under 8x parallel
+  # bats load 8s was too tight, the sweep_empty marker missed the deadline.
+  export DVB_DEADLINE_OFFSET=15
   export DVB_SYNC_INTERVAL=0
   export DVB_EMPTY_QUEUE_WAIT=0
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -1037,7 +1041,7 @@ TASKS
 
   # Use a very short deadline so the blocked-wait sleep gets cut short
   # by the deadline check on the next loop iteration
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'all_tasks_blocked' "$TEST_LOG"
@@ -1057,7 +1061,7 @@ TASKS
   **ID**: write-docs
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   ! grep -q 'all_tasks_blocked' "$TEST_LOG"
   # Should have launched at least 1 session
@@ -1073,7 +1077,7 @@ TASKS
   **Blocked by**: eiam-team
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'all_tasks_blocked' "$TEST_LOG"
 }
@@ -1090,7 +1094,7 @@ TASKS
   **ID**: write-docs
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   ! grep -q 'all_tasks_blocked' "$TEST_LOG"
   # Should have launched at least 1 session (write-docs is not blocked)
@@ -1209,7 +1213,7 @@ TASKS
 }
 
 @test "second session prompt includes previous session context" {
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Session 2 should reference session 1 results
@@ -1217,7 +1221,7 @@ TASKS
 }
 
 @test "first session prompt has no previous session context" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Session 1 prompt should NOT contain "Previous session"
@@ -1240,7 +1244,7 @@ rm -rf "$volatile"
 SCRIPT
   chmod +x "$nuke_devin"
   export DVB_GRIND_CMD="$nuke_devin"
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$volatile"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Repo directory missing"* ]]
@@ -1250,7 +1254,7 @@ SCRIPT
 }
 
 @test "log_write does not crash on deleted log file" {
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   # Use a log file that will be deleted by the fake devin
   local volatile_log="$TEST_DIR/volatile.log"
   export DVB_LOG="$volatile_log"
@@ -1306,7 +1310,7 @@ SCRIPT
 - [ ] Task three
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 8 ))
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Summary should show shipped tasks
   [[ "$output" == *"sessions"* ]]
@@ -1330,7 +1334,7 @@ SCRIPT
 - [ ] Existing task
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Should show 0+ tasks (not negative)
   [[ "$output" == *"0+ tasks"* ]]
@@ -1361,7 +1365,7 @@ SCRIPT
   **ID**: task-b
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   assert_session_log_has_shipped 1
 }
@@ -1395,7 +1399,7 @@ SCRIPT
   **ID**: task-b
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # ID-based: task-a was present before and gone after → shipped=1
   assert_session_log_has_shipped 1
@@ -1429,7 +1433,7 @@ SCRIPT
   **ID**: task-b
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   assert_session_log_has_shipped 2
 }
@@ -1456,7 +1460,7 @@ SCRIPT
 - [ ] Task two
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Count-based fallback: 2→1 = shipped=1
   assert_session_log_has_shipped 1
@@ -1487,7 +1491,7 @@ SCRIPT
   **ID**: task-a
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'tasks_added=1' "$TEST_LOG"
 }
@@ -1532,7 +1536,7 @@ SCRIPT
   **ID**: task-peer
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   assert_session_log_has_shipped 1
   grep -q 'tasks_added=1' "$TEST_LOG"
@@ -1567,7 +1571,7 @@ TASKS
   git -C "$TEST_REPO" add TASKS.md
   git -C "$TEST_REPO" commit -q -m "chore: seed queue"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
   [ "$status" -eq 0 ]
@@ -1609,7 +1613,7 @@ TASKS
   git -C "$TEST_REPO" add TASKS.md
   git -C "$TEST_REPO" commit -q -m "chore: seed queue"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
   [ "$status" -eq 0 ]
@@ -1650,7 +1654,7 @@ TASKS
   git -C "$TEST_REPO" add TASKS.md other/TASKS.md
   git -C "$TEST_REPO" commit -q -m "chore: seed local and non-local queues"
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
   [ "$status" -eq 0 ]
@@ -1686,7 +1690,7 @@ SCRIPT
 - [ ] Task one
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Must not crash — exit 0 or natural deadline expiry
   [[ "$status" -eq 0 ]]
@@ -1740,7 +1744,7 @@ SCRIPT
   **ID**: task-b
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 20 ))
+  export DVB_DEADLINE_OFFSET=20
   export DVB_MAX_ZERO_SHIP=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Session 3 shipped via ID tracking — verify the shipped=1 log
@@ -1794,7 +1798,7 @@ SCRIPT
   **ID**: task-a
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   export DVB_MAX_ZERO_SHIP=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
@@ -1858,7 +1862,7 @@ SCRIPT
   **ID**: task-a
 TASKS
 
-  export DVB_DEADLINE=$(( $(date +%s) + 10 ))
+  export DVB_DEADLINE_OFFSET=10
   export DVB_MAX_ZERO_SHIP=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
@@ -1879,7 +1883,7 @@ TASKS
 ## P1
 - [ ] Another top-level
 TASKS
-  export DVB_DEADLINE=$(( $(date +%s) + 5 ))
+  export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"4 tasks queued"* ]]
 }
@@ -1897,7 +1901,7 @@ SCRIPT
   chmod +x "$slow_devin"
   export DVB_GRIND_CMD="$slow_devin"
   # Deadline just 1s in the future — remaining_min will be 0
-  export DVB_DEADLINE=$(( $(date +%s) + 1 ))
+  export DVB_DEADLINE_OFFSET=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # The prompt should never contain a negative number before "minutes remaining"
   if [ -f "$DVB_GRIND_INVOKE_LOG.full" ]; then
