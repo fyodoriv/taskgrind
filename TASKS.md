@@ -139,6 +139,36 @@
     - `make check` passes; new tests cover the three tip-emission cases listed above
     - The PR description includes a "before / after" of the first 10 lines of `taskgrind --help` so the reorder is auditable
 
+- [ ] Export `TG_REPO_CLASS=solo|shared` to the session env so `taskgrind.md` rule 7 can scale the admin-merge rate cap by risk surface
+  - **ID**: repo-class-export-to-session
+  - **Tags**: cli, env-vars, repo-class, downstream-contract, safe-admin-merge
+  - **Source**: 2026-04-27 user incident — `safe-admin-merge.sh` blocked an admin merge on a solo personal grind ("13/5 in the rolling 24h window"). The rate-limit guard is appropriate for shared-master Intuit repos like `oncall-hub-api` (the original incident surface), but fires the same way on solo personal repos where there's no review surface to protect. The user's correction is unambiguous: cap should be opt-in for shared repos, not opt-out for personal ones.
+  - **Details**: The taskgrind binary is the right place to determine the repo's risk class because it's the entry point that already inspects the target `repo` arg (and target repos under workspace mode). The actual classification logic is owned by agentbrew (see companion task `repo-class-classification` at `../agentbrew/TASKS.md`); taskgrind's job is to *consume* that classifier and propagate the verdict into the session prompt environment so downstream rule 7 can branch on it.
+    Concretely:
+    1. **Lookup at startup**: after the repo path is resolved (around `bin/taskgrind:540` where the positional arg is normalized), shell out to `agentbrew classify "$repo"` and capture the result into a local `_repo_class` var. If `agentbrew` is not on the PATH, fall back to a built-in heuristic (`git -C "$repo" log --format='%aE' --since='1 year ago' | sort -u | wc -l ≤ 1` → `solo`, else `shared`); if the fallback also fails (bare repo, no commits), default to `shared` for safety.
+    2. **Workspace mode**: when `--target-repo` is set, classify each target individually. The most-restrictive class wins (any target marked `shared` makes the whole grind `shared`). Rationale: a workspace mode grind that touches one shared repo and N solo repos still sits at the shared-repo risk surface for any commit it lands.
+    3. **Export to session env**: the `--from-prompt` translation block (around `bin/taskgrind:475`) and the per-session env builder (where other `TG_*` vars are exported into the agent's session) gain `export TG_REPO_CLASS="$_repo_class"`. The target repo's `taskgrind.md` rule 7 prompt is rewritten (separate canonical task on the `tasks.md` repo, see Source link above) to read this env var and skip the rate cap when `TG_REPO_CLASS=solo`.
+    4. **Banner + log header**: the startup banner and log file header gain a single `repo_class=solo|shared` line so an operator reviewing a grind log can tell at a glance which guards were active.
+    5. **CLI override**: a new `--repo-class=solo|shared` flag short-circuits both classification and lookup. Same flag works in `--dry-run` for testing prompt rendering.
+    6. **No new env var validation gymnastics**: the existing `TG_*` alias loop and validator pattern (`bin/taskgrind:158-167`) handles `TG_REPO_CLASS` automatically — no special-case validation needed beyond the one-of-{solo,shared} check.
+    Counter-arguments: (a) "agentbrew may not be installed on every machine running taskgrind" — addressed by the built-in `git log` fallback heuristic; the fallback is good enough for the common case (most personal repos have one committer) and only breaks for edge cases (personal fork of a popular repo) which the explicit `--repo-class` flag handles; (b) "shelling out to agentbrew on every session adds ~50-100ms" — taskgrind sessions take 30+ minutes; the cost is negligible and the result can be cached for the duration of the run; (c) "this couples taskgrind to agentbrew" — taskgrind already references agentbrew in `Agentfile.yaml` and the CLI lookup is optional (graceful fallback to git heuristic), so coupling is one-way and soft.
+    **What's NOT in scope**: changing the actual rate-limit logic inside `check-admin-merge-rate.mjs` (that script keeps existing behavior, just reads `TG_REPO_CLASS` to decide whether the cap applies); updating the canonical `taskgrind.md` template (separate task on the `tasks.md` repo, blocked on this one shipping); adding repo classes other than `solo` / `shared` (e.g., `team`, `enterprise`); building a config UI in agentbrew (CLI-only there too).
+    **Why P2, not P1**: the current strict default is annoying but not blocking — operators can `ALLOW_ADMIN_BURST=1` as the documented escape hatch. P2 reflects "this fixes a known UX foot-gun"; P1 would imply "this blocks legitimate work today". The escape hatch suffices in the meantime.
+  - **Files**:
+    - `bin/taskgrind` — repo classification block right after the positional arg resolution (around L540 in current main); export `TG_REPO_CLASS` near where other session env vars are exported; new `--repo-class` flag in the arg parser; banner + log-header line addition
+    - `tests/features.bats` — new tests covering: (a) `--repo-class=solo` exports `TG_REPO_CLASS=solo` to the session env, (b) auto-detection falls back to git heuristic when `agentbrew` is not on PATH, (c) workspace mode picks the most-restrictive class, (d) `--dry-run --repo-class=shared` shows the resolved class in the dry-run header, (e) the banner contains `repo_class=...`
+    - `man/taskgrind.1` — new SYNOPSIS entry `[--repo-class solo|shared]` and ENVIRONMENT entry for `TG_REPO_CLASS`
+    - `README.md` — new env-table row for `TG_REPO_CLASS`; mention the `agentbrew classify` integration in the Workspace mode section
+    - `docs/user-stories.md` — new story slot describing the solo-vs-shared safety rail differentiation
+    - `Agentfile.yaml` — explicit dependency note that `agentbrew` is recommended (not required) for repo classification
+  - **Acceptance**:
+    - `taskgrind --dry-run ~/apps/taskgrind` shows `repo_class=solo` in the banner (single-committer auto-detection)
+    - `taskgrind --dry-run ~/apps/oncall-hub-api` shows `repo_class=shared` (multi-committer auto-detection or agentbrew classifier verdict, whichever wins)
+    - `taskgrind --repo-class=shared --dry-run ~/apps/taskgrind` shows `repo_class=shared` (CLI override beats auto-detection)
+    - The session env passed to the backend contains `TG_REPO_CLASS=solo|shared` in every session, verifiable by inspecting the invocation log under test
+    - `make check` passes with the new tests
+    - PR description shows a before/after of `taskgrind --dry-run` output for both a solo personal repo and a shared repo, demonstrating the new banner line
+
 - [ ] Audit and document every default value in `bin/taskgrind` — kill arbitrary numbers, justify the rest
   - **ID**: audit-arbitrary-default-numbers
   - **Tags**: cli, defaults, docs, technical-debt
