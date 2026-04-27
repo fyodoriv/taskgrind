@@ -17,6 +17,74 @@
   - **Files**: `.github/workflows/check.yml` (most likely fix point — install tasks-lint in test job, or set CI-only TEST_JOBS); `Makefile` (audit fallback path, possibly add a clear-error mode); `tests/test_helper.bash` (if polling refactor needed); `AGENTS.md` (document the CI-vs-local parallelism tradeoff if a CI-only cap is added)
   - **Acceptance**: `gh run view <latest-run-id>` shows ✓ on both `test (ubuntu-latest)` and `test (macos-latest)` jobs for at least 3 consecutive pushes to main; the `make audit` cluster (8 macos tests) and the parallel-flake cluster (13 cross-platform tests) are each diagnosed in the commit message with the actual root cause (not a guess); the chosen fix is the cheapest of the candidates listed above that actually closes the gap (don't grow scope into a parallelism rewrite); `make check` still passes locally after the fix; if a CI-only `TEST_JOBS` override lands, AGENTS.md "Local Test Notes" reflects it so future agents don't get surprised by the divergence
 
+- [ ] Slim the `--help` env-var block from 33 vars to ~12 by hiding tuning knobs in the man page only
+  - **ID**: simplify-help-surface-area
+  - **Tags**: cli, ux, docs, api-surface
+  - **Source**: operator feedback after browsing `taskgrind --help` (see investigation of `taskgrind-2026-04-26-2134-apps-78034.log` — 40-min wasted run starting from a misconfigured invocation, partly because the help text is too dense to skim before launching).
+  - **Details**: `taskgrind --help` today emits **33 distinct `TG_*` env vars** (and the same 33 documented as `DVB_` legacy aliases beneath, so the operator sees ~66 lines of env reference). Most are operational tuning knobs that no one ever sets in the field — `TG_NET_RETRY_DELAY`, `TG_SHUTDOWN_GRACE`, `TG_SESSION_GRACE`, `TG_BACKOFF_BASE`, `TG_BACKOFF_MAX`, `TG_NET_WAIT`, `TG_NET_MAX_WAIT`, `TG_NET_RETRIES`, `TG_NET_CHECK_URL`, `TG_MIN_SESSION`, `TG_GIT_SYNC_TIMEOUT`, `TG_SYNC_INTERVAL`, `TG_EMPTY_QUEUE_WAIT`, `TG_MAX_FAST`, `TG_MAX_ZERO_SHIP`, `TG_MAX_SESSION`, `TG_SWEEP_MAX`. They have sensible defaults; if an operator ever needs to override one, they can read the man page or the source. They do not belong in the surface a new user reads on first run.
+    The agentbrew-managed global rule explicitly says *"Keep the external API small. Merge overlapping commands and flags. Hide advanced ones."* — this task applies that rule to the env block.
+    Concretely, `--help` should keep only the env vars an operator might reasonably set during normal use:
+    1. `TG_BACKEND` — switching CLIs is a daily action
+    2. `TG_MODEL` — switching models is a daily action
+    3. `TG_SKILL` — switching workflows
+    4. `TG_PROMPT` — focus prompt
+    5. `TG_FROM_PROMPT` — natural-language config (the answer to "I don't remember the flags")
+    6. `TG_TARGET_REPOS` — workspace mode
+    7. `TG_NO_PUSH` — important safety knob
+    8. `TG_NOTIFY` — desktop notification toggle
+    9. `TG_MAX_INSTANCES` — multi-instance grinding
+    10. `TG_LOG` — operator override of log location (occasionally useful)
+    11. `TG_STATUS_FILE` — monitoring/automation hook
+    12. `TG_COOL` — cooldown between sessions (occasionally tuned)
+    Everything else moves to the man page (`man/taskgrind.1`, ENVIRONMENT section) which already exists and is the right home for tuning knobs. Add a single line to `--help` after the kept env vars: `Tuning knobs (network, backoff, timeouts, sweep, stall-exit): see "man taskgrind".` so the path is discoverable.
+    Counter-arguments to weigh: (a) "people grep `--help` for vars and won't find them" — addressed by the man-page pointer line and the fact that `taskgrind --help | grep BACKOFF` returning nothing is itself a hint to look elsewhere; (b) "removing them from --help breaks scripts that scrape the output" — `--help` output is not a contract anywhere in this repo (no tests pin specific env-var counts in --help; verified with `grep -c TG_ tests/*.bats | sort | head` showing only structural-presence tests), so safe to slim.
+    **What's NOT in scope**: removing the env vars themselves (they keep working, just hidden from --help); changing the `DVB_` legacy alias mechanism (separate task, see `deprecate-dvb-prefix`); restructuring the man page beyond moving the hidden vars into the existing ENVIRONMENT section; adding new env vars; changing any defaults (separate task, see `audit-arbitrary-default-numbers`).
+    **Why P1**: this is what every new operator sees on first invocation. The current 33-var wall costs ~30 seconds of cognitive load and trains users that the tool is complicated. Cutting it is a one-shot UX win that compounds across every future user.
+  - **Files**:
+    - `bin/taskgrind` — the `# Env: ...` block in the header comment (around L40-90); keep only the 12 vars listed above; add a single pointer line to `man taskgrind` for the rest
+    - `man/taskgrind.1` — verify the ENVIRONMENT section already covers the tuning knobs being hidden (most are already there); fill any gaps so the man page is the complete reference
+    - `README.md` — env-var table follows the same trim; tuning knobs move to a "Tuning knobs (advanced)" subsection or are dropped entirely with a pointer to the man page
+    - `tests/basics.bats` — existing structural tests (`--help shows TG_ as primary prefix`, `help and README keep the env example block aligned`) need to be updated to match the new trimmed surface; add a regression test that asserts the hidden tuning vars are documented in `man/taskgrind.1` so they don't drift out of any reference at all
+  - **Acceptance**:
+    - `taskgrind --help | grep -cE '^\s+TG_'` returns 12 (not 33)
+    - The pointer line `Tuning knobs (network, backoff, timeouts, sweep, stall-exit): see "man taskgrind".` is present in `--help` output
+    - Every hidden env var is still documented in `man/taskgrind.1` ENVIRONMENT section (verified by a new `tests/basics.bats` doc-drift test that intersects `bin/taskgrind` with `man/taskgrind.1` and asserts no env var falls through both)
+    - The CLI parity test (`CLI docs parity keeps help, README, and man page in sync`) still passes — README/help/man stay aligned for the kept set
+    - Hidden env vars still take effect at runtime (no tests deleted from `tests/*.bats`; `make check` shows the same 906 passes)
+    - PR description includes a before/after `--help | wc -l` measurement so the size cut is auditable
+
+- [ ] Consolidate the three stall-exit env vars (`TG_EARLY_EXIT_ON_STALL` / `TG_EXIT_ON_STALL` / `TG_NO_STALL_EXIT`) into one `TG_STALL_EXIT={never|first|second}`
+  - **ID**: consolidate-stall-exit-env-vars
+  - **Tags**: cli, env-vars, api-surface, breaking-change-ish
+  - **Source**: API surface audit triggered by `simplify-help-surface-area` — the stall-exit triplet is the single worst case of "three env vars to express one tri-state decision" in the surface.
+  - **Details**: Today `bin/taskgrind` exposes three distinct env vars for one decision: when do we auto-exit on the diminishing-returns signal?
+    - `TG_EARLY_EXIT_ON_STALL=1` — exit on the FIRST trip
+    - `TG_EXIT_ON_STALL=1` — exit on the FIRST trip (backward-compat alias of EARLY_EXIT_ON_STALL after a previous rename; the comment in `--help` even admits this)
+    - `TG_NO_STALL_EXIT=1` — never auto-exit on stall, log advisory only
+    - (default, all three unset) — exit on the SECOND consecutive trip
+    The combinatorics are nonsensical: what does `TG_EXIT_ON_STALL=1 TG_NO_STALL_EXIT=1` mean? Today the precedence is implicit (NO_STALL_EXIT wins because it's checked later — see `bin/taskgrind:1442-1444`), but no one reading `--help` would know that. The validation block at `bin/taskgrind:575-583` is six lines of duplicated `must be 0 or 1` errors for what is conceptually one knob.
+    **Fix**: introduce `TG_STALL_EXIT={never|first|second}` (default `second`, matching today's default behavior). Map old vars during a deprecation window:
+    - `TG_EARLY_EXIT_ON_STALL=1` or `TG_EXIT_ON_STALL=1` → `TG_STALL_EXIT=first`
+    - `TG_NO_STALL_EXIT=1` → `TG_STALL_EXIT=never`
+    - Combination cases: emit a clear `Error: TG_EARLY_EXIT_ON_STALL and TG_NO_STALL_EXIT are mutually exclusive. Use TG_STALL_EXIT=first|never|second instead.` at startup. Today these silently coexist with implicit precedence, which is worse than a hard error.
+    - Any old var being set should also emit one stderr line: `Note: TG_EARLY_EXIT_ON_STALL is deprecated; use TG_STALL_EXIT=first` (write once per process, not per session — see the same one-warn-per-run pattern from `deprecate-dvb-prefix`).
+    Counter-arguments: (a) "this is a breaking change for anyone setting the old vars" — addressed by the deprecation window (old vars keep working with a warning), and the deprecation policy is documented in `man/taskgrind.1`; (b) "tri-state strings are more typing than `=1`" — the three values are short tokens (`first`, `second`, `never`) and a single keyword conveys intent better than guessing what `1` means in `EARLY_EXIT_ON_STALL=1` vs `NO_STALL_EXIT=1`; (c) "we already paid the cost of having two names (EARLY_EXIT_ON_STALL aliasing EXIT_ON_STALL) and removing them later breaks scripts" — the alias was added during a rename without consolidating semantics, that's exactly the trap this task closes.
+    **What's NOT in scope**: changing the diminishing-returns *detection* algorithm (separate concern, well-tested); changing the default behavior (still "exit on second consecutive trip"); cascading consolidations across other env-var families (`TG_BACKOFF_BASE` + `TG_BACKOFF_MAX` could be consolidated similarly but it's premature — backoff is rarely tuned); landing the `DVB_` legacy alias removal at the same time (separate task).
+    **Why P1**: every new operator who reads `--help` and sees three env vars about the same concept loses a few minutes figuring out which one to set. The triplet is the canonical "API surface that grew without consolidation" case in this codebase, and fixing it is the proof point that future env vars will be consolidated rather than added next to each other. Also enables the `simplify-help-surface-area` task to drop ONE line in --help instead of three.
+  - **Files**:
+    - `bin/taskgrind` — replace the three vars with `TG_STALL_EXIT` resolution; map old vars during the deprecation window (also wire `DVB_` aliases through the same path); update validation to accept `never|first|second` only; update `--dry-run` config dump to show the resolved tri-state (`stall_exit_policy: second` instead of three lines about three vars); the precedence comment at `bin/taskgrind:1442-1444` becomes a one-liner
+    - `tests/diagnostics.bats`, `tests/features.bats`, `tests/logging.bats`, `tests/signals.bats` — every test that sets an old var either keeps it (testing the deprecation path) or migrates to `TG_STALL_EXIT=...` (testing the new path); add at least: positive cases for each of the three new values, deprecation-warning emission test for each old var, mutual-exclusion error test for `TG_EARLY_EXIT_ON_STALL=1 TG_NO_STALL_EXIT=1`
+    - `man/taskgrind.1` — replace the three env-var entries with one `TG_STALL_EXIT` entry; add a "Deprecation" subsection noting the old names still work with a one-shot warning
+    - `README.md`, `docs/user-stories.md` — adjust references to the old vars; user stories about stall-exit behavior should reference the consolidated knob
+  - **Acceptance**:
+    - `TG_STALL_EXIT=first taskgrind ...` exits on first diminishing-returns trip; `TG_STALL_EXIT=never` never auto-exits; `TG_STALL_EXIT=second` (or unset) exits on second consecutive trip — three integration tests verify the runtime semantics, not just the parsing
+    - `TG_EARLY_EXIT_ON_STALL=1 taskgrind ...` still works for one full deprecation window, but emits one stderr line `Note: TG_EARLY_EXIT_ON_STALL is deprecated; use TG_STALL_EXIT=first` exactly once per process
+    - `TG_EARLY_EXIT_ON_STALL=1 TG_NO_STALL_EXIT=1 taskgrind ...` exits 1 with `Error: TG_EARLY_EXIT_ON_STALL and TG_NO_STALL_EXIT are mutually exclusive. Use TG_STALL_EXIT=first|never|second instead.`
+    - `taskgrind --help | grep -c STALL` drops from 5+ lines to 1 line
+    - The 12-line validation block at `bin/taskgrind:575-583` is replaced with a single `TG_STALL_EXIT must be never|first|second` validator (line count reduction is a measurable acceptance signal)
+    - `make check` passes (906+ tests, including new ones for the consolidated knob)
+    - `man/taskgrind.1` documents both the new knob and the deprecation timeline so operators know when the old names will stop working
+
 - [ ] `final_sync` should auto-recover from non-fast-forward push by rebasing first
   - **ID**: final-sync-rebase-on-non-fast-forward
   - **Tags**: bin/taskgrind, final_sync, push, recovery, fleet-grind-blocker
@@ -42,6 +110,83 @@
     - PR description cites the s54 incident: "Manual recovery required: local commit `d7ec11a` content-identical to merged-via-PR origin commit; auto-rebase would have dropped the duplicate and pushed cleanly."
 
 ## P2
+
+- [ ] Promote `--from-prompt` as the recommended interface for "I don't remember the flags"
+  - **ID**: promote-from-prompt-as-default-ux
+  - **Tags**: cli, ux, docs, discoverability
+  - **Source**: today's `taskgrind-2026-04-26-2134-apps-78034.log` post-mortem — the operator passed `~/apps` (parent-of-repos) with a free-text prompt "for both repos focus on doing sweeps" instead of using `--target-repo` flags, because the natural-language alternative wasn't visibly the default path. Result: a 40-min wasted run. The shipped feature `--from-prompt` solves exactly this case — backend translates "8 hours on agentbrew with frontend backend, focus on tests, use opus" into the right flags — but it's currently buried at line 23 of `--help` and isn't surfaced as the recommended path anywhere.
+  - **Details**: The shipped `--from-prompt "<brief>"` and `TG_FROM_PROMPT` knobs are precisely the "you don't have to remember the flags" interface. The plumbing is already there: the configured backend (devin / claude-code / codex) parses the brief into KEY=VALUE config lines (hours, repo, target_repos, model, backend, skill, focus, no_push) and the explicit-CLI-flags-and-env-vars-still-win precedence already preserves user intent. What's missing is **surfacing**: every place a user discovers taskgrind today, the path of "type natural language, get a launched grind" should be the first thing they read, not the last.
+    Concrete edits:
+    1. **`taskgrind --help` reorder + tip line**. Today `--from-prompt` is the 8th example and the env-var docs come after the flag examples. Move the `--from-prompt` example to be example #1 (right after the bare `taskgrind` default-10h line). Add a tip block at the very top of the help output: `Tip: not sure which flags you need? Run: taskgrind --from-prompt "what you want to do"` so a user pressing `taskgrind --help` for the first time sees the escape hatch before the wall of options.
+    2. **README.md quick-start reorder**. The Usage section in README opens with `taskgrind 10` then walks through `--model`, `--skill`, `--backend`, `--prompt`, `--target-repo`, and only *then* `--from-prompt`. Reorder so `--from-prompt` is the first example after the bare `taskgrind`, with one line of context: "Don't remember the flags? Describe what you want and let the backend figure it out." Keep the explicit-flag examples after — they're the precision interface for users who *do* remember.
+    3. **`taskgrind` with no args, on a directory missing TASKS.md, prints a `Tip:` line.** Today running `taskgrind` in a parent-of-repos directory like `~/apps` falls through to "0 tasks queued", launches a sweep, and consumes the whole budget. Before launching, when `TASKS.md` is missing or 0 tasks are visible, print `Tip: taskgrind --from-prompt "describe your goal"` to stderr so the path of recovery is visible without needing to read `--help`.
+    4. **The same tip in `--preflight` summary** when `TASKS.md` is missing or empty — preflight is meant to flag misconfiguration, and "you might want --from-prompt" is the right hint when the queue is empty.
+    Counter-arguments to weigh: (a) "running an LLM call to translate config feels heavy for what's basically `taskgrind 8 ~/apps/foo`" — addressed by the `--from-prompt` translation only firing when explicitly requested; the explicit-flag path stays as the fast/cheap default, but for users who *don't* know the flags, this is the right tradeoff; (b) "what if the translation is wrong?" — `--dry-run --from-prompt "<brief>"` is the existing escape hatch (already tested in `tests/from-prompt.bats:34`); the tip line should mention `--dry-run` as the verification step; (c) "the tip in stderr could mask a real misconfiguration" — addressed by only printing the tip when *both* `TASKS.md` is missing/empty *and* `--from-prompt` was not used (no point in suggesting it if they already tried it).
+    **What's NOT in scope**: changing `--from-prompt`'s implementation (already shipped, well-tested); adding new natural-language features beyond the existing field set; auto-running `--from-prompt` without the user asking for it (would surprise users who passed a real repo path that happened to lack `TASKS.md`); adding a TUI / interactive prompt loop (different category of UX work, separate task if ever needed).
+    **Why P2, not P1**: this is a positioning fix on top of an already-shipped feature. The feature works today — operators just don't reach for it because they don't see it. P1 would be true if the feature were broken; P2 is right because the runtime is fine, the discovery path needs sharpening.
+  - **Files**:
+    - `bin/taskgrind` — the `# Usage:` block in the header (around L11-37); reorder examples so `--from-prompt` is first; add the `Tip:` line at the top of the `--help` output. Also: in the queue-empty / TASKS.md-missing code paths (around L2853-2857 and the preflight `TASKS.md not found` branch at L1204-1211), emit the tip line to stderr when `--from-prompt` was not used in the current invocation.
+    - `README.md` — Usage section reorder; pull the `--from-prompt` example up; add the "Don't remember the flags?" sentence as the lede.
+    - `man/taskgrind.1` — the OPTIONS list keeps alphabetical order (man-page convention), but the SYNOPSIS line should put `[--from-prompt text]` adjacent to the positional args so it's visible up top; the DESCRIPTION should mention the natural-language path in the first paragraph.
+    - `tests/basics.bats` and `tests/from-prompt.bats` — add doc-drift tests asserting (a) the `Tip:` line is in `--help` output, (b) the `Tip:` line is printed to stderr when `TASKS.md` is missing and `--from-prompt` was not passed, (c) the tip is NOT printed when `--from-prompt` is the active mode (don't suggest what they already used).
+    - `docs/user-stories.md` — story #13 (Natural-language config briefs) gets a "Discovery" subsection noting that users find the feature via the tip lines, not by reading docs first.
+  - **Acceptance**:
+    - `taskgrind --help | head -3` shows the `Tip:` line on line 1 or 2 (not buried)
+    - `taskgrind --help` shows the `--from-prompt` example before any other example
+    - `taskgrind /tmp/empty-dir` (no `TASKS.md`) emits the tip line to stderr; `taskgrind --from-prompt "x" /tmp/empty-dir` does NOT emit the tip
+    - `--preflight` on a repo with missing/empty `TASKS.md` prints the tip line in the summary block (similar to existing `TASKS.md not found — empty queue sweep will find work` message but with the `--from-prompt` recovery hint inline)
+    - README's Usage section opens with the `--from-prompt` example, and the surrounding sentence explicitly tells the reader they don't need to memorize flags
+    - `make check` passes; new tests cover the three tip-emission cases listed above
+    - The PR description includes a "before / after" of the first 10 lines of `taskgrind --help` so the reorder is auditable
+
+- [ ] Audit and document every default value in `bin/taskgrind` — kill arbitrary numbers, justify the rest
+  - **ID**: audit-arbitrary-default-numbers
+  - **Tags**: cli, defaults, docs, technical-debt
+  - **Source**: `simplify-help-surface-area` audit — many defaults look picked from a hat (`MAX_FAST=20`, `MAX_ZERO_SHIP=50`, `BACKOFF_MAX=120`, `EMPTY_QUEUE_WAIT=600`, `NET_MAX_WAIT=14400`). If `--help` is going to hide these vars and tell users to trust the defaults, the defaults need to actually deserve trust.
+  - **Details**: The script today defaults ~17 numeric tuning vars at the top of `bin/taskgrind`:
+    | Var | Default | Looks arbitrary? |
+    |---|---|---|
+    | `TG_MAX_FAST` | 20 | Yes — why 20? what's the false-positive cost vs benefit? |
+    | `TG_MAX_SESSION` | 3600 | Plausible (1h budget per session) |
+    | `TG_SWEEP_MAX` | 1800 | Plausible (sweep cap = 30min) but 30 min feels long for "find work" |
+    | `TG_MAX_ZERO_SHIP` | 50 | Yes — why 50? |
+    | `TG_SYNC_INTERVAL` | 5 | Yes — every 5 sessions feels arbitrary |
+    | `TG_NET_RETRIES` | 3 | Standard |
+    | `TG_NET_RETRY_DELAY` | 2 | Standard |
+    | `TG_GIT_SYNC_TIMEOUT` | 30 | Plausible |
+    | `TG_SHUTDOWN_GRACE` | 120 | Plausible |
+    | `TG_NET_WAIT` | 30 | Plausible |
+    | `TG_NET_MAX_WAIT` | 14400 | 4 hours seems extreme — why? |
+    | `TG_EMPTY_QUEUE_WAIT` | 600 | Yes — why 10 min? |
+    | `TG_SESSION_GRACE` | 15 | Plausible |
+    | `TG_BACKOFF_BASE` | 15 | Plausible |
+    | `TG_BACKOFF_MAX` | 120 | Plausible |
+    | `TG_COOL` | 5 | Plausible |
+    | default `hours` | 10 | Yes — most users grind shorter |
+
+    **For each default**: either (a) cite a measurement / observation that justified the value (e.g. "MAX_FAST=20: a real backend hung-and-restored cycle takes ~7 fast-failure sessions in field telemetry; 20 leaves headroom for two cycles before declaring real failure"), or (b) change the default to a measurably better number, or (c) flag it as "needs measurement, do not change yet" with the planned measurement approach. Goal: every default value has either a `# default: N — <one-sentence-justification>` comment in `bin/taskgrind` next to its declaration, OR a TASKS.md follow-up to measure.
+    The audit should also look at *interaction* defaults — e.g. `MAX_ZERO_SHIP=50` × `MAX_SESSION=3600` × `BACKOFF_MAX=120` — and check that the worst-case duration is reasonable. If 50 zero-ship sessions can happen back-to-back at 1h each, that's 50h of wasted compute before bail-out, which is way past any operator's intent. Cap the worst case in the audit, even if individual numbers look fine in isolation.
+    Specific changes likely to land based on the audit (treat as predictions, not requirements):
+    - `MAX_ZERO_SHIP=50` → 20 (50 is too forgiving — three full grind days of nothing being shipped before bail)
+    - `EMPTY_QUEUE_WAIT=600` → 60 (10 minutes of pure idle is a long stall; if external task injection is the use case, 1 minute is enough to detect file changes)
+    - default `hours=10` → 8 (matches a typical workday + buffer; 10h was likely chosen because it's a round number)
+    - `NET_MAX_WAIT=14400` → 3600 (4h of waiting for network is rarely the right answer — most operators would prefer the marathon to error out and let them retry)
+    These are *predictions*; the actual numbers should fall out of the audit, not be set in stone here.
+    Counter-arguments: (a) "changing defaults breaks user expectations" — addressed by versioning the change in `man/taskgrind.1` and the `grind_done` log line announcing notable default shifts; (b) "this is yak-shaving on a working system" — addressed by the audit being concrete (every default gets a comment or a follow-up task), not open-ended philosophizing; (c) "tests pin specific values" — `tests/*.bats` have a few tests asserting specific defaults (`tests/basics.bats: DVB_MAX_FAST defaults to 20`, etc.); when defaults change, those tests get updated in the same commit and the new value is justified in the commit message.
+    **What's NOT in scope**: changing the *mechanism* of any default (e.g., switching from per-session backoff to per-failure-class backoff); making defaults dynamic / context-aware; rewriting the diminishing-returns detector; touching env vars that aren't numeric defaults (the strings, paths, and bools have their own design considerations).
+    **Why P2**: this is the substrate for `simplify-help-surface-area`. Hiding 21 env vars from `--help` is only safe if the defaults actually work for everyone — otherwise users have to set the hidden vars to fix things, and we've created a worse trap than the current 33-var wall. Doing this in parallel (or right after) the surface-slim is the right ordering.
+  - **Files**:
+    - `bin/taskgrind` — for each defaulted var, add an inline comment `# default: N — <one-sentence-justification>` in the same block that defines `${DVB_FOO:-N}`; defaults that change get a comment plus the new value; defaults that need measurement get a `# TODO(measure):` with a link to a follow-up task ID
+    - `man/taskgrind.1` ENVIRONMENT section — the justifications belong here too so operators reading the man page understand the trade-offs without spelunking source
+    - `tests/basics.bats` and friends — update any test that asserts a specific default value; new test added: `every numeric default has a justification comment within 3 lines of its declaration` (lints against silent default drift)
+    - `docs/user-stories.md` — if any default change affects an existing user story (e.g. story #N said "after 50 zero-ship sessions taskgrind exits"), update that story
+    - `README.md` — env table headers add a "Default rationale" column where applicable
+  - **Acceptance**:
+    - Every numeric default in `bin/taskgrind` has a one-line `# default: ... — ...` comment within 3 lines of its declaration (verified by a new lint test)
+    - Default values that get changed are justified in the commit message with the measurement or reasoning that drove them
+    - The man page reflects every changed default; CLI parity test still passes
+    - `make check` passes — any test that asserted a specific default value is updated to assert the new one
+    - The PR description has a small table summarizing each default's "old → new (or kept) — why" so reviewers can sanity-check the call
 
 - [ ] Share immutable per-file fixtures via `setup_file()` so the bats suite stops paying full setup cost on every test
   - **ID**: bats-setup-file-shared-fixtures
@@ -72,6 +217,33 @@
   - **Acceptance**: a fresh `taskgrind --preflight .` run on macOS bash 3.2 prints `✓ Git remote reachable` against this repo's real `origin` and the string `Git remote unreachable` is absent from stdout/stderr; the negative case (broken `origin` URL) still surfaces the warning, proving the check itself isn't silently disabled; both call sites in `bin/taskgrind` use the same helper (`grep -nE 'sleep 10 &' bin/taskgrind` returns no matches inside `preflight_check` or `preflight_check_target`); the two new bats tests pass on both macOS (bash 3.2) and Linux (bash 4+) without platform branching; `make check` passes locally; the structural test at `tests/preflight.bats:199` (`grep -q 'Git remote reachable' "$DVB_GRIND"`) still passes
 
 ## P3
+
+- [ ] Deprecate the `DVB_` legacy env-var prefix with a one-warn-per-run notice and a documented removal timeline
+  - **ID**: deprecate-dvb-prefix
+  - **Tags**: env-vars, api-surface, deprecation, breaking-change-eventual
+  - **Source**: API surface audit — the script doubles its env-var surface by accepting both `TG_*` (canonical) and `DVB_*` (legacy alias from a previous tool name) for **every** non-internal var. There are 53 distinct `DVB_*` references in `bin/taskgrind` and **2017 occurrences across `tests/*.bats`**. Halving the surface eventually is worth doing — but the cost of doing it *fast* is way higher than the user-visible benefit, so this needs a clean deprecation glide path, not a big-bang removal.
+  - **Details**: The TG_/DVB_ alias loop at `bin/taskgrind:158-167` mirrors every `TG_FOO` to `DVB_FOO` so existing wrappers, scripts, and tests that set the old name keep working. That's good kindness to early users; it's also responsible for the exact "33 vars × 2 prefixes = 66 lines of env reference" problem that motivates `simplify-help-surface-area`. The right answer is a multi-step deprecation, not removal:
+    1. **Add a one-shot deprecation warning** at startup: when ANY `DVB_*` var is set in the environment, emit one stderr line `Note: DVB_* env vars are deprecated; use TG_* (e.g. TG_MODEL instead of DVB_MODEL). DVB_* will stop being read after <release-date-12-months-out>.` Print it once per process, not per session and not per var (or operators with 8 DVB_ vars set get 8 lines on every run, which is noise, not signal). Suppress the warning when `DVB_GRIND_CMD` is set (test mode) so the bats suite isn't drowned in it.
+    2. **Mark `DVB_*` aliases as deprecated in docs**: `man/taskgrind.1` ENVIRONMENT section, README env table, and the `--help` env-var block all stop showing `DVB_*` aliases inline; instead they have one footer line `DVB_* prefix is deprecated; see "man taskgrind" for the migration timeline`. (The man page itself documents the timeline and lists the alias map for users who need to translate scripts.)
+    3. **Convert tests gradually**: bats tests don't need to migrate all 2017 sites in one PR. A new linting test `tests/basics.bats: no new test files use DVB_* env vars` (uses `git diff` against main + a pinned cutoff date) prevents the count from growing. Existing tests that use `DVB_*` migrate opportunistically — when a test file is touched for any reason, its `DVB_*` references convert to `TG_*` in the same commit. Track the migration percentage in a single commit-message footer line so progress is visible.
+    4. **At the deprecation date, drop the alias loop**: the `for _tg_var in BACKEND BACKOFF_BASE ...; do export DVB_FOO=$TG_FOO; done` block in `bin/taskgrind` is removed in one PR. Any remaining test that still sets `DVB_*` is migrated in the same PR (or whitelisted with a `# bats test_tags=legacy_dvb_test` tag and a follow-up to drop). Internal/test-only vars (`DVB_GRIND_CMD`, `DVB_DEADLINE`, `DVB_NET_FILE`, `DVB_CAFFEINATED`, `DVB_DEADLINE_OFFSET`, `DVB_NET_FLIP_AFTER`, `DVB_FROM_PROMPT_RESPONSE`, `DVB_GRIND_INVOKE_LOG`, `DVB_VALIDATE_MODEL`) are NOT user-facing, were never aliased to a `TG_*` form, and stay as-is.
+    Counter-arguments: (a) "any deprecation warning is annoying" — addressed by the one-warn-per-run pattern and the test-mode suppression; (b) "we'll never actually remove `DVB_*` because there's always one wrapper that depends on it" — addressed by setting an explicit removal date in the warning text and committing to it; if it slips, that's a separate decision but the user has been told the timeline; (c) "2017 test references is huge migration work" — addressed by the opportunistic conversion strategy (no PR specifically for this) and the lint that prevents new growth; the actual count drops over time as tests are touched for unrelated reasons; (d) "bash 3.2 might not handle the deprecation-warning state machine cleanly" — addressed by keeping the warning logic minimal: a single check at the same point in startup where the alias loop runs today, no associative arrays or modern bash features.
+    **What's NOT in scope**: removing internal `DVB_*` test-mode vars (`DVB_GRIND_CMD` etc.) — those have no `TG_*` equivalent and aren't user-facing; renaming `taskgrind` itself (the binary stays named `taskgrind`); changing how the alias loop works for `DVB_*` vars that don't have a `TG_*` counterpart (the validation/test-only ones above); migrating the entire test suite in one PR.
+    **Why P3**: the surface-cut benefit lands largely with `simplify-help-surface-area` which doesn't need this task to ship — that task can hide the `DVB_*` aliases from `--help` independently. Removing them entirely is the long-tail cleanup, not the user-visible win. P3 reflects that this is a proper but slow migration.
+  - **Files**:
+    - `bin/taskgrind` — the alias loop at L158-167 stays (for now); a new one-shot deprecation warning fires when any `DVB_*` var is set (suppressed in test mode); `--help`, README env table, and man page ENVIRONMENT section drop the inline alias documentation in favor of one footer line + the man page's full alias table
+    - `man/taskgrind.1` — new "Deprecated environment variables" subsection with the full TG_*/DVB_* alias table and the explicit removal date
+    - `tests/basics.bats` — new lint test that fails if any test file *added since cutoff* references `DVB_*` (so legacy tests still work, new tests are forced to use `TG_*`)
+    - `AGENTS.md` — under "Rules for Editing", note the migration-on-touch convention so future agents convert as they go
+    - `tests/*.bats` — opportunistic, not in this PR; tracked separately as the count drops over time
+  - **Acceptance**:
+    - `DVB_MODEL=sonnet taskgrind 1 ~/apps/repo` emits exactly one stderr line `Note: DVB_* env vars are deprecated; use TG_* (e.g. TG_MODEL instead of DVB_MODEL). DVB_* will stop being read after <date>.` and proceeds normally
+    - `DVB_MODEL=sonnet DVB_BACKEND=codex taskgrind 1 ~/apps/repo` emits the same single line (one warning total, not one per var)
+    - `DVB_GRIND_CMD=... taskgrind 1 ~/apps/repo` (test mode) emits NO deprecation warning — bats output stays clean
+    - `taskgrind --help | grep -c DVB_` drops from 33+ lines to 1 footer line
+    - The man page documents the alias map and the removal date; `make check` passes
+    - The new lint test in `tests/basics.bats` blocks any new test that uses `DVB_*`; the existing 2017 references are unaffected
+    - PR description includes a measurement: count of `DVB_*` references in `tests/*.bats` at the time of the PR (baseline for tracking the migration percentage in future PRs)
 
 - [ ] Tag tests by speed class and add a `make test-fast` target so the dev iteration loop is sub-30s
   - **ID**: make-test-fast-target
