@@ -17,6 +17,30 @@
   - **Files**: `.github/workflows/check.yml` (most likely fix point — install tasks-lint in test job, or set CI-only TEST_JOBS); `Makefile` (audit fallback path, possibly add a clear-error mode); `tests/test_helper.bash` (if polling refactor needed); `AGENTS.md` (document the CI-vs-local parallelism tradeoff if a CI-only cap is added)
   - **Acceptance**: `gh run view <latest-run-id>` shows ✓ on both `test (ubuntu-latest)` and `test (macos-latest)` jobs for at least 3 consecutive pushes to main; the `make audit` cluster (8 macos tests) and the parallel-flake cluster (13 cross-platform tests) are each diagnosed in the commit message with the actual root cause (not a guess); the chosen fix is the cheapest of the candidates listed above that actually closes the gap (don't grow scope into a parallelism rewrite); `make check` still passes locally after the fix; if a CI-only `TEST_JOBS` override lands, AGENTS.md "Local Test Notes" reflects it so future agents don't get surprised by the divergence
 
+- [ ] `final_sync` should auto-recover from non-fast-forward push by rebasing first
+  - **ID**: final-sync-rebase-on-non-fast-forward
+  - **Tags**: bin/taskgrind, final_sync, push, recovery, fleet-grind-blocker
+  - **Source**: fleet-grind s54 — observed live: session 1 of taskgrind committed `d7ec11a` locally, but `final_sync push origin HEAD` failed because `origin/main` had advanced via a squash-merge of the same content (different SHA). The local commit was content-identical to remote's commit, but git push refused as non-fast-forward. Operator had to manually `git update-ref refs/heads/main origin/main` and verify trees were identical to recover. Today this happens on every grind whose work overlaps with a concurrent PR-merge cycle on the same branch — a real cost during multi-agent fleet operations.
+  - **Details**: `final_sync()` in `bin/taskgrind` (around line 1322) currently does `git push origin HEAD` and on non-fast-forward rejection just logs `final_sync push_failed` and asks the operator to push manually. When the rejection is the squash-merge-divergence case (same content, different SHA on remote), `git pull --rebase --autostash` would resolve it cleanly — git's rebase detects the equivalent commits and drops them, leaving the branch up-to-date with origin. After that, the push is a no-op (or a clean fast-forward).
+
+    **Fix**: when push fails AND the rejection contains "non-fast-forward" / "fetch first" / "[rejected]", attempt one `git pull --rebase --autostash origin <default-branch>` and retry the push. If the rebase succeeds, push will succeed (or already be a no-op). If the rebase fails with a real conflict, abort the rebase and fall through to the existing push_failed path — operator still gets a clean tree to recover.
+
+    Counter-arguments to weigh: (a) auto-rebase could mask real divergence the operator wanted to see — addressed by retrying push only after rebase succeeds, not aborting on rebase failure; (b) double-push attempts could log noisily — handled by attempting the rebase ONLY when the first push hit a non-fast-forward signal, not unconditionally; (c) the existing test `final_sync reports non-fast-forward rejection with actionable detail` (tests/signals.bats:307) intentionally tests the failure path — needs to be updated to test the recovery path AND a separate test added for the unrecoverable-conflict case.
+
+    Counter-pattern: do NOT use `git push --force-with-lease` here — squash-merge divergence isn't a real divergence (trees match), and force-with-lease would push the local-but-equivalent commit to origin, creating a duplicate. Rebase is the correct primitive: it canonicalizes onto the remote and drops the duplicate commit.
+  - **Files**:
+    - `bin/taskgrind` — `final_sync()` function at L1277-1354 (add rebase-retry block when push detects non-fast-forward; preserve existing push_failed path for real conflicts)
+    - `tests/signals.bats` — update `final_sync reports non-fast-forward rejection with actionable detail` (rename + adjust expectations: now tests recovery-via-rebase). Add `final_sync recovers from squash-merge divergence by rebasing and retrying push` covering the symmetric-content case. Add `final_sync surfaces unrecoverable conflict when rebase fails` covering real divergence.
+    - `man/taskgrind.1` — under "Final push or sync failure" troubleshooting section, document the auto-rebase recovery and when the operator still needs to step in.
+    - `docs/user-stories.md` — under section 7's `final_sync push_failed` entry, add a note that section 7 only fires when the rebase recovery itself fails.
+  - **Acceptance**:
+    - `final_sync` push that fails with non-fast-forward AND has a clean rebase path retries and succeeds; log shows `final_sync rebase_recovered` then `final_sync push_ok`
+    - `final_sync` push that fails with non-fast-forward AND has a real conflict aborts the rebase, leaves the working tree clean, and falls through to the existing `final_sync push_failed` path
+    - The squash-merge-equivalent-content case (local commit and origin commit have identical trees, different SHAs) results in `push_ok` because the rebase drops the equivalent commit
+    - `make check` passes (798+ tests) with new tests added
+    - `final_sync nothing_to_push` and `final_sync push_ok` paths unchanged for the happy-path cases — no regression
+    - PR description cites the s54 incident: "Manual recovery required: local commit `d7ec11a` content-identical to merged-via-PR origin commit; auto-rebase would have dropped the duplicate and pushed cleanly."
+
 ## P2
 
 - [ ] Share immutable per-file fixtures via `setup_file()` so the bats suite stops paying full setup cost on every test
