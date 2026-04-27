@@ -14,6 +14,14 @@
 #                                             → 10h run with a custom skill
 #        taskgrind --backend claude-code 8     → 8h grind with Claude Code
 #        taskgrind --prompt "focus on test coverage" 8
+#        taskgrind --target-repo ~/apps/frontend --target-repo ~/apps/backend ~/apps/control 8
+#                                             → workspace mode: control repo holds TASKS.md,
+#                                               agent has read/write access to target repo(s),
+#                                               slot 0 also syncs and pushes each target.
+#        taskgrind --from-prompt "8 hours on agentbrew with frontend and backend targets, focus on tests, use opus"
+#                                             → translate a natural-language brief into config via the
+#                                               configured AI backend, then launch. Explicit CLI flags
+#                                               and TG_ env vars always win over translated values.
 #        taskgrind --dry-run 8 ~/apps/myrepo  → print config without running
 #        taskgrind --preflight ~/apps/myrepo  → run health checks only
 #        taskgrind --resume ~/apps/myrepo     → resume an interrupted grind
@@ -26,6 +34,8 @@
 #                                             → allow three concurrent grinds per repo
 #        TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8
 #                                             → write machine-readable status snapshots
+#        TG_TARGET_REPOS=~/apps/frontend:~/apps/backend taskgrind ~/apps/control 8
+#                                             → workspace mode via env (colon-separated paths)
 #
 #        Args can appear in any order. Hours is any bare integer (1-24).
 #
@@ -66,6 +76,17 @@
 #        TG_MAX_INSTANCES — max concurrent instances per repo (default: 2)
 #        TG_NO_PUSH     — 1 = never auto-push commits to origin; agent prompt
 #                         also forbids `git push` / `gh pr merge` (default: 0)
+#        TG_TARGET_REPOS — colon-separated workspace target repo paths. Same
+#                         effect as repeating `--target-repo PATH`. The control
+#                         repo (positional arg) holds TASKS.md and the slot
+#                         lock; targets get `fetch` + `rebase` between sessions
+#                         and a `push` from `final_sync` on slot 0.
+#        TG_FROM_PROMPT  — natural-language brief that the configured AI backend
+#                         translates into config (hours, repo, target_repos,
+#                         model, backend, skill, focus, no_push). Explicit CLI
+#                         flags and other TG_ env vars take precedence; the
+#                         translation only fills in slots the user did not set.
+#                         Same effect as passing `--from-prompt "<text>"`.
 #
 #        DVB_ prefix is supported as a backward-compatible alias for all TG_ vars.
 #
@@ -135,11 +156,12 @@ _dvb_is_tty="${_dvb_is_tty:-0}"
 # If TG_X is set, it takes precedence over DVB_X. Internal/test-only vars
 # (DVB_GRIND_CMD, DVB_DEADLINE, DVB_NET_FILE, DVB_CAFFEINATED) stay as DVB_.
 for _tg_var in BACKEND BACKOFF_BASE BACKOFF_MAX COOL DEVIN_PATH \
-               EARLY_EXIT_ON_STALL EMPTY_QUEUE_WAIT EXIT_ON_STALL GIT_SYNC_TIMEOUT \
-               LOG MAX_FAST MAX_INSTANCES \
+               EARLY_EXIT_ON_STALL EMPTY_QUEUE_WAIT EXIT_ON_STALL FROM_PROMPT \
+               GIT_SYNC_TIMEOUT LOG MAX_FAST MAX_INSTANCES \
                MAX_SESSION MAX_ZERO_SHIP MIN_SESSION MODEL NET_CHECK_URL NET_MAX_WAIT \
                NET_RETRIES NET_RETRY_DELAY NET_WAIT NO_PUSH NO_STALL_EXIT NOTIFY PROMPT \
-               SESSION_GRACE SHUTDOWN_GRACE SKILL STATUS_FILE SWEEP_MAX SYNC_INTERVAL; do
+               SESSION_GRACE SHUTDOWN_GRACE SKILL STATUS_FILE SWEEP_MAX SYNC_INTERVAL \
+               TARGET_REPOS; do
   _tg_ref="TG_${_tg_var}"
   if [[ -n "${!_tg_ref:-}" ]]; then
     export "DVB_${_tg_var}"="${!_tg_ref}"
@@ -161,6 +183,37 @@ dry_run=0
 preflight_only=0
 resume_run=0
 _cli_no_push=""  # tri-state: "" = unset, "0" / "1" = explicit CLI choice
+# Slot-tracking flags — distinguish "user passed this on the CLI" from "still
+# the default" so the --from-prompt translation can fill in only the slots the
+# user did NOT set explicitly. The existing CLI parser doesn't separate "user
+# typed --skill next-task" from "default kicked in"; these flags close that gap
+# without changing the existing semantics.
+_cli_hours_set=0
+_cli_repo_set=0
+_cli_skill_set=0
+# Workspace mode — control repo + N target repos. Populated by repeated
+# --target-repo CLI flags or the colon-separated TG_TARGET_REPOS env var.
+# `target_repos` is the resolved, deduped, absolute-path list used by the
+# rest of the script; the resolution happens after the CLI parser so the
+# control repo path is known. Empty array = single-repo mode (the default).
+target_repos=()
+_cli_target_repos_set=0  # 1 if --target-repo appeared on the CLI
+_cli_target_repos_raw=()
+# Natural-language config translator — `--from-prompt "<text>"` (or
+# `TG_FROM_PROMPT`). When set, taskgrind asks the configured AI backend to
+# parse the brief into KEY=VALUE config lines and fills in the slots the user
+# did not pass on the CLI / via env. Explicit user config always wins; the
+# translation never overwrites it. Logged for auditability.
+_from_prompt_text="${DVB_FROM_PROMPT:-}"
+# Translation outputs — populated by translate_from_prompt() before slot merge.
+_fp_hours=""
+_fp_repo=""
+_fp_targets=""  # colon-joined, same shape as TG_TARGET_REPOS
+_fp_model=""
+_fp_backend=""
+_fp_skill=""
+_fp_focus=""
+_fp_no_push=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --help|-h) sed -n '/^#!/d; /^$/q; /^[^#]/q; /^# shellcheck/d; s/^# \{0,1\}//p' "$0"; exit 0 ;;
@@ -178,13 +231,14 @@ while [[ $# -gt 0 ]]; do
       [[ -z "$_cli_model" ]] && { echo "Error: --model requires a non-empty name (example: --model claude-opus-4-7-max). See 'taskgrind --help'." >&2; exit 1; }
       shift 2
       ;;
-    --skill=*) skill="${1#--skill=}"; [[ -z "$skill" ]] && { echo "Error: --skill requires a non-empty name" >&2; exit 1; }; shift ;;
+    --skill=*) skill="${1#--skill=}"; [[ -z "$skill" ]] && { echo "Error: --skill requires a non-empty name" >&2; exit 1; }; _cli_skill_set=1; shift ;;
     --skill)
       if [[ $# -lt 2 ]]; then
         echo "Error: --skill requires a name" >&2; exit 1
       fi
       skill="$2"
       [[ -z "$skill" ]] && { echo "Error: --skill requires a non-empty name" >&2; exit 1; }
+      _cli_skill_set=1
       shift 2
       ;;
     --backend=*) _cli_backend="${1#--backend=}"; [[ -z "$_cli_backend" ]] && { echo "Error: --backend requires a name (devin, claude-code, codex)" >&2; exit 1; }; shift ;;
@@ -203,18 +257,240 @@ while [[ $# -gt 0 ]]; do
       fi
       extra_prompt="$2"; shift 2
       ;;
+    --target-repo=*)
+      _tg_arg="${1#--target-repo=}"
+      [[ -z "$_tg_arg" ]] && { echo "Error: --target-repo requires a path (example: --target-repo ~/apps/frontend). See 'taskgrind --help'." >&2; exit 1; }
+      _cli_target_repos_raw+=("$_tg_arg")
+      _cli_target_repos_set=1
+      shift
+      ;;
+    --target-repo)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --target-repo requires a path (example: --target-repo ~/apps/frontend). See 'taskgrind --help'." >&2; exit 1
+      fi
+      [[ -z "$2" ]] && { echo "Error: --target-repo requires a non-empty path" >&2; exit 1; }
+      _cli_target_repos_raw+=("$2")
+      _cli_target_repos_set=1
+      shift 2
+      ;;
+    --from-prompt=*)
+      _from_prompt_text="${1#--from-prompt=}"
+      [[ -z "$_from_prompt_text" ]] && { echo "Error: --from-prompt requires a non-empty text (example: --from-prompt \"8h on agentbrew with frontend backend, focus on tests\")." >&2; exit 1; }
+      shift
+      ;;
+    --from-prompt)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --from-prompt requires a text argument (example: --from-prompt \"8h on agentbrew with frontend backend, focus on tests\")." >&2; exit 1
+      fi
+      _from_prompt_text="$2"
+      [[ -z "$_from_prompt_text" ]] && { echo "Error: --from-prompt requires a non-empty text" >&2; exit 1; }
+      shift 2
+      ;;
     *)
       if [[ "$1" =~ ^[0-9]+$ ]] && [[ ! -d "$1" ]]; then
         hours="$1"
+        _cli_hours_set=1
       else
         repo="$1"
+        _cli_repo_set=1
       fi
       shift
       ;;
   esac
 done
-requested_model="$(dvb_resolve_model_alias "${_cli_model:-${DVB_MODEL:-$DVB_DEFAULT_MODEL}}")"
-requested_backend="${_cli_backend:-${DVB_BACKEND:-devin}}"
+
+# ── --from-prompt translation ────────────────────────────────────────
+# When `--from-prompt "<text>"` (or `TG_FROM_PROMPT`) is set, ask the
+# configured AI backend to translate the natural-language brief into
+# KEY=VALUE config lines. The translation runs BEFORE slot resolution so
+# prompt-derived values can fill in slots the user did not set on the CLI
+# or via env. Explicit user config always wins — this layer slots in
+# between env vars and the static defaults.
+#
+# Test bypass: setting `DVB_FROM_PROMPT_RESPONSE` to a canned KEY=VALUE
+# string skips the backend call so bats tests stay deterministic without
+# requiring a real LLM. Production runs always call the backend.
+translate_from_prompt() {
+  # Pick the backend + model for the translator call: explicit CLI > env >
+  # default. We deliberately do NOT use prompt-derived model/backend (that
+  # would be circular — we are running this CALL to learn what they are).
+  local _trans_model _trans_backend
+  _trans_model="$(dvb_resolve_model_alias "${_cli_model:-${DVB_MODEL:-$DVB_DEFAULT_MODEL}}")"
+  _trans_backend="${_cli_backend:-${DVB_BACKEND:-devin}}"
+
+  local _home_path="${HOME:-/}"
+  # Build the translation prompt with a quoted heredoc + manual placeholder
+  # substitution. This pattern sidesteps a bash 3.2 parser bug where bare
+  # apostrophes inside `$(cat <<EOF ... EOF)` are misread as the start of a
+  # single-quoted string. Using `<<'EOF'` disables parameter expansion, so we
+  # place __PLACEHOLDER__ tokens for the two variables and substitute them
+  # afterward with `${var//pattern/replacement}` (bash 3.2 compatible).
+  local _trans_input
+  _trans_input=$(cat <<'EOF'
+You are a config translator for taskgrind, an autonomous coding-agent runner.
+Convert the request into KEY=VALUE configuration lines.
+OUTPUT ONLY THOSE LINES. No prose, no markdown, no code fences, no JSON.
+
+User request: __FROM_PROMPT_TEXT__
+
+User home directory: __HOME_PATH__
+
+Output format. One line per non-default field, exactly these keys, omit
+lines for fields the request did not specify:
+  hours=<integer 1-24>
+  repo=<absolute path to control repo>
+  target_repos=<colon-separated absolute paths to extra target repos>
+  model=<opus | sonnet | haiku | swe | codex | gpt | full model id>
+  backend=<devin | claude-code | codex>
+  skill=<skill name; default is next-task>
+  focus=<agent focus prompt — the residue of intent that is not config>
+  no_push=<0 or 1>
+
+Rules:
+- Only emit lines for fields the request explicitly mentions. Omit the rest.
+- Resolve project names (e.g. "agentbrew", "this repo") to absolute paths
+  under __HOME_PATH__/apps/<name>.
+- "use opus" or "with opus" or "opus model" -> model=opus.
+- "via codex" or "codex backend" -> backend=codex. Bare "codex" -> model.
+- "do not push" or "review only" or "no publish" -> no_push=1.
+- "focus on X" or "prioritize Y" -> focus=X (or Y).
+- The "focus" value is whatever remains of the request that is not config;
+  omit the line entirely if no residue remains.
+- DO NOT emit hours, repo, model, backend, skill, or no_push lines the
+  request did not specify. Defaults handle those.
+
+Example input: "8 hours on agentbrew with frontend and backend targets,
+focus on test coverage, use opus"
+Example output:
+hours=8
+repo=__HOME_PATH__/apps/agentbrew
+target_repos=__HOME_PATH__/apps/frontend:__HOME_PATH__/apps/backend
+model=opus
+focus=focus on test coverage
+EOF
+  )
+  _trans_input="${_trans_input//__FROM_PROMPT_TEXT__/$_from_prompt_text}"
+  _trans_input="${_trans_input//__HOME_PATH__/$_home_path}"
+
+  local response
+  if [[ -n "${DVB_FROM_PROMPT_RESPONSE:-}" ]]; then
+    # Test bypass — read canned response so bats tests don't need a real LLM.
+    response="$DVB_FROM_PROMPT_RESPONSE"
+  else
+    # Real backend call. Resolve the binary inline so this function does not
+    # depend on `resolve_test_backend_command` / `resolve_backend_binary`,
+    # which are defined later in the script. Same precedence as the main
+    # session resolver: DVB_GRIND_CMD (test override) > backend-specific
+    # binary on PATH.
+    local _trans_bin
+    if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+      if [[ "$DVB_GRIND_CMD" =~ [[:space:]] ]]; then
+        echo "Error: --from-prompt: DVB_GRIND_CMD must be a single executable path, not a command line: $DVB_GRIND_CMD" >&2
+        exit 1
+      fi
+      if [[ "$DVB_GRIND_CMD" == */* ]]; then
+        _trans_bin="$DVB_GRIND_CMD"
+      else
+        _trans_bin=$(type -P "$DVB_GRIND_CMD" 2>/dev/null || true)
+      fi
+      if [[ -z "$_trans_bin" || ! -x "$_trans_bin" ]]; then
+        echo "Error: --from-prompt: DVB_GRIND_CMD test backend not executable: $DVB_GRIND_CMD" >&2
+        exit 1
+      fi
+    else
+      case "$_trans_backend" in
+        devin) _trans_bin="$DVB_DEVIN_PATH" ;;
+        claude-code) _trans_bin=$(command -v claude 2>/dev/null || echo "") ;;
+        codex) _trans_bin=$(command -v codex 2>/dev/null || echo "") ;;
+        *) echo "Error: --from-prompt translation: unknown backend '$_trans_backend'. Set --backend or TG_BACKEND to devin, claude-code, or codex." >&2; exit 1 ;;
+      esac
+      if [[ ! -x "$_trans_bin" ]]; then
+        echo "Error: --from-prompt translation: backend binary not found ($_trans_backend): ${_trans_bin:-not in PATH}. Install the $_trans_backend CLI or pass config flags explicitly without --from-prompt." >&2
+        exit 1
+      fi
+    fi
+
+    local -a _trans_args=()
+    case "$_trans_backend" in
+      devin) _trans_args=(--model "$_trans_model" --permission-mode dangerous -p "$_trans_input") ;;
+      claude-code) _trans_args=(--model "$_trans_model" --dangerously-skip-permissions -p "$_trans_input") ;;
+      codex) _trans_args=(--model "$_trans_model" -q "$_trans_input") ;;
+    esac
+
+    local _trans_status=0
+    if ! response=$("$_trans_bin" "${_trans_args[@]}" 2>&1); then
+      _trans_status=$?
+      echo "Error: --from-prompt translation failed via $_trans_backend (exit $_trans_status). First 500 chars of output:" >&2
+      printf '%s\n' "$response" | head -c 500 >&2
+      echo "" >&2
+      exit 1
+    fi
+  fi
+
+  # Parse KEY=VALUE lines. Unknown keys are ignored defensively (LLM may emit
+  # extras). Values are taken verbatim — no shell expansion.
+  local _seen_any=0
+  local _key _value
+  while IFS='=' read -r _key _value; do
+    [[ -z "$_key" ]] && continue
+    # Trim leading/trailing whitespace from key (defensive against LLM quirks)
+    _key="${_key#"${_key%%[![:space:]]*}"}"
+    _key="${_key%"${_key##*[![:space:]]}"}"
+    # Trim trailing CR/LF from value (in case of \r\n line endings)
+    _value="${_value%$'\r'}"
+    case "$_key" in
+      hours) _fp_hours="$_value"; _seen_any=1 ;;
+      repo) _fp_repo="$_value"; _seen_any=1 ;;
+      target_repos) _fp_targets="$_value"; _seen_any=1 ;;
+      model) _fp_model="$_value"; _seen_any=1 ;;
+      backend) _fp_backend="$_value"; _seen_any=1 ;;
+      skill) _fp_skill="$_value"; _seen_any=1 ;;
+      focus) _fp_focus="$_value"; _seen_any=1 ;;
+      no_push) _fp_no_push="$_value"; _seen_any=1 ;;
+      *) ;;
+    esac
+  done <<< "$response"
+
+  if [[ "$_seen_any" -eq 0 ]]; then
+    echo "Error: --from-prompt translation produced no parseable KEY=VALUE lines via $_trans_backend. Set flags explicitly or rewrite the prompt. First 500 chars of response:" >&2
+    printf '%s\n' "$response" | head -c 500 >&2
+    echo "" >&2
+    exit 1
+  fi
+}
+
+# Run translation now, before slot resolution. Reject --resume + --from-prompt:
+# resume's source of truth is the saved .taskgrind-state, not a re-translated
+# brief that could silently diverge from the original run's config.
+if [[ -n "$_from_prompt_text" ]]; then
+  if [[ "$resume_run" -eq 1 ]]; then
+    echo "Error: --from-prompt is not compatible with --resume. Resume uses the saved .taskgrind-state; drop --from-prompt or start a fresh grind." >&2
+    exit 1
+  fi
+  translate_from_prompt
+fi
+
+# ── Slot merge ────────────────────────────────────────────────────────
+# Apply translated values to slots the user did not set explicitly.
+# Precedence: explicit CLI flag > TG_/DVB_ env var > _fp_* (prompt) > default.
+# `target_repos` and `no_push` resolution lives further down so the merge for
+# those is applied at the existing site (see the workspace-resolution block
+# and the no_push resolution block below).
+if [[ "$_cli_hours_set" -eq 0 && -n "$_fp_hours" ]]; then
+  hours="$_fp_hours"
+fi
+if [[ "$_cli_repo_set" -eq 0 && -n "$_fp_repo" ]]; then
+  repo="$_fp_repo"
+fi
+if [[ "$_cli_skill_set" -eq 0 && -z "${DVB_SKILL:-}" && -n "$_fp_skill" ]]; then
+  skill="$_fp_skill"
+fi
+if [[ -z "$extra_prompt" && -n "$_fp_focus" ]]; then
+  extra_prompt="$_fp_focus"
+fi
+
+requested_model="$(dvb_resolve_model_alias "${_cli_model:-${DVB_MODEL:-${_fp_model:-$DVB_DEFAULT_MODEL}}}")"
+requested_backend="${_cli_backend:-${DVB_BACKEND:-${_fp_backend:-devin}}}"
 model="$requested_model"
 backend="$requested_backend"
 _cli_prompt="$extra_prompt"
@@ -311,15 +587,19 @@ fi
 if [[ -n "${DVB_NO_PUSH:-}" ]] && ! [[ "${DVB_NO_PUSH}" =~ ^[01]$ ]]; then
   echo "Error: TG_NO_PUSH must be 0 or 1, got '${DVB_NO_PUSH}'" >&2; exit 1
 fi
-# Resolve no-push: CLI flag wins, then env var, default 0.
+# Resolve no-push: CLI flag wins, then env var, then prompt-translated, default 0.
 # When set, final_sync emits a `would_push` log line instead of pushing,
 # and the session prompt's COMPLETION PROTOCOL forbids any publishing
 # (no `git push`, no `gh pr create`, no `gh pr merge`). Operators review
 # the local commits and push manually after the grind exits.
 if [[ -n "$_cli_no_push" ]]; then
   no_push="$_cli_no_push"
+elif [[ -n "${DVB_NO_PUSH:-}" ]]; then
+  no_push="$DVB_NO_PUSH"
+elif [[ -n "${_fp_no_push:-}" ]]; then
+  no_push="$_fp_no_push"
 else
-  no_push="${DVB_NO_PUSH:-0}"
+  no_push="0"
 fi
 
 # Validate backend
@@ -348,6 +628,62 @@ if [[ ! -d "$repo" ]]; then
 fi
 
 repo="$(cd "$repo" && pwd)"
+
+# ── Workspace mode: resolve target repos ─────────────────────────────
+# Precedence: explicit CLI flag > TG_/DVB_ env var > prompt-translated
+# (`_fp_targets`) > empty (single-repo mode). Each path is resolved to an
+# absolute path, deduped, and rejected if it equals the control repo.
+_target_repos_raw=()
+if [[ "$_cli_target_repos_set" -eq 1 ]]; then
+  _target_repos_raw=("${_cli_target_repos_raw[@]}")
+elif [[ -n "${DVB_TARGET_REPOS:-}" ]]; then
+  IFS=':' read -r -a _target_repos_raw <<< "$DVB_TARGET_REPOS"
+elif [[ -n "${_fp_targets:-}" ]]; then
+  IFS=':' read -r -a _target_repos_raw <<< "$_fp_targets"
+fi
+
+# Note: ${arr[@]+"${arr[@]}"} (outer unquoted) is the bash 3.2-safe idiom for
+# "expand the array, or nothing if it is empty/unset under set -u". Quoting
+# the outer expansion would inject a phantom empty-string element into every
+# for-loop on an empty array.
+for _tg_path in ${_target_repos_raw[@]+"${_target_repos_raw[@]}"}; do
+  [[ -z "$_tg_path" ]] && continue
+  # Expand ~ manually — read -ra does not invoke shell tilde expansion.
+  # shellcheck disable=SC2088  # tildes here are case-pattern literals, not paths
+  case "$_tg_path" in
+    "~") _tg_path="$HOME" ;;
+    "~/"*) _tg_path="$HOME/${_tg_path#~/}" ;;
+  esac
+  if [[ ! -d "$_tg_path" ]]; then
+    echo "Error: --target-repo path does not exist: $_tg_path. Pass a valid directory or remove the flag. See 'taskgrind --help'." >&2; exit 1
+  fi
+  _tg_abs="$(cd "$_tg_path" && pwd)"
+  if [[ "$_tg_abs" == "$repo" ]]; then
+    echo "Error: --target-repo $_tg_abs is the same as the control repo. Drop the redundant flag or run a single-repo grind. See 'taskgrind --help'." >&2; exit 1
+  fi
+  # Dedup — repeated entries (CLI typo or env-merge accidents) collapse so
+  # downstream loops do not double-sync or double-push the same repo.
+  _tg_seen=0
+  for _tg_existing in ${target_repos[@]+"${target_repos[@]}"}; do
+    if [[ "$_tg_existing" == "$_tg_abs" ]]; then
+      _tg_seen=1
+      break
+    fi
+  done
+  if [[ "$_tg_seen" -eq 0 ]]; then
+    target_repos+=("$_tg_abs")
+  fi
+done
+unset _tg_path _tg_abs _tg_seen _tg_existing _target_repos_raw
+
+# Joined `:`-delimited form used for env exports, status JSON, resume state,
+# and log lines. Empty when there are no targets.
+_targets_joined=""
+for _tg in ${target_repos[@]+"${target_repos[@]}"}; do
+  _targets_joined="${_targets_joined:+${_targets_joined}:}${_tg}"
+done
+unset _tg
+
 state_file="${DVB_STATE_FILE:-$repo/$DVB_RESUME_STATE_BASENAME}"
 
 state_deadline=""
@@ -364,6 +700,7 @@ state_repo=""
 state_status=""
 state_version=""
 state_no_push=""
+state_targets=""
 resume_loaded=0
 resume_reason=""
 
@@ -385,6 +722,7 @@ load_resume_state() {
       startup_model) state_startup_model="$value" ;;
       startup_prompt) state_startup_prompt="$value" ;;
       no_push) state_no_push="$value" ;;
+      targets) state_targets="$value" ;;
     esac
   done < "$state_file"
 }
@@ -417,6 +755,16 @@ if [[ "$resume_run" -eq 1 ]]; then
   elif [[ "$skill" != "$state_skill" ]]; then
     resume_reason="skill does not match saved state"
   fi
+  # Workspace mode: target list must match. If the resume CLI passed --target-repo
+  # explicitly, the resolved list (in $_targets_joined) must match the saved
+  # state. If no --target-repo / TG_TARGET_REPOS was passed, we restore the
+  # saved list. This mirrors the no_push restore semantics: explicit override
+  # wins, otherwise saved value wins.
+  if [[ -z "$resume_reason" ]] && [[ "$_cli_target_repos_set" -eq 1 || -n "${DVB_TARGET_REPOS:-}" ]]; then
+    if [[ "$_targets_joined" != "$state_targets" ]]; then
+      resume_reason="target repos do not match saved state (saved=$state_targets, requested=$_targets_joined)"
+    fi
+  fi
   if [[ -n "$resume_reason" ]]; then
     echo "Error: cannot resume $repo — saved state is incompatible: $resume_reason" >&2
     if [[ "$resume_reason" == "deadline expired" ]]; then
@@ -435,6 +783,13 @@ if [[ "$resume_run" -eq 1 ]]; then
   # without a no_push field are treated as no_push=0 (the prior default).
   if [[ -z "$_cli_no_push" && "$state_no_push" =~ ^[01]$ ]]; then
     no_push="$state_no_push"
+  fi
+  # Restore target repos from saved state when the resume CLI did not supply
+  # them. Saved targets are colon-separated absolute paths.
+  if [[ "$_cli_target_repos_set" -eq 0 && -z "${DVB_TARGET_REPOS:-}" && -n "$state_targets" ]]; then
+    target_repos=()
+    IFS=':' read -r -a target_repos <<< "$state_targets"
+    _targets_joined="$state_targets"
   fi
   resume_loaded=1
 fi
@@ -878,6 +1233,75 @@ preflight_check() {
   fi
 }
 
+# Workspace-mode per-target preflight. Reuses the per-repo subset of the
+# regular preflight (git state, remote reachability, disk space) but skips
+# global checks that already ran for the control repo (backend binary, model
+# validation, network connectivity, network-watchdog availability). Also
+# treats a missing TASKS.md as benign — targets are not required to host
+# their own queue, the control repo owns that.
+preflight_check_target() {
+  # Caller resets the per-target counters before invoking.
+
+  # Git state clean — not mid-rebase, not detached HEAD, not mid-merge
+  local git_dir
+  git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)" || git_dir=""
+  if [[ -z "$git_dir" ]]; then
+    preflight_warn "Not a git repository: $repo"
+  else
+    local git_clean=1
+    if [[ -d "$git_dir/rebase-merge" ]] || [[ -d "$git_dir/rebase-apply" ]]; then
+      preflight_fail "Git rebase in progress — run 'git rebase --abort' or resolve"
+      git_clean=0
+    fi
+    if [[ -f "$git_dir/MERGE_HEAD" ]]; then
+      preflight_fail "Git merge in progress — resolve or abort"
+      git_clean=0
+    fi
+    if [[ "$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)" == "HEAD" ]]; then
+      preflight_warn "Detached HEAD — sessions may not sync properly"
+      git_clean=0
+    fi
+    if [[ $git_clean -eq 1 ]]; then
+      preflight_pass "Git state clean"
+    fi
+  fi
+
+  # Git remote reachable
+  if [[ -n "$git_dir" ]] && [[ -n "$(git -C "$repo" remote 2>/dev/null)" ]]; then
+    dvb_spinner_start "Checking git remote..."
+    _preflight_check_remote_reachable "$repo" "Git remote unreachable (may affect target sync)"
+  else
+    preflight_warn "No git remote configured"
+  fi
+
+  # Disk space
+  local free_kb
+  free_kb=$(df -Pk "$repo" | awk 'NR==2 { print $4 }' 2>/dev/null) || free_kb=0
+  free_kb="${free_kb:-0}"
+  if [[ "$free_kb" -gt 1048576 ]]; then
+    preflight_pass "Disk space: $(( free_kb / 1048576 ))GB free"
+  elif [[ "$free_kb" -gt 524288 ]]; then
+    preflight_warn "Disk space low: $(( free_kb / 1024 ))MB free (< 1GB)"
+  else
+    preflight_fail "Disk space critical: $(( free_kb / 1024 ))MB free"
+  fi
+
+  # Summary
+  echo ""
+  echo "  Results: ${_pf_pass} passed, ${_pf_warn} warnings, ${_pf_fail} failed"
+
+  if [[ $_pf_fail -gt 0 ]]; then
+    echo "  ✗ Target preflight FAILED — fix the above errors before starting."
+    return 1
+  elif [[ $_pf_warn -gt 0 ]]; then
+    echo "  ⚠ Target preflight passed with warnings."
+    return 0
+  else
+    echo "  ✓ Target preflight passed."
+    return 0
+  fi
+}
+
 # --preflight: run health checks and exit without launching
 if [[ "$preflight_only" -eq 1 ]]; then
   echo "taskgrind --preflight"
@@ -887,6 +1311,12 @@ if [[ "$preflight_only" -eq 1 ]]; then
   echo "  model:    $model"
   if [[ -n "$extra_prompt" ]]; then
     echo "  prompt:   $extra_prompt"
+  fi
+  if [[ "${#target_repos[@]}" -gt 0 ]]; then
+    for _tg in ${target_repos[@]+"${target_repos[@]}"}; do
+      echo "  target:   $_tg"
+    done
+    unset _tg
   fi
   # Report active instance slots
   _lock_hash=$(echo "$repo" | { shasum 2>/dev/null || sha1sum; } | cut -d' ' -f1)
@@ -900,7 +1330,29 @@ if [[ "$preflight_only" -eq 1 ]]; then
   echo "  slots:    $_active_slots/$max_instances active"
   echo ""
   preflight_check
-  exit $?
+  _pf_status=$?
+  # Workspace mode: re-run the standard preflight checks against each target
+  # repo so missing remotes, mid-rebase trees, or absent paths show up
+  # before the deadline starts. The control-repo result still drives the
+  # overall exit code; targets contribute warnings or failures in addition.
+  if [[ "${#target_repos[@]}" -gt 0 ]]; then
+    for _tg in ${target_repos[@]+"${target_repos[@]}"}; do
+      echo ""
+      echo "Target repo preflight: $_tg"
+      echo ""
+      _saved_repo="$repo"
+      repo="$_tg"
+      _pf_pass=0; _pf_warn=0; _pf_fail=0
+      preflight_check_target
+      _tg_status=$?
+      repo="$_saved_repo"
+      if [[ "$_tg_status" -ne 0 ]]; then
+        _pf_status=1
+      fi
+    done
+    unset _tg _saved_repo _tg_status
+  fi
+  exit "$_pf_status"
 fi
 
 # ── Per-repo slot lock ────────────────────────────────────────────────
@@ -999,6 +1451,13 @@ if [[ "$dry_run" -eq 1 ]]; then
   if [[ "$max_instances" -gt 1 ]]; then
     echo "  max_instances: $max_instances (slot=$_dvb_slot)"
   fi
+  if [[ "${#target_repos[@]}" -gt 0 ]]; then
+    echo "  workspace: control + ${#target_repos[@]} target(s)"
+    for _tg in ${target_repos[@]+"${target_repos[@]}"}; do
+      echo "  target:   $_tg"
+    done
+    unset _tg
+  fi
   if [[ -n "$extra_prompt" ]]; then
     echo "  prompt:   $extra_prompt"
   fi
@@ -1011,6 +1470,9 @@ if [[ "$dry_run" -eq 1 ]]; then
     echo "  COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. If you created a PR, merge it first (use 'gh pr merge --squash' or merge directly). If you committed directly to main, just remove the task. A session that commits code but doesn't remove the task from TASKS.md is a failed session."
   fi
   echo "  AUTONOMY: You are fully autonomous. Never skip a task claiming it requires manual steps, human intervention, or external service access. You have browser automation, MCP tools, CLI access, and can interact with any web service. If a task involves a UI portal, use your browser skills. If it needs an API, call it. If it needs Jira, use MCP. Do not leave tasks saying 'requires manual work' — figure it out and do it."
+  if [[ "${#target_repos[@]}" -gt 0 ]]; then
+    echo "  WORKSPACE: This grind has ${#target_repos[@]} target repo(s) in addition to the control repo ($repo): $_targets_joined. Tasks may require coordinated changes across them. Use 'cd <repo> && git ...' to commit changes in the right repo. Treat the control repo as the source of truth for TASKS.md."
+  fi
   if [[ -n "$extra_prompt" ]]; then
     echo "  FOCUS: $extra_prompt"
     echo "  Pick tasks from TASKS.md that relate to this focus first."
@@ -1104,8 +1566,12 @@ _consecutive_diminishing_returns=0
 _dvb_finalizing=0
 _dvb_skip_exit_final_sync=0
 _dvb_shutting_down=0
-_dvb_final_sync_attempted_head=""
-_dvb_final_sync_attempted_ahead=""
+# Per-repo memo of (head, ahead) pairs we have already tried to push during
+# this process. Format: ";<repo>=<head>/<ahead>;..." (semicolon-delimited so a
+# `case` glob can probe membership without splitting). Replaces the older
+# single-pair head/ahead variables; workspace mode needs per-repo state so
+# control- and target-repo pushes don't shadow each other.
+_dvb_final_sync_memo=""
 session_output=$(mktemp "$_dvb_tmp/taskgrind-ses-XXXXXX") || { echo "Error: cannot create temp file in $_dvb_tmp" >&2; exit 1; }
 _task_attempts_file=$(mktemp "$_dvb_tmp/taskgrind-att-XXXXXX") || { echo "Error: cannot create temp file in $_dvb_tmp" >&2; exit 1; }
 _git_out=""
@@ -1159,6 +1625,7 @@ model=$model
 startup_model=$_startup_model
 startup_prompt=$_cli_prompt
 no_push=$no_push
+targets=$_targets_joined
 EOF
   mv -f "$state_tmp" "$state_file" 2>/dev/null || rm -f "$state_tmp"
 }
@@ -1176,7 +1643,7 @@ json_escape() {
 write_status_file() {
   [[ -n "$status_file" ]] || return 0
 
-  local status_dir status_tmp now remaining_secs remaining_minutes terminal_reason_json
+  local status_dir status_tmp now remaining_secs remaining_minutes terminal_reason_json targets_json
   status_dir="$(dirname "$status_file")"
   mkdir -p "$status_dir" 2>/dev/null || return 0
   status_tmp=$(mktemp "${status_file}.tmp.XXXXXX") 2>/dev/null || return 0
@@ -1188,6 +1655,25 @@ write_status_file() {
     terminal_reason_json="\"$(json_escape "$terminal_reason")\""
   else
     terminal_reason_json="null"
+  fi
+  # Build the targets JSON array. Empty array `[]` for single-repo runs so
+  # supervisors can rely on the field always being present without a null
+  # branch. The control repo is intentionally NOT included here — it is
+  # already exposed via the top-level "repo" field.
+  if [[ "${#target_repos[@]}" -gt 0 ]]; then
+    local _tg_first=1 _tg
+    targets_json="["
+    for _tg in ${target_repos[@]+"${target_repos[@]}"}; do
+      if [[ "$_tg_first" -eq 1 ]]; then
+        _tg_first=0
+      else
+        targets_json+=", "
+      fi
+      targets_json+="\"$(json_escape "$_tg")\""
+    done
+    targets_json+="]"
+  else
+    targets_json="[]"
   fi
 
   cat > "$status_tmp" <<EOF
@@ -1202,6 +1688,7 @@ write_status_file() {
   "remaining_minutes": $remaining_minutes,
   "current_phase": "$(json_escape "$current_phase")",
   "terminal_reason": $terminal_reason_json,
+  "targets": $targets_json,
   "updated_at": "$(date '+%Y-%m-%dT%H:%M:%S%z')",
   "last_session": {
     "number": $last_session_number,
@@ -1276,55 +1763,80 @@ boost_priority "$$"
 
 # ── Final sync — push local commits to origin before exiting ──────────
 # Called on every exit path so committed work is never left unpublished.
+# Operates on a single repo. The first arg (default: control repo) lets
+# `final_sync_all` reuse this logic for every workspace target. The second
+# arg is a workspace-mode label (e.g. "target=frontend" — no trailing space)
+# that gets appended to log lines as a SUFFIX. The "verb at front, qualifier
+# at end" shape preserves the literal markers (`final_sync push_ok`,
+# `final_sync would_push`, etc.) so a single grep matches both control- and
+# target-repo lines without regex acrobatics, and the marker-drift guard in
+# tests/features.bats keeps working without per-marker regex updates.
 final_sync() {
+  local _fs_repo="${1:-$repo}"
+  local _fs_label="${2:-}"
+  local _fs_suffix=""
+  [[ -n "$_fs_label" ]] && _fs_suffix=" $_fs_label"
   if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
     return 0  # Test mode — skip real git operations
   fi
-  if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
+  if ! git -C "$_fs_repo" rev-parse --git-dir >/dev/null 2>&1; then
     return 0  # Not a git repo
   fi
-  if [[ -z "$(git -C "$repo" remote 2>/dev/null)" ]]; then
+  if [[ -z "$(git -C "$_fs_repo" remote 2>/dev/null)" ]]; then
     return 0  # No remote configured
   fi
   # Guard: don't push from detached HEAD — could push to unexpected ref
   local _current_branch
-  _current_branch=$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null) || true
+  _current_branch=$(git -C "$_fs_repo" symbolic-ref --short HEAD 2>/dev/null) || true
   if [[ -z "$_current_branch" ]]; then
-    log_write "[$(date '+%H:%M')] final_sync skipped — detached HEAD"
+    log_write "[$(date '+%H:%M')] final_sync skipped — detached HEAD${_fs_suffix}"
     return 0
   fi
   # Only push if there are local commits ahead of origin
   local _default_branch
   local _default_branch_source
   local _current_head
-  read -r _default_branch _default_branch_source < <(detect_default_branch "$repo")
-  _current_head=$(git -C "$repo" rev-parse HEAD 2>/dev/null) || _current_head=""
+  read -r _default_branch _default_branch_source < <(detect_default_branch "$_fs_repo")
+  _current_head=$(git -C "$_fs_repo" rev-parse HEAD 2>/dev/null) || _current_head=""
   local ahead
-  ahead=$(git -C "$repo" rev-list --count "origin/$_default_branch..HEAD" 2>/dev/null) || ahead=0
+  ahead=$(git -C "$_fs_repo" rev-list --count "origin/$_default_branch..HEAD" 2>/dev/null) || ahead=0
   if [[ "$ahead" -eq 0 ]]; then
-    log_write "[$(date '+%H:%M')] final_sync nothing_to_push"
+    log_write "[$(date '+%H:%M')] final_sync nothing_to_push${_fs_suffix}"
     return 0
   fi
   # Shutdown can re-enter via repeated signals or overlapping exit paths. Only
-  # push a given local commit snapshot once per process.
-  if [[ -n "$_current_head" ]] && [[ "$_dvb_final_sync_attempted_head" == "$_current_head" ]] && [[ "$_dvb_final_sync_attempted_ahead" == "$ahead" ]]; then
-    log_write "[$(date '+%H:%M')] final_sync skipped_duplicate commits=$ahead head=$_current_head"
-    return 0
-  fi
-  _dvb_final_sync_attempted_head="$_current_head"
-  _dvb_final_sync_attempted_ahead="$ahead"
+  # push a given local commit snapshot once per process. The memo is per-repo
+  # so the control repo and each target each get their own dedup key — without
+  # this, pushing the control repo would block every subsequent target push
+  # whenever the (head, ahead) tuples accidentally collided.
+  local _memo_key=";${_fs_repo}=${_current_head}/${ahead};"
+  case "$_dvb_final_sync_memo" in
+    *"$_memo_key"*)
+      log_write "[$(date '+%H:%M')] final_sync skipped_duplicate commits=$ahead head=$_current_head${_fs_suffix}"
+      return 0
+      ;;
+  esac
+  _dvb_final_sync_memo="${_dvb_final_sync_memo}${_memo_key}"
   # No-publish mode: log the intent and stop. Operator pushes manually.
   if [[ "$no_push" == "1" ]]; then
-    echo "   🛑 No-publish mode: $ahead local commit(s) ready for review (head=$_current_head). Push manually after review."
-    log_write "[$(date '+%H:%M')] final_sync would_push commits=$ahead head=$_current_head"
+    if [[ -n "$_fs_label" ]]; then
+      echo "   🛑 No-publish mode (${_fs_label}): $ahead local commit(s) ready for review (head=$_current_head)."
+    else
+      echo "   🛑 No-publish mode: $ahead local commit(s) ready for review (head=$_current_head). Push manually after review."
+    fi
+    log_write "[$(date '+%H:%M')] final_sync would_push commits=$ahead head=$_current_head${_fs_suffix}"
     return 0
   fi
-  echo "   📤 Pushing $ahead local commit(s) to origin..."
-  log_write "[$(date '+%H:%M')] final_sync pushing commits=$ahead"
+  if [[ -n "$_fs_label" ]]; then
+    echo "   📤 Pushing $ahead local commit(s) from ${_fs_label} to origin..."
+  else
+    echo "   📤 Pushing $ahead local commit(s) to origin..."
+  fi
+  log_write "[$(date '+%H:%M')] final_sync pushing commits=$ahead${_fs_suffix}"
   local push_output push_first_line push_status=0
-  push_output=$(git -C "$repo" push origin HEAD 2>&1) || push_status=$?
+  push_output=$(git -C "$_fs_repo" push origin HEAD 2>&1) || push_status=$?
   if [[ "$push_status" -eq 0 ]]; then
-    log_write "[$(date '+%H:%M')] final_sync push_ok"
+    log_write "[$(date '+%H:%M')] final_sync push_ok${_fs_suffix}"
   else
     while IFS= read -r _push_line; do
       [[ -z "$_push_line" ]] && continue
@@ -1340,17 +1852,172 @@ final_sync() {
     done <<< "$push_output"
     if [[ -n "$push_first_line" ]]; then
       echo "   ⚠ Push failed: $push_first_line — local commits preserved for manual push"
-      log_write "[$(date '+%H:%M')] final_sync push_failed error=$push_first_line"
+      log_write "[$(date '+%H:%M')] final_sync push_failed error=$push_first_line${_fs_suffix}"
     else
       echo "   ⚠ Push failed — local commits preserved for manual push"
-      log_write "[$(date '+%H:%M')] final_sync push_failed"
+      log_write "[$(date '+%H:%M')] final_sync push_failed${_fs_suffix}"
     fi
     if [[ -n "$push_output" ]]; then
       while IFS= read -r _push_line; do
-        log_write "[$(date '+%H:%M')] final_sync push_stderr $_push_line"
+        log_write "[$(date '+%H:%M')] final_sync push_stderr $_push_line${_fs_suffix}"
       done <<< "$push_output"
     fi
   fi
+}
+
+# Workspace-aware wrapper: push the control repo first, then each target.
+# Targets are best-effort — a failure on one does not stop the others, since
+# `final_sync` already preserves local commits for manual recovery on failure.
+final_sync_all() {
+  final_sync "$repo"
+  if [[ "${#target_repos[@]}" -gt 0 ]]; then
+    local _t
+    for _t in ${target_repos[@]+"${target_repos[@]}"}; do
+      final_sync "$_t" "target=$(basename "$_t")"
+    done
+  fi
+}
+
+# ── Workspace per-target git sync ─────────────────────────────────────
+# Slot 0 calls this between sessions for every target repo, after the
+# control repo's full sync block has completed. Performs the same
+# stash + checkout + fetch + rebase + stash-pop sequence the control
+# block runs and skips the merged-branch / stale-branch cleanup steps
+# because those are pure cosmetics that would slow the loop without
+# helping the agent. Log lines use the same `git_sync <verb> [details]
+# target=<name>` shape the control repo uses, with `target=<name>` as
+# a TRAILING qualifier so a single `grep "git_sync ok"` matches both
+# control- and target-repo lines without regex acrobatics. Honours
+# `DVB_GIT_SYNC_TIMEOUT` per target so operators tune total sync cost
+# with one knob instead of raising the slot count.
+sync_target_repo() {
+  local _ts_repo="$1"
+  local _ts_label
+  _ts_label="target=$(basename "$_ts_repo")"
+  local _ts_default_branch _ts_default_source
+
+  if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+    return 0  # Test mode — skip real git operations
+  fi
+
+  if ! git -C "$_ts_repo" rev-parse --git-dir >/dev/null 2>&1 \
+       || [[ -z "$(git -C "$_ts_repo" remote 2>/dev/null)" ]]; then
+    log_write "[$(date '+%H:%M')] git_sync skipped (no_remote_or_not_git) $_ts_label"
+    return 0
+  fi
+
+  dvb_spinner_start "Syncing $_ts_label..."
+  local _ts_out
+  _ts_out=$(mktemp "$_dvb_tmp/taskgrind-tgsy-XXXXXX")
+  read -r _ts_default_branch _ts_default_source < <(detect_default_branch "$_ts_repo")
+
+  (
+    local _dirty=0 _err
+    echo "selected_branch branch=$_ts_default_branch source=$_ts_default_source"
+    if ! git -C "$_ts_repo" diff --quiet 2>/dev/null || ! git -C "$_ts_repo" diff --cached --quiet 2>/dev/null; then
+      if _err=$(git -C "$_ts_repo" stash --include-untracked -m "taskgrind: auto-stash before target sync" 2>&1); then
+        _dirty=1
+        echo "stashed"
+      else
+        echo "stash_failed: $_err"
+      fi
+    fi
+    if ! _err=$(git -C "$_ts_repo" checkout "$_ts_default_branch" 2>&1); then
+      echo "checkout_failed: $_err"
+    fi
+    if ! _err=$(git -C "$_ts_repo" fetch origin --prune 2>&1); then
+      echo "fetch_failed: $_err"
+    fi
+    if ! _err=$(git -C "$_ts_repo" rebase "origin/$_ts_default_branch" 2>&1); then
+      echo "rebase_failed: $_err"
+    fi
+    if rebase_in_progress "$_ts_repo"; then
+      git -C "$_ts_repo" rebase --abort 2>/dev/null || true
+      echo "rebase_aborted"
+    fi
+    if [[ "$_dirty" -eq 1 ]]; then
+      if ! git -C "$_ts_repo" stash pop 2>/dev/null; then
+        echo "stash_pop_failed"
+      fi
+    fi
+  ) > "$_ts_out" 2>&1 &
+  local _ts_pid=$!
+  # Reuse the same timeout knob as the control repo so operators tuning sync
+  # cost have one variable to adjust, not two.
+  local _ts_sync_timeout="${DVB_GIT_SYNC_TIMEOUT:-30}"
+  (
+    trap 'kill $! 2>/dev/null; exit 0' TERM
+    sleep "$_ts_sync_timeout" &
+    wait $! 2>/dev/null || exit 0
+    kill "$_ts_pid" 2>/dev/null || true
+  ) &
+  local _ts_timer=$!
+  # Track in the shared _git_pid / _git_timer slots so graceful_shutdown
+  # can kill an in-flight target sync the same way it kills the control
+  # one. Since target syncs run sequentially after the control sync, only
+  # one is alive at any time.
+  _git_pid=$_ts_pid
+  _git_timer=$_ts_timer
+  local _ts_status=0
+  if ! wait "$_ts_pid" 2>/dev/null; then
+    _ts_status=$?
+  fi
+  dvb_spinner_stop
+  kill "$_ts_timer" 2>/dev/null; wait "$_ts_timer" 2>/dev/null || true
+  _git_pid=0
+  _git_timer=0
+
+  if [[ "$_ts_status" -eq 0 ]]; then
+    if grep -q 'fetch_failed' "$_ts_out" 2>/dev/null; then
+      local _err
+      _err=$(grep 'fetch_failed' "$_ts_out" | head -1 | tr -cd '[:print:]' | head -c 500)
+      echo "   ⚠ git sync $_ts_label: $_err"
+      log_write "[$(date '+%H:%M')] git_sync $_err $_ts_label"
+    elif grep -q 'checkout_failed' "$_ts_out" 2>/dev/null; then
+      local _err
+      _err=$(grep 'checkout_failed' "$_ts_out" | head -1 | tr -cd '[:print:]' | head -c 500)
+      echo "   ⚠ git sync $_ts_label: $_err"
+      log_write "[$(date '+%H:%M')] git_sync $_err $_ts_label"
+    elif grep -q 'stash_failed' "$_ts_out" 2>/dev/null; then
+      local _err
+      _err=$(grep 'stash_failed' "$_ts_out" | head -1 | tr -cd '[:print:]' | head -c 500)
+      echo "   ⚠ git sync $_ts_label: $_err"
+      log_write "[$(date '+%H:%M')] git_sync $_err $_ts_label"
+    elif grep -q 'rebase_aborted' "$_ts_out" 2>/dev/null; then
+      log_write "[$(date '+%H:%M')] git_sync rebase_aborted $_ts_label"
+    elif grep -q 'rebase_failed' "$_ts_out" 2>/dev/null; then
+      local _err
+      _err=$(grep 'rebase_failed' "$_ts_out" | head -1 | tr -cd '[:print:]' | head -c 500)
+      echo "   ⚠ git sync $_ts_label: $_err"
+      log_write "[$(date '+%H:%M')] git_sync $_err $_ts_label"
+    elif grep -q 'stash_pop_failed' "$_ts_out" 2>/dev/null; then
+      echo "   ⚠ git sync $_ts_label stash pop failed — stash preserved for manual recovery"
+      log_write "[$(date '+%H:%M')] git_sync stash_pop_failed (stash preserved) $_ts_label"
+    elif grep -q 'stashed' "$_ts_out" 2>/dev/null; then
+      log_write "[$(date '+%H:%M')] git_sync ok (stashed dirty tree) $_ts_label"
+    else
+      log_write "[$(date '+%H:%M')] git_sync ok $_ts_label"
+    fi
+  else
+    # Timeout — recover any interrupted rebase so the next session has a
+    # clean tree. Same pattern as the control-repo timeout branch.
+    local _ts_git_dir
+    _ts_git_dir="$(git -C "$_ts_repo" rev-parse --absolute-git-dir 2>/dev/null)" || _ts_git_dir=""
+    if [[ -n "$_ts_git_dir" && ( -d "$_ts_git_dir/rebase-merge" || -d "$_ts_git_dir/rebase-apply" ) ]]; then
+      git -C "$_ts_repo" rebase --abort 2>/dev/null || true
+      log_write "[$(date '+%H:%M')] git_sync timeout_rebase_aborted $_ts_label"
+    fi
+    if [[ -n "$_ts_git_dir" && -f "$_ts_git_dir/MERGE_HEAD" ]]; then
+      git -C "$_ts_repo" merge --abort 2>/dev/null || true
+      log_write "[$(date '+%H:%M')] git_sync timeout_merge_aborted $_ts_label"
+    fi
+    local _sync_output
+    _sync_output=$(tail -10 "$_ts_out" 2>/dev/null | tr -cd '[:print:]\n' | head -c 500)
+    echo "   ⚠ git sync $_ts_label timed out: $_sync_output"
+    log_write "[$(date '+%H:%M')] git_sync timeout $_ts_label"
+  fi
+
+  rm -f "$_ts_out"
 }
 
 # ── Graceful shutdown — let the current session finish before exiting ─
@@ -1410,14 +2077,14 @@ graceful_shutdown() {
   fi
   # Hand off final sync to this signal path so the EXIT trap does not re-run it.
   _dvb_skip_exit_final_sync=1
-  final_sync
+  final_sync_all
   cleanup
   exit "$sig_exit"
 }
 
 handle_exit_trap() {
   if [[ ${_dvb_skip_exit_final_sync:-0} -eq 0 ]]; then
-    final_sync
+    final_sync_all
   fi
   cleanup
 }
@@ -1532,6 +2199,13 @@ echo "☕ taskgrind: ${hours}h (until ${end_time}) — backend=$backend, skill=$
 if [[ "$max_instances" -gt 1 ]]; then
   echo "   Instance slot: $_dvb_slot of $max_instances"
 fi
+if [[ "${#target_repos[@]}" -gt 0 ]]; then
+  echo "   Workspace: control + ${#target_repos[@]} target(s)"
+  for _tg in ${target_repos[@]+"${target_repos[@]}"}; do
+    echo "     - $_tg"
+  done
+  unset _tg
+fi
 if [[ "$resume_loaded" -eq 1 ]]; then
   echo "   Resuming: session=$session shipped=$tasks_shipped zero-ship=$consecutive_zero_ship"
 fi
@@ -1558,12 +2232,79 @@ chmod 600 "$log_file" 2>/dev/null || true
   if [[ -n "$extra_prompt" ]]; then
     echo -n " prompt=$extra_prompt"
   fi
+  if [[ -n "$_targets_joined" ]]; then
+    echo -n " targets=$_targets_joined"
+  fi
   echo ""
   echo ""
 } >> "$log_file"
 
+# ── --from-prompt audit log ───────────────────────────────────────────
+# When --from-prompt was used, record what the translator produced and
+# where the user's explicit config beat the translation. Defer logging
+# until log_file exists; the translation itself ran before log_file was
+# initialized.
+if [[ -n "$_from_prompt_text" ]]; then
+  log_write "[$(date '+%H:%M')] from_prompt translated hours=$_fp_hours repo=$_fp_repo targets=$_fp_targets model=$_fp_model backend=$_fp_backend skill=$_fp_skill focus=$_fp_focus no_push=$_fp_no_push"
+  # One override line per slot where the user's explicit value beat the
+  # prompt's suggestion. Quiet when the prompt was either not consulted
+  # for that slot or its suggestion matched the user's choice.
+  if [[ "$_cli_hours_set" -eq 1 && -n "$_fp_hours" && "$_fp_hours" != "$hours" ]]; then
+    log_write "[$(date '+%H:%M')] from_prompt override slot=hours user=$hours prompt=$_fp_hours reason=cli_explicit"
+  fi
+  if [[ "$_cli_repo_set" -eq 1 && -n "$_fp_repo" && "$_fp_repo" != "$repo" ]]; then
+    log_write "[$(date '+%H:%M')] from_prompt override slot=repo user=$repo prompt=$_fp_repo reason=cli_explicit"
+  fi
+  if [[ "$_cli_target_repos_set" -eq 1 && -n "$_fp_targets" && "$_fp_targets" != "$_targets_joined" ]]; then
+    log_write "[$(date '+%H:%M')] from_prompt override slot=target_repos user=$_targets_joined prompt=$_fp_targets reason=cli_explicit"
+  elif [[ "$_cli_target_repos_set" -eq 0 && -n "${DVB_TARGET_REPOS:-}" && -n "$_fp_targets" && "$_fp_targets" != "$_targets_joined" ]]; then
+    log_write "[$(date '+%H:%M')] from_prompt override slot=target_repos user=$_targets_joined prompt=$_fp_targets reason=env_set"
+  fi
+  if [[ -n "$_cli_model" && -n "$_fp_model" && "$_fp_model" != "$model" ]]; then
+    log_write "[$(date '+%H:%M')] from_prompt override slot=model user=$model prompt=$_fp_model reason=cli_explicit"
+  elif [[ -z "$_cli_model" && -n "${DVB_MODEL:-}" && -n "$_fp_model" ]]; then
+    # The env var won; only log if the prompt's suggestion was different.
+    _fp_model_resolved="$(dvb_resolve_model_alias "$_fp_model")"
+    if [[ "$_fp_model_resolved" != "$model" ]]; then
+      log_write "[$(date '+%H:%M')] from_prompt override slot=model user=$model prompt=$_fp_model reason=env_set"
+    fi
+    unset _fp_model_resolved
+  fi
+  if [[ -n "$_cli_backend" && -n "$_fp_backend" && "$_fp_backend" != "$backend" ]]; then
+    log_write "[$(date '+%H:%M')] from_prompt override slot=backend user=$backend prompt=$_fp_backend reason=cli_explicit"
+  elif [[ -z "$_cli_backend" && -n "${DVB_BACKEND:-}" && -n "$_fp_backend" && "$_fp_backend" != "$backend" ]]; then
+    log_write "[$(date '+%H:%M')] from_prompt override slot=backend user=$backend prompt=$_fp_backend reason=env_set"
+  fi
+  if [[ "$_cli_skill_set" -eq 1 && -n "$_fp_skill" && "$_fp_skill" != "$skill" ]]; then
+    log_write "[$(date '+%H:%M')] from_prompt override slot=skill user=$skill prompt=$_fp_skill reason=cli_explicit"
+  elif [[ "$_cli_skill_set" -eq 0 && -n "${DVB_SKILL:-}" && -n "$_fp_skill" && "$_fp_skill" != "$skill" ]]; then
+    log_write "[$(date '+%H:%M')] from_prompt override slot=skill user=$skill prompt=$_fp_skill reason=env_set"
+  fi
+  if [[ -n "$_fp_focus" && "$_fp_focus" != "$extra_prompt" && -n "$extra_prompt" ]]; then
+    if [[ -n "$_cli_prompt" && "$_cli_prompt" != "$_fp_focus" ]]; then
+      log_write "[$(date '+%H:%M')] from_prompt override slot=focus user=$_cli_prompt prompt=$_fp_focus reason=cli_explicit"
+    fi
+  fi
+  if [[ -n "$_cli_no_push" && -n "$_fp_no_push" && "$_fp_no_push" != "$no_push" ]]; then
+    log_write "[$(date '+%H:%M')] from_prompt override slot=no_push user=$no_push prompt=$_fp_no_push reason=cli_explicit"
+  elif [[ -z "$_cli_no_push" && -n "${DVB_NO_PUSH:-}" && -n "$_fp_no_push" && "$_fp_no_push" != "$no_push" ]]; then
+    log_write "[$(date '+%H:%M')] from_prompt override slot=no_push user=$no_push prompt=$_fp_no_push reason=env_set"
+  fi
+fi
+
 # Export instance slot so child processes (devin sessions) can see it
 export TG_INSTANCE_ID="$_dvb_slot"
+# Workspace mode: export the target repo list so skills, hooks, and wrapper
+# scripts can branch on it. `TG_TARGET_REPOS` is colon-separated like PATH;
+# `TG_TARGET_REPO_COUNT` makes "are we in workspace mode?" a single-variable
+# check. Both are unset on the empty-list path so single-repo runs do not
+# inherit stale values from a parent shell environment.
+if [[ "${#target_repos[@]}" -gt 0 ]]; then
+  export TG_TARGET_REPOS="$_targets_joined"
+  export TG_TARGET_REPO_COUNT="${#target_repos[@]}"
+else
+  unset TG_TARGET_REPOS TG_TARGET_REPO_COUNT
+fi
 write_resume_state "running"
 write_status_file
 
@@ -2418,6 +3159,11 @@ while [[ $(date +%s) -lt $deadline ]]; do
     prompt+=" MULTI-INSTANCE: You are instance $_dvb_slot of $max_instances running on this repo. Instance 0 handles code changes and git sync. Avoid modifying the same files as instance 0. Before committing, run 'git pull --rebase' to absorb concurrent commits. Prefer TASKS.md-only changes, auditing, or non-overlapping work."
   fi
 
+  # Workspace mode — additional target repos the agent can edit and commit in
+  if [[ "${#target_repos[@]}" -gt 0 ]]; then
+    prompt+=" WORKSPACE: This grind has ${#target_repos[@]} target repo(s) in addition to the control repo ($repo): $_targets_joined. Tasks may require coordinated changes across these repos. The control repo is the source of truth for TASKS.md — keep TASKS.md edits there. Use 'cd <repo> && git ...' to commit changes in the right target repo, since taskgrind tracks each repo separately. Slot 0 syncs and pushes every target on the normal interval, so do not run extra fetch/push loops yourself."
+  fi
+
   # Extra focus prompt — user-provided priority for every session
   if [[ -n "$extra_prompt" ]]; then
     prompt+=" FOCUS: $extra_prompt"
@@ -3081,6 +3827,17 @@ while [[ $(date +%s) -lt $deadline ]]; do
       fi
       log_write "[$(date '+%H:%M')] branch_cleanup done"
     fi  # end: if git remote exists
+
+    # Workspace mode: after the control repo's sync completes, run the same
+    # fetch+rebase pass against every target so the agent does not start the
+    # next session on stale code. Already gated on slot 0 (this branch) and
+    # the sync interval (the elif above), so no additional gating needed.
+    if [[ "${#target_repos[@]}" -gt 0 ]]; then
+      for _ts in ${target_repos[@]+"${target_repos[@]}"}; do
+        sync_target_repo "$_ts"
+      done
+      unset _ts
+    fi
   else
     log_write "[$(date '+%H:%M')] git_sync skipped (interval=$sync_interval, session=$session)"
   fi # sync_interval

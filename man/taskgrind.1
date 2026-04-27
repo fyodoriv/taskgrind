@@ -3,7 +3,7 @@
 taskgrind \- autonomous multi-session grind tool
 .SH SYNOPSIS
 .B taskgrind
-[\fIhours\fR] [\fIrepo\fR] [\fB\-\-model\fR \fIname\fR] [\fB\-\-skill\fR \fIname\fR] [\fB\-\-backend\fR \fIname\fR] [\fB\-\-prompt\fR \fItext\fR] [\fB\-\-dry\-run\fR] [\fB\-\-preflight\fR] [\fB\-\-resume\fR] [\fB\-\-no\-push\fR] [\fB\-\-help\fR] [\fB\-\-version\fR]
+[\fIhours\fR] [\fIrepo\fR] [\fB\-\-model\fR \fIname\fR] [\fB\-\-skill\fR \fIname\fR] [\fB\-\-backend\fR \fIname\fR] [\fB\-\-prompt\fR \fItext\fR] [\fB\-\-target\-repo\fR \fIpath\fR]... [\fB\-\-from\-prompt\fR \fItext\fR] [\fB\-\-dry\-run\fR] [\fB\-\-preflight\fR] [\fB\-\-resume\fR] [\fB\-\-no\-push\fR] [\fB\-\-help\fR] [\fB\-\-version\fR]
 .SH DESCRIPTION
 Runs sequential AI coding sessions against a TASKS.md repo until a deadline.
 Each session starts with full context, picks a task from TASKS.md, implements
@@ -35,6 +35,27 @@ current preferred model IDs. Quote multi-word model names, for example
 .TP
 .BR \-\-prompt " " \fItext\fR
 Focus prompt prepended to every session.
+.TP
+.BR \-\-target\-repo " " \fIpath\fR
+Workspace mode: add a target repo the agent has read/write access to in
+addition to the control repo (the positional arg, which holds TASKS.md
+and the slot lock). Repeat for multiple targets, or set
+.BR TG_TARGET_REPOS
+to a colon\-separated list. Slot 0 syncs and pushes each target on the
+normal sync interval. Preserved across
+.BR \-\-resume .
+.TP
+.BR \-\-from\-prompt " " \fItext\fR
+Natural\-language config brief. Taskgrind asks the configured AI backend
+to translate the text into KEY=VALUE config lines (hours, repo,
+target_repos, model, backend, skill, focus, no_push) before launching.
+Explicit CLI flags and
+.BR TG_*
+env vars always win; the translation fills only the slots the user did
+not set. Same effect as setting
+.BR TG_FROM_PROMPT .
+Not compatible with
+.BR \-\-resume .
 .TP
 .BR \-\-dry\-run
 Print configuration and exit without running sessions.
@@ -172,6 +193,32 @@ preserved across
 .TP
 .B TG_DEVIN_PATH
 Override devin binary path (default: auto\-detect from PATH).
+.TP
+.B TG_TARGET_REPOS
+Colon\-separated workspace target repo paths. Same effect as repeating
+.BR \-\-target\-repo " " \fIpath\fR
+on the command line. The control repo (positional arg) holds TASKS.md and
+the slot lock; targets get
+.B fetch
++
+.B rebase
+between sessions and a
+.B push
+from
+.B final_sync
+on slot 0. Preserved across
+.BR \-\-resume .
+.TP
+.B TG_FROM_PROMPT
+Natural\-language config brief that the configured AI backend translates
+into KEY=VALUE config lines (hours, repo, target_repos, model, backend,
+skill, focus, no_push) before launch. Same effect as
+.BR \-\-from\-prompt " " \fItext\fR.
+Explicit CLI flags and other
+.B TG_*
+env vars take precedence; the translation only fills slots the user did
+not set. Not compatible with
+.BR \-\-resume .
 .TP
 .B TG_SHUTDOWN_GRACE
 Seconds to wait for current session on exit (default: 120).

@@ -92,6 +92,8 @@ taskgrind --model "gpt-5.4 XHigh thinking fast" 8  # quote multi-word model name
 taskgrind --skill pipeline-ops ~/apps/bosun 10  # custom installed skill
 taskgrind --prompt "focus on test coverage" 8  # focus prompt
 taskgrind --backend claude-code 8       # use Claude Code backend
+taskgrind --target-repo ~/apps/frontend --target-repo ~/apps/backend ~/apps/control 8  # workspace mode: control repo holds TASKS.md, agent has read/write access to target repos
+taskgrind --from-prompt "8h on agentbrew with frontend backend, focus on tests, use opus"  # natural-language brief; backend translates to config, then launches
 taskgrind --dry-run 8 ~/apps/myrepo    # print config without running
 taskgrind --preflight ~/apps/myrepo    # run health checks only
 taskgrind --resume ~/apps/myrepo       # resume an interrupted grind
@@ -102,6 +104,7 @@ TG_MODEL=sonnet taskgrind 8            # pick a model alias without changing she
 TG_BACKEND=codex taskgrind 8           # make a wrapper or terminal default use Codex
 TG_MAX_INSTANCES=3 taskgrind ~/apps/myrepo 8  # allow three concurrent grinds per repo
 TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8  # write machine-readable status snapshots
+TG_TARGET_REPOS=~/apps/frontend:~/apps/backend taskgrind ~/apps/control 8  # workspace mode via env (colon-separated)
 ```
 
 Arguments can appear in any order. Hours is any bare integer 1-24.
@@ -231,6 +234,8 @@ Before deploying, ensure:
 | `TG_NO_PUSH` | `0` | Set `1` to commit locally only — `final_sync` logs `final_sync would_push commits=N head=<sha>` instead of pushing, and the session prompt forbids `git push` / `gh pr create` / `gh pr merge`. Equivalent to passing `--no-push`; preserved across `--resume`. |
 | `TG_SHUTDOWN_GRACE` | `120` | Seconds to wait for current session on exit |
 | `TG_SESSION_GRACE` | `15` | Seconds to wait after session SIGINT before SIGTERM |
+| `TG_TARGET_REPOS` | (none) | Colon-separated workspace target repo paths. Same effect as repeating `--target-repo PATH`. The control repo (positional arg) holds `TASKS.md` and the slot lock; targets get `fetch` + `rebase` between sessions and a `push` from `final_sync` on slot 0. Persisted across `--resume`. See [Multi-repo workspace](docs/user-stories.md#12-multi-repo-workspace--coordinated-grind-across-linked-repos). |
+| `TG_FROM_PROMPT` | (none) | Natural-language brief that the configured AI backend translates into config (`hours`, `repo`, `target_repos`, `model`, `backend`, `skill`, `focus`, `no_push`) before launch. Same effect as `--from-prompt "<text>"`. Explicit CLI flags and other `TG_` env vars take precedence; the translation only fills slots the user did not set. Not compatible with `--resume`. See [Natural-language config briefs](docs/user-stories.md#13-natural-language-config-briefs--from-prompt). |
 
 ## Monitoring
 

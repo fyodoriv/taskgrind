@@ -889,10 +889,12 @@ SCRIPT
 
 @test "structural: would_push branch sits before the git push call" {
   # The two line numbers are recovered with awk so the test stays
-  # robust against unrelated edits above the function.
+  # robust against unrelated edits above the function. Workspace mode renamed
+  # the local repo variable to `_fs_repo` so the per-repo function can serve
+  # both the control repo and each target.
   local would_push_line push_line
   would_push_line=$(awk '/final_sync would_push/{print NR; exit}' "$DVB_GRIND")
-  push_line=$(awk '/git -C "\$repo" push origin HEAD/{print NR; exit}' "$DVB_GRIND")
+  push_line=$(awk '/git -C "\$_fs_repo" push origin HEAD/{print NR; exit}' "$DVB_GRIND")
   [ -n "$would_push_line" ]
   [ -n "$push_line" ]
   [ "$would_push_line" -lt "$push_line" ]

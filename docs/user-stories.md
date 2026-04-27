@@ -633,3 +633,214 @@ Related environment variables:
   session hits the per-session `TG_MAX_SESSION` timeout (default 15). This
   is a different code path from marathon-level Ctrl+C and only affects how
   aggressively taskgrind kills a runaway session inside the normal loop
+
+## 12. Multi-repo workspace — coordinated grind across linked repos
+
+You have one repo that holds the work queue (the "control" repo) and one or
+more "target" repos whose code those queued tasks actually change. A frontend
+repo with a backend repo, a CLI repo with a docs repo, an orchestrator with
+the plugin repos it deploys — anything where a task crosses repo boundaries
+and you want one grind, one deadline, one log instead of N terminals racing
+the same wall clock and stitching their logs together by hand later.
+
+Story #3 already covers running independent grinds per repo. Workspace mode
+is the opposite shape: a single grind that owns the queue in one repo and
+reaches into the other repos as needed.
+
+```bash
+# Multiple --target-repo flags, control repo last
+taskgrind --target-repo ~/apps/frontend \
+          --target-repo ~/apps/backend \
+          ~/apps/control 8
+
+# Or via env, useful in launchd / cron / wrapper scripts
+TG_TARGET_REPOS=~/apps/frontend:~/apps/backend taskgrind ~/apps/control 8
+```
+
+What happens:
+- The control repo (`~/apps/control`) owns `TASKS.md`, the slot lock, the
+  per-grind state file, and the deadline. Sessions still `cd` there, just
+  like a single-repo run.
+- Each target repo path is exported into the session environment as
+  `TG_TARGET_REPOS=/abs/path/a:/abs/path/b` (colon-separated, like `PATH`),
+  with `TG_TARGET_REPO_COUNT` giving the number of targets. Skills and
+  wrapper scripts can branch on those values to scope their work to the
+  workspace without re-parsing the CLI args.
+- The session prompt now includes a `WORKSPACE:` block that names every
+  target repo and reminds the agent to commit changes in the right repo.
+  The control repo stays the source of truth for `TASKS.md`, so the agent
+  keeps queue edits there.
+- Slot 0 syncs the control repo on the normal interval, and immediately
+  after every sync iteration also runs `fetch` + `rebase` against each
+  target repo. Any target repo that is dirty gets its work auto-stashed and
+  popped back; a target without a remote is logged and skipped instead of
+  stalling the loop.
+- `final_sync` pushes the control repo first, then each target, both
+  subject to `--no-push`. With `--no-push` the per-repo "would_push" log
+  lines stack up so the operator can review every repo locally before
+  publishing.
+- `--resume` requires the same target repo set the original run started
+  with; passing a different `--target-repo` list (or `TG_TARGET_REPOS`)
+  errors out instead of silently changing the work surface. Omitting the
+  flag on resume restores the saved list.
+- `--preflight` runs the standard checks once for the control repo and
+  again (per-repo subset: git state, remote reachability, disk space) for
+  every target so missing remotes or broken trees show up before the
+  deadline starts.
+- Higher slots (`TG_MAX_INSTANCES > 1`) inherit every target repo through
+  the standard CLI re-exec because targets ride through the original args
+  array, just like every other flag.
+
+Sample banner:
+```
+☕ taskgrind: 8h (until 17:00) — backend=devin, skill=next-task, model=claude-opus-4-7-max, repo=/Users/you/apps/control
+   Workspace: control + 2 target(s)
+     - /Users/you/apps/frontend
+     - /Users/you/apps/backend
+   Each session runs next-task. Git sync every 5 sessions.
+   Log: ${TMPDIR:-/tmp}/taskgrind-2026-04-26-0900-control-38291.log
+```
+
+Sample log lines for one sync interval. The `target=<name>` label is a
+TRAILING qualifier so a single `grep "git_sync ok"` matches every repo, not
+just the control one:
+```
+[pid=…] [HH:MM] git_sync ok
+[pid=…] [HH:MM] git_sync ok target=frontend
+[pid=…] [HH:MM] git_sync ok target=backend
+…
+[pid=…] [HH:MM] final_sync push_ok
+[pid=…] [HH:MM] final_sync push_ok target=frontend
+[pid=…] [HH:MM] final_sync nothing_to_push target=backend
+```
+
+Why this helps:
+- Operators stop spinning up parallel terminals just to coordinate work
+  that crosses a frontend/backend split or a tools/skill-plugins split.
+- The agent sees every repo in one prompt so it can plan changes that
+  must land together (API contract change, schema migration with a
+  consumer update) without re-discovering the workspace each session.
+- A single deadline and a single log mean post-mortems do not require
+  stitching `taskgrind-frontend.log` and `taskgrind-backend.log` together
+  by hand; the workspace exits as one grind.
+- The status JSON now carries a `targets` array, so a watchdog can show
+  the workspace shape without grepping the log.
+
+Common workspace pitfalls:
+- Passing the control repo path as a `--target-repo` errors out at startup
+  (no point syncing the queue holder twice).
+- Listing the same target twice via mixed CLI flags or env entries is
+  deduped silently — the loops still run once per unique repo.
+- A target without an `origin` remote is logged as
+  `git_sync skipped (no_remote_or_not_git) target=<name>` and ignored on
+  the final push, instead of failing the grind.
+
+## 13. Natural-language config briefs — `--from-prompt`
+
+You want to describe a grind in plain English and have taskgrind work out
+the hours, control repo, target repos, model, focus, and publish gate
+without typing six flags and three env vars. `--from-prompt "<text>"`
+hands the brief to the configured AI backend, takes back a structured
+config, and launches with that — preserving every flag and env var you
+already set on top.
+
+```bash
+# One-line workspace mode
+taskgrind --from-prompt "8 hours on agentbrew with frontend and backend \
+  targets, focus on test coverage, use opus, do not push"
+
+# Or via env, useful in launchd / cron / wrapper scripts
+TG_FROM_PROMPT="8h on agentbrew with frontend backend, opus, review only" \
+  taskgrind
+```
+
+What happens:
+- Taskgrind asks the configured backend (default `devin`) to convert the
+  brief into KEY=VALUE config lines: `hours=8`, `repo=/Users/you/apps/agentbrew`,
+  `target_repos=/Users/you/apps/frontend:/Users/you/apps/backend`,
+  `model=opus`, `focus=focus on test coverage`, `no_push=1`.
+- The translation runs ONCE at startup before the main loop. It is not
+  repeated mid-grind; live overrides still go through `.taskgrind-prompt`
+  and `.taskgrind-model`.
+- For each config slot, the precedence is **explicit CLI flag > TG_/DVB_
+  env var > prompt-translated value > default**. Anything you set on the
+  command line or in the environment wins; the translation fills only
+  the gaps. That is the "doesn't rewrite user's config" promise.
+- The translator uses whatever model and backend you set on the CLI / via
+  env (or the defaults). Translation never uses prompt-derived
+  model/backend (that would be circular).
+- If the translation fails (backend unreachable, malformed response,
+  unparseable lines) taskgrind exits with a clear error so the grind
+  never silently launches against the wrong workspace.
+- Not compatible with `--resume`: resume reads the saved
+  `.taskgrind-state` and ignores fresh translations; mixing them is
+  rejected at startup.
+
+What the brief CAN set:
+- `hours` (1-24)
+- `repo` (control repo absolute path)
+- `target_repos` (one or more workspace target repos)
+- `model` (alias `opus`/`sonnet`/`haiku`/`swe`/`codex`/`gpt` or full id)
+- `backend` (`devin`, `claude-code`, `codex`)
+- `skill` (any installed skill; default `next-task`)
+- `focus` (the agent-facing `--prompt` text)
+- `no_push` (publishing gate)
+
+What the brief CANNOT set:
+- Tuning knobs (`TG_COOL`, `TG_MAX_SESSION`, `TG_SYNC_INTERVAL`,
+  `TG_MAX_INSTANCES`, etc.) — operators tune those via env var and the
+  translator deliberately stays out of that surface so a prompt typo
+  cannot accidentally raise the cap.
+- Action flags (`--dry-run`, `--preflight`, `--resume`, `--help`,
+  `--version`).
+
+Sample dry-run with a brief:
+
+```
+$ taskgrind --dry-run --from-prompt "8h on agentbrew with frontend backend targets, opus, focus on tests"
+taskgrind --dry-run
+  hours:    8
+  repo:     /Users/you/apps/agentbrew
+  backend:  devin
+  skill:    next-task
+  model:    claude-opus-4-7-max
+  ...
+  workspace: control + 2 target(s)
+  target:   /Users/you/apps/frontend
+  target:   /Users/you/apps/backend
+  prompt:   focus on tests
+```
+
+Sample log lines when translation runs in production:
+
+```
+[pid=…] [HH:MM] from_prompt translated hours=8 repo=/Users/you/apps/agentbrew targets=/Users/you/apps/frontend:/Users/you/apps/backend model=opus skill= focus="focus on tests" no_push=
+[pid=…] [HH:MM] from_prompt override slot=model user=sonnet prompt=opus reason=cli_explicit
+```
+
+The `from_prompt override` line fires once per slot whenever an explicit
+user value beat the translation. That gives operators an audit trail of
+what the brief proposed AND what the run actually used, in case the two
+diverged.
+
+Why this helps:
+- The brief is a single quoted string instead of a long invocation. Easy
+  to paste into Slack, ticket bodies, or shell history.
+- The translation is one extra backend call at startup (~1-3 s on a
+  warm cache). The grind itself is unchanged after that — same loop,
+  same logs, same resume-state file.
+- The "explicit always wins" precedence means a CI wrapper can pin
+  `TG_BACKEND=codex TG_MODEL=o3` once and let humans steer everything
+  else through briefs without ever changing the wrapper.
+
+Common pitfalls:
+- The translator runs with the configured backend, so a missing or
+  broken backend binary fails the brief before any session starts. If
+  `which devin` (or the backend you configured) is not on `$PATH`,
+  taskgrind says so and exits.
+- Brief-only briefs that produce zero parseable lines (LLM returned
+  prose, refused, or hit a content filter) are rejected — the grind
+  never launches with a guessed config.
+- If you both pass `--from-prompt` AND the matching CLI flags (e.g.
+  `--from-prompt "use opus" --model sonnet`), the CLI flag wins and the
+  log records the override. This is the policy, not a bug.
