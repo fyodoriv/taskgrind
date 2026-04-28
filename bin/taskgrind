@@ -26,6 +26,9 @@
 #        taskgrind --preflight ~/apps/myrepo  → run health checks only
 #        taskgrind --resume ~/apps/myrepo     → resume an interrupted grind
 #        taskgrind --no-push 8 ~/apps/myrepo  → commit locally, never auto-push to origin
+#        taskgrind --no-pr-fallback 8 ~/apps/myrepo
+#                                             → on protected-branch push rejection, skip the
+#                                               auto-PR fallback and require manual recovery
 #        taskgrind --help / -h                → show this help and exit
 #        taskgrind --version / -V             → print version (commit hash + date)
 #        TG_MODEL=sonnet taskgrind 8           → 8h grind, sonnet model
@@ -76,6 +79,12 @@
 #        TG_MAX_INSTANCES — max concurrent instances per repo (default: 2)
 #        TG_NO_PUSH     — 1 = never auto-push commits to origin; agent prompt
 #                         also forbids `git push` / `gh pr merge` (default: 0)
+#        TG_NO_PR_FALLBACK — 1 = on `final_sync` push rejected by branch
+#                         protection (GH006 / required-status-check), skip
+#                         the auto-PR fallback (open a PR via `gh pr create`)
+#                         and log `push_protected_branch_manual_recovery_needed`
+#                         instead. Default 0: PR fallback runs when `gh` is on
+#                         PATH and `TG_NO_PUSH` is not set.
 #        TG_TARGET_REPOS — colon-separated workspace target repo paths. Same
 #                         effect as repeating `--target-repo PATH`. The control
 #                         repo (positional arg) holds TASKS.md and the slot
@@ -183,6 +192,7 @@ dry_run=0
 preflight_only=0
 resume_run=0
 _cli_no_push=""  # tri-state: "" = unset, "0" / "1" = explicit CLI choice
+_cli_no_pr_fallback=""  # tri-state: "" = unset, "0" / "1" = explicit CLI choice
 # Slot-tracking flags — distinguish "user passed this on the CLI" from "still
 # the default" so the --from-prompt translation can fill in only the slots the
 # user did NOT set explicitly. The existing CLI parser doesn't separate "user
@@ -222,6 +232,7 @@ while [[ $# -gt 0 ]]; do
     --preflight) preflight_only=1; shift ;;
     --resume) resume_run=1; shift ;;
     --no-push) _cli_no_push=1; shift ;;
+    --no-pr-fallback) _cli_no_pr_fallback=1; shift ;;
     --model=*) _cli_model="${1#--model=}"; [[ -z "$_cli_model" ]] && { echo "Error: --model requires a non-empty name (example: --model claude-opus-4-7-max). See 'taskgrind --help'." >&2; exit 1; }; shift ;;
     --model)
       if [[ $# -lt 2 ]]; then
@@ -587,6 +598,9 @@ fi
 if [[ -n "${DVB_NO_PUSH:-}" ]] && ! [[ "${DVB_NO_PUSH}" =~ ^[01]$ ]]; then
   echo "Error: TG_NO_PUSH must be 0 or 1, got '${DVB_NO_PUSH}'" >&2; exit 1
 fi
+if [[ -n "${TG_NO_PR_FALLBACK:-}" ]] && ! [[ "${TG_NO_PR_FALLBACK}" =~ ^[01]$ ]]; then
+  echo "Error: TG_NO_PR_FALLBACK must be 0 or 1, got '${TG_NO_PR_FALLBACK}'" >&2; exit 1
+fi
 # Resolve no-push: CLI flag wins, then env var, then prompt-translated, default 0.
 # When set, final_sync emits a `would_push` log line instead of pushing,
 # and the session prompt's COMPLETION PROTOCOL forbids any publishing
@@ -600,6 +614,17 @@ elif [[ -n "${_fp_no_push:-}" ]]; then
   no_push="$_fp_no_push"
 else
   no_push="0"
+fi
+# Resolve no-pr-fallback: CLI flag wins, then env var, default 0 (PR fallback enabled).
+# When 1, final_sync's protected-branch path skips the auto-PR step and falls through
+# to manual recovery, matching today's behavior on push_failed but with an actionable
+# error class. The PR fallback also requires `gh` on PATH and no_push != 1.
+if [[ -n "$_cli_no_pr_fallback" ]]; then
+  no_pr_fallback="$_cli_no_pr_fallback"
+elif [[ -n "${TG_NO_PR_FALLBACK:-}" ]]; then
+  no_pr_fallback="$TG_NO_PR_FALLBACK"
+else
+  no_pr_fallback="0"
 fi
 
 # Validate backend
@@ -1761,6 +1786,29 @@ fi
 source "$TASKGRIND_DIR/lib/fullpower.sh"
 boost_priority "$$"
 
+# ── Push-failure classifier ───────────────────────────────────────────
+# Examines the captured push stderr and classifies the failure into a
+# structured class so callers can pick a recovery strategy. Returns one
+# of: `protected_branch` | `push_failed`. Branch-protection rejection
+# (GH006 on github.intuit.com / GitHub.com, "protected branch hook
+# declined" on Gitea/Forgejo, "Required status check" / "policy"
+# violations) is structurally different from non-fast-forward — the
+# remote will reject any direct push, period, and the recovery path is
+# "open a PR" not "rebase + retry".
+_classify_push_failure() {
+  local _stderr="$1" _lower
+  # Normalize to lowercase so we match both `Protected branch update failed`
+  # (the GitHub Enterprise format) and `protected branch hook declined`
+  # (Gitea / Forgejo / older Git client format) without listing every casing.
+  _lower=$(printf '%s' "$_stderr" | tr '[:upper:]' '[:lower:]')
+  case "$_lower" in
+    *"gh006"*|*"protected branch hook declined"*|*"protected branch update failed"*|*"required status check"*)
+      echo "protected_branch" ;;
+    *)
+      echo "push_failed" ;;
+  esac
+}
+
 # ── Final sync — push local commits to origin before exiting ──────────
 # Called on every exit path so committed work is never left unpublished.
 # Operates on a single repo. The first arg (default: control repo) lets
@@ -1886,7 +1934,66 @@ final_sync() {
         log_write "[$(date '+%H:%M')] final_sync rebase_aborted reason=conflict${_fs_suffix}"
       fi
     fi
-    if [[ -n "$push_first_line" ]]; then
+    # Classify the push failure. Protected-branch rejections (GH006 etc.)
+    # have a structured recovery path: open a PR with the local commits.
+    # Every other failure falls through to the existing manual-recovery flow.
+    local _push_class
+    _push_class=$(_classify_push_failure "$push_output")
+    if [[ "$_push_class" == "protected_branch" ]]; then
+      log_write "[$(date '+%H:%M')] final_sync push_protected_branch error=$push_first_line${_fs_suffix}"
+      # Attempt the PR fallback when:
+      # 1. `gh` is on PATH (no PR creation possible without it),
+      # 2. Operator hasn't set --no-pr-fallback / TG_NO_PR_FALLBACK,
+      # 3. Operator hasn't set --no-push / TG_NO_PUSH (no_push==1 means
+      #    no remote writes at all, including feature branches).
+      local _pr_fallback_eligible=1
+      if ! command -v gh >/dev/null 2>&1; then
+        _pr_fallback_eligible=0
+        log_write "[$(date '+%H:%M')] final_sync push_protected_branch_no_gh${_fs_suffix}"
+      fi
+      if [[ "${no_pr_fallback:-0}" == "1" ]]; then
+        _pr_fallback_eligible=0
+        log_write "[$(date '+%H:%M')] final_sync push_protected_branch_pr_fallback_disabled${_fs_suffix}"
+      fi
+      if [[ "${no_push:-0}" == "1" ]]; then
+        _pr_fallback_eligible=0
+      fi
+      if [[ "$_pr_fallback_eligible" -eq 1 ]]; then
+        # Push to a unique feature branch so concurrent grinds don't collide.
+        # Branch name marks the source for human triage.
+        local _ship_branch _ship_push_status=0 _ship_push_output _pr_url _pr_status=0 _pr_output
+        _ship_branch="taskgrind-ship-$(date -u +%Y%m%d-%H%M%S)"
+        log_write "[$(date '+%H:%M')] final_sync pr_fallback_attempt branch=$_ship_branch commits=$ahead${_fs_suffix}"
+        _ship_push_output=$(git -C "$_fs_repo" push origin "HEAD:$_ship_branch" 2>&1) || _ship_push_status=$?
+        if [[ "$_ship_push_status" -eq 0 ]]; then
+          # Build PR title + body. Title summarizes commit count + latest subject;
+          # body lists each commit so reviewers see exactly what shipped.
+          local _pr_title _pr_body _latest_subject _commit_log
+          _latest_subject=$(git -C "$_fs_repo" log -1 --pretty='%s' 2>/dev/null || echo "taskgrind ship")
+          if [[ "$ahead" -eq 1 ]]; then
+            _pr_title="$_latest_subject"
+          else
+            _pr_title="taskgrind ship: $ahead commits ($_latest_subject)"
+          fi
+          _commit_log=$(git -C "$_fs_repo" log "origin/$_default_branch..HEAD" --pretty='- %s' 2>/dev/null || echo "")
+          _pr_body=$(printf 'Auto-created by taskgrind final_sync after main push was rejected by branch protection (%s).\n\nCommits:\n%s\n\nLocal branch: %s\nTarget: %s' "$push_first_line" "$_commit_log" "$_ship_branch" "$_default_branch")
+          _pr_output=$(gh pr create --base "$_default_branch" --head "$_ship_branch" --title "$_pr_title" --body "$_pr_body" 2>&1) || _pr_status=$?
+          if [[ "$_pr_status" -eq 0 ]]; then
+            _pr_url=$(printf '%s\n' "$_pr_output" | grep -Eo 'https?://[^[:space:]]+' | head -1)
+            echo "   ✅ Push to main blocked by branch protection — opened PR: ${_pr_url:-$_pr_output}"
+            log_write "[$(date '+%H:%M')] final_sync pr_created url=${_pr_url:-unknown} commits=$ahead branch=$_ship_branch${_fs_suffix}"
+            return 0
+          else
+            log_write "[$(date '+%H:%M')] final_sync pr_creation_failed branch=$_ship_branch error=$_pr_output${_fs_suffix}"
+          fi
+        else
+          log_write "[$(date '+%H:%M')] final_sync pr_fallback_push_failed branch=$_ship_branch error=$_ship_push_output${_fs_suffix}"
+        fi
+        # PR fallback failed — fall through to manual-recovery messaging below.
+      fi
+      echo "   ⚠ Push failed (protected branch): $push_first_line — local commits preserved for manual recovery"
+      log_write "[$(date '+%H:%M')] final_sync push_protected_branch_manual_recovery_needed commits=$ahead${_fs_suffix}"
+    elif [[ -n "$push_first_line" ]]; then
       echo "   ⚠ Push failed: $push_first_line — local commits preserved for manual push"
       log_write "[$(date '+%H:%M')] final_sync push_failed error=$push_first_line${_fs_suffix}"
     else

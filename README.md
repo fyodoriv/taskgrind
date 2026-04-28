@@ -98,6 +98,7 @@ taskgrind --dry-run 8 ~/apps/myrepo    # print config without running
 taskgrind --preflight ~/apps/myrepo    # run health checks only
 taskgrind --resume ~/apps/myrepo       # resume an interrupted grind
 taskgrind --no-push 8 ~/apps/myrepo    # commit locally, never auto-push to origin
+taskgrind --no-pr-fallback 8 ~/apps/myrepo  # on protected-branch push rejection, skip auto-PR fallback
 taskgrind --help / -h                  # show usage and environment variables
 taskgrind --version / -V               # print version (commit hash + date)
 TG_MODEL=sonnet taskgrind 8            # pick a model alias without changing shell history
@@ -232,6 +233,7 @@ Before deploying, ensure:
 | `TG_STATUS_FILE` | (disabled) | Write machine-readable runtime status JSON to this path |
 | `TG_NOTIFY` | `1` | Desktop notification on completion |
 | `TG_NO_PUSH` | `0` | Set `1` to commit locally only — `final_sync` logs `final_sync would_push commits=N head=<sha>` instead of pushing, and the session prompt forbids `git push` / `gh pr create` / `gh pr merge`. Equivalent to passing `--no-push`; preserved across `--resume`. |
+| `TG_NO_PR_FALLBACK` | `0` | Set `1` to disable the auto-PR fallback that runs when `final_sync` push to the default branch is rejected by branch protection (GH006 / required-status-check). Default 0: when `gh` is on `PATH` and `TG_NO_PUSH` is not set, taskgrind pushes to a unique `taskgrind-ship-<UTC>` branch and runs `gh pr create`, logging `final_sync pr_created url=<url> commits=N branch=...`. With `TG_NO_PR_FALLBACK=1`, taskgrind logs `final_sync push_protected_branch_manual_recovery_needed` and exits with the local commits intact. Equivalent to passing `--no-pr-fallback`. |
 | `TG_SHUTDOWN_GRACE` | `120` | Seconds to wait for current session on exit |
 | `TG_SESSION_GRACE` | `15` | Seconds to wait after session SIGINT before SIGTERM |
 | `TG_TARGET_REPOS` | (none) | Colon-separated workspace target repo paths. Same effect as repeating `--target-repo PATH`. The control repo (positional arg) holds `TASKS.md` and the slot lock; targets get `fetch` + `rebase` between sessions and a `push` from `final_sync` on slot 0. Persisted across `--resume`. See [Multi-repo workspace](docs/user-stories.md#12-multi-repo-workspace--coordinated-grind-across-linked-repos). |

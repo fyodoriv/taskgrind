@@ -80,6 +80,25 @@ instead of pushing. Operators review and push manually after the grind
 exits. Preserved across
 .BR \-\-resume .
 .TP
+.BR \-\-no\-pr\-fallback
+Disable the auto\-PR fallback that triggers when
+.B final_sync
+push to the default branch is rejected by branch protection (GH006 /
+required\-status\-check). Equivalent to setting
+.BR TG_NO_PR_FALLBACK=1 .
+With this flag, taskgrind classifies the failure as
+.B push_protected_branch
+but skips the PR\-creation step \(em commits stay on the local default branch
+for manual handling. Without this flag (default), taskgrind pushes
+the local commits to a unique
+.B taskgrind\-ship\-<UTC>
+branch and runs
+.BR "gh pr create"
+when
+.B gh
+is on
+.BR PATH .
+.TP
 .BR \-\-help ", " \-h
 Show usage and environment variables.
 .TP
@@ -190,6 +209,33 @@ and
 .BR \-\-no\-push ;
 preserved across
 .BR \-\-resume .
+.TP
+.B TG_NO_PR_FALLBACK
+Set to 1 to disable the auto\-PR fallback that runs when
+.B final_sync
+push to the default branch is rejected by branch protection (GH006 /
+.RB \(lq "protected branch hook declined" \(rq /
+required\-status\-check). Default 0 (auto\-PR enabled when
+.BR gh
+is on
+.BR PATH
+and
+.B TG_NO_PUSH
+is not set): taskgrind pushes the local commits to a unique
+.B taskgrind\-ship\-<UTC>
+branch and runs
+.BR "gh pr create" ,
+logging
+.BR "final_sync pr_created url=<url> commits=N branch=..." .
+With
+.BR TG_NO_PR_FALLBACK=1 ,
+taskgrind logs
+.BR "final_sync push_protected_branch_pr_fallback_disabled"
+followed by
+.BR "final_sync push_protected_branch_manual_recovery_needed"
+and exits with the local commits intact for manual handling.
+Equivalent to passing
+.BR \-\-no\-pr\-fallback .
 .TP
 .B TG_DEVIN_PATH
 Override devin binary path (default: auto\-detect from PATH).
@@ -750,6 +796,40 @@ when this succeeds. If the rebase encounters a real conflict it is aborted,
 the working tree is left clean, and the existing
 .B final_sync push_failed
 path runs \[em] manual recovery is only required when the rebase itself fails.
+.TP
+.B Final push rejected by branch protection (GH006)
+When the remote rejects the push because the default branch is protected
+(GitHub Enterprise emits
+.BR "GH006: Protected branch update failed" ,
+required\-status\-check policies, etc.),
+.B final_sync
+classifies the failure as
+.B push_protected_branch
+and \(em when
+.B gh
+is on
+.BR PATH ,
+.B TG_NO_PUSH
+is unset, and
+.B TG_NO_PR_FALLBACK
+is unset \(em pushes the commits to a unique
+.B taskgrind\-ship\-<UTC>
+branch and opens a pull request via
+.BR "gh pr create" ,
+logging
+.BR "final_sync pr_created url=<url> commits=N branch=..." .
+The commit subjects are listed in the PR body so reviewers see exactly
+what shipped. The PR is never auto\-merged \(em branch protection requires
+human review or whatever the protection rule actually wants. When the
+auto\-PR path is unavailable (no
+.BR gh ,
+.B TG_NO_PUSH=1 ,
+.BR \-\-no\-pr\-fallback ,
+or
+.BR TG_NO_PR_FALLBACK=1 )
+or fails, taskgrind logs
+.B final_sync push_protected_branch_manual_recovery_needed
+and exits with the local commits intact for manual handling.
 .SH DEVELOPMENT
 For repo maintenance, the standard local workflow is:
 .RS

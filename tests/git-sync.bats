@@ -1302,3 +1302,240 @@ _run_emit_rebase_conflict_logs() {
   # No class= prefix when no conflict paths were found.
   [[ "$output" != *"rebase_aborted class="* ]]
 }
+
+# ── final_sync push: protected-branch (GH006) recovery via PR fallback ─
+# The remote rejects a direct push to main with branch protection
+# (`GH006: Protected branch update failed`). Detection is regex-based
+# against captured stderr. When `gh` is on PATH and TG_NO_PR_FALLBACK
+# is unset, taskgrind pushes to a unique feature branch and opens a
+# PR via `gh pr create` instead of giving up. Otherwise it falls
+# through to a `push_protected_branch_manual_recovery_needed` log.
+
+# Build a fixture: bare remote, origin clone seeded, grind clone with a
+# local commit ahead of origin, and a pre-push hook on the grind clone
+# that rejects pushes to main with the GH006 marker (only when pushing
+# to refs/heads/main; pushes to feature branches are allowed). This
+# mirrors GitHub Enterprise branch-protection behavior.
+_setup_protected_branch_repo() {
+  local remote_repo="$1"
+  local grind_repo="$2"
+  git init --bare "$remote_repo" >/dev/null
+
+  local origin_repo="${remote_repo%.git}-origin"
+  git clone "$remote_repo" "$origin_repo" >/dev/null 2>&1
+  git -C "$origin_repo" config user.email "test@test.com"
+  git -C "$origin_repo" config user.name "Test"
+  git -C "$origin_repo" config core.hooksPath /dev/null
+  cat > "$origin_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Seed remote
+TASKS
+  git -C "$origin_repo" add -f TASKS.md
+  git -C "$origin_repo" commit -m "seed remote" >/dev/null
+  git -C "$origin_repo" push origin main >/dev/null 2>&1
+
+  git clone "$remote_repo" "$grind_repo" >/dev/null 2>&1
+  git -C "$grind_repo" config user.email "test@test.com"
+  git -C "$grind_repo" config user.name "Test"
+  git -C "$grind_repo" config core.hooksPath /dev/null
+  cat > "$grind_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+  git -C "$grind_repo" add -f TASKS.md
+  git -C "$grind_repo" commit -m "complete task locally" >/dev/null
+
+  # Pre-push hook on the grind clone: reject pushes to main with the
+  # GH006 marker but allow pushes to feature branches.
+  local hook_dir="${grind_repo}-hooks"
+  mkdir -p "$hook_dir"
+  cat > "$hook_dir/pre-push" <<'SCRIPT'
+#!/bin/bash
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    echo "remote: error: GH006: Protected branch update failed for refs/heads/main." >&2
+    echo "remote: error: Required status check \"CI\" is expected." >&2
+    echo "To origin" >&2
+    echo " ! [remote rejected] HEAD -> main (protected branch hook declined)" >&2
+    echo "error: failed to push some refs to 'origin'" >&2
+    exit 1
+  fi
+done
+exit 0
+SCRIPT
+  chmod +x "$hook_dir/pre-push"
+  git -C "$grind_repo" config core.hooksPath "$hook_dir"
+}
+
+# Fake-devin shim that no-ops; required for taskgrind's session loop to run
+# without trying to spawn a real backend during the test.
+_setup_fake_devin() {
+  local fake="$1"
+  cat > "$fake" <<'SCRIPT'
+#!/bin/bash
+for arg in "$@"; do
+  if [ "$arg" = "--version" ]; then
+    echo "fake-devin 1.0.0"
+    exit 0
+  fi
+done
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+exit 0
+SCRIPT
+  chmod +x "$fake"
+}
+
+@test "_classify_push_failure: GH006 stderr classified as protected_branch" {
+  run bash -c "$(sed -n '/^_classify_push_failure()/,/^}/p' "$DVB_GRIND") ; _classify_push_failure 'remote: error: GH006: Protected branch update failed for refs/heads/main.'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "protected_branch" ]]
+}
+
+@test "_classify_push_failure: protected-branch-hook stderr classified as protected_branch" {
+  run bash -c "$(sed -n '/^_classify_push_failure()/,/^}/p' "$DVB_GRIND") ; _classify_push_failure ' ! [remote rejected] HEAD -> main (protected branch hook declined)'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "protected_branch" ]]
+}
+
+@test "_classify_push_failure: required-status-check stderr classified as protected_branch" {
+  run bash -c "$(sed -n '/^_classify_push_failure()/,/^}/p' "$DVB_GRIND") ; _classify_push_failure 'remote: error: Required status check \"Jira PMC\" is expected.'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "protected_branch" ]]
+}
+
+@test "_classify_push_failure: existing branch-is-protected hook stderr stays push_failed" {
+  # The legacy 'remote rejected push: branch is protected' hook output
+  # (used by the existing signals.bats test) does NOT match the structured
+  # protected-branch markers and must continue classifying as push_failed
+  # so the existing recovery path is unchanged.
+  run bash -c "$(sed -n '/^_classify_push_failure()/,/^}/p' "$DVB_GRIND") ; _classify_push_failure 'remote rejected push: branch is protected'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "push_failed" ]]
+}
+
+@test "_classify_push_failure: non-fast-forward stderr stays push_failed" {
+  run bash -c "$(sed -n '/^_classify_push_failure()/,/^}/p' "$DVB_GRIND") ; _classify_push_failure ' ! [rejected]        main -> main (non-fast-forward)'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "push_failed" ]]
+}
+
+@test "final_sync: protected-branch push triggers PR fallback when gh is on PATH" {
+  local remote_repo="$TEST_DIR/protected-remote.git"
+  local grind_repo="$TEST_DIR/protected-grind"
+  _setup_protected_branch_repo "$remote_repo" "$grind_repo"
+
+  # Stub `gh` to capture the args + return success with a fake PR URL.
+  local gh_stub_dir="$TEST_DIR/gh-stub-bin"
+  local gh_log="$TEST_DIR/gh-stub-calls.log"
+  mkdir -p "$gh_stub_dir"
+  cat > "$gh_stub_dir/gh" <<SCRIPT
+#!/bin/bash
+echo "\$@" > "$gh_log"
+echo "https://github.example.test/owner/repo/pull/42"
+exit 0
+SCRIPT
+  chmod +x "$gh_stub_dir/gh"
+
+  local fake_devin="$TEST_DIR/fake-devin-pr-fallback"
+  _setup_fake_devin "$fake_devin"
+
+  unset DVB_GRIND_CMD
+  export DVB_DEVIN_PATH="$fake_devin"
+  export DVB_CAFFEINATED=1
+  export DVB_DEADLINE_OFFSET=5
+  PATH="$gh_stub_dir:$PATH" "$DVB_GRIND" 1 "$grind_repo" >/dev/null 2>&1
+  [ "$?" -eq 0 ]
+
+  # The classifier emitted the protected-branch marker.
+  grep -q 'final_sync push_protected_branch ' "$TEST_LOG"
+  # PR fallback attempted with a unique branch name.
+  grep -Eq 'final_sync pr_fallback_attempt branch=taskgrind-ship-[0-9]{8}-[0-9]{6}' "$TEST_LOG"
+  # gh pr create was invoked with the expected --base / --head wiring.
+  grep -q -- '--base main' "$gh_log"
+  grep -Eq -- '--head taskgrind-ship-[0-9]{8}-[0-9]{6}' "$gh_log"
+  # PR-created log line carries the parsed URL + commit count.
+  grep -q 'final_sync pr_created url=https://github.example.test/owner/repo/pull/42 commits=1' "$TEST_LOG"
+  # The fallback succeeded so no manual-recovery marker should appear.
+  ! grep -q 'final_sync push_protected_branch_manual_recovery_needed' "$TEST_LOG"
+}
+
+@test "final_sync: --no-pr-fallback skips PR creation and logs manual recovery" {
+  local remote_repo="$TEST_DIR/protected-remote-nopr.git"
+  local grind_repo="$TEST_DIR/protected-grind-nopr"
+  _setup_protected_branch_repo "$remote_repo" "$grind_repo"
+
+  # `gh` would be available, but the operator opted out of the fallback.
+  local gh_stub_dir="$TEST_DIR/gh-stub-bin-nopr"
+  local gh_log="$TEST_DIR/gh-stub-calls-nopr.log"
+  mkdir -p "$gh_stub_dir"
+  cat > "$gh_stub_dir/gh" <<SCRIPT
+#!/bin/bash
+echo "\$@" > "$gh_log"
+exit 0
+SCRIPT
+  chmod +x "$gh_stub_dir/gh"
+
+  local fake_devin="$TEST_DIR/fake-devin-no-pr-fallback"
+  _setup_fake_devin "$fake_devin"
+
+  unset DVB_GRIND_CMD
+  export DVB_DEVIN_PATH="$fake_devin"
+  export DVB_CAFFEINATED=1
+  export DVB_DEADLINE_OFFSET=5
+  PATH="$gh_stub_dir:$PATH" "$DVB_GRIND" 1 "$grind_repo" --no-pr-fallback >/dev/null 2>&1
+  [ "$?" -eq 0 ]
+
+  grep -q 'final_sync push_protected_branch ' "$TEST_LOG"
+  grep -q 'final_sync push_protected_branch_pr_fallback_disabled' "$TEST_LOG"
+  grep -q 'final_sync push_protected_branch_manual_recovery_needed' "$TEST_LOG"
+  # gh was never invoked.
+  [ ! -s "$gh_log" ]
+  # No fallback-attempt line either.
+  ! grep -q 'final_sync pr_fallback_attempt' "$TEST_LOG"
+}
+
+@test "final_sync: TG_NO_PR_FALLBACK=1 env var disables PR creation" {
+  local remote_repo="$TEST_DIR/protected-remote-env.git"
+  local grind_repo="$TEST_DIR/protected-grind-env"
+  _setup_protected_branch_repo "$remote_repo" "$grind_repo"
+
+  local gh_stub_dir="$TEST_DIR/gh-stub-bin-env"
+  local gh_log="$TEST_DIR/gh-stub-calls-env.log"
+  mkdir -p "$gh_stub_dir"
+  cat > "$gh_stub_dir/gh" <<SCRIPT
+#!/bin/bash
+echo "\$@" > "$gh_log"
+exit 0
+SCRIPT
+  chmod +x "$gh_stub_dir/gh"
+
+  local fake_devin="$TEST_DIR/fake-devin-env-no-pr"
+  _setup_fake_devin "$fake_devin"
+
+  unset DVB_GRIND_CMD
+  export DVB_DEVIN_PATH="$fake_devin"
+  export DVB_CAFFEINATED=1
+  export DVB_DEADLINE_OFFSET=5
+  PATH="$gh_stub_dir:$PATH" TG_NO_PR_FALLBACK=1 "$DVB_GRIND" 1 "$grind_repo" >/dev/null 2>&1
+  [ "$?" -eq 0 ]
+
+  grep -q 'final_sync push_protected_branch ' "$TEST_LOG"
+  grep -q 'final_sync push_protected_branch_pr_fallback_disabled' "$TEST_LOG"
+  grep -q 'final_sync push_protected_branch_manual_recovery_needed' "$TEST_LOG"
+  [ ! -s "$gh_log" ]
+}
+
+@test "final_sync: protected-branch fallback gates on gh availability (structural)" {
+  # The no-gh case is exercised in the actual code path by the
+  # `command -v gh >/dev/null 2>&1` check that flips
+  # `_pr_fallback_eligible=0` and emits `push_protected_branch_no_gh`.
+  # We assert the structural existence of those guards rather than
+  # rebuild a sanitized PATH (sandboxing every macOS bash dependency
+  # off PATH is fragile — the equivalent eligibility=0 → manual-recovery
+  # path is already covered by --no-pr-fallback and TG_NO_PR_FALLBACK
+  # integration tests above).
+  grep -q 'command -v gh >/dev/null 2>&1' "$DVB_GRIND"
+  grep -q 'final_sync push_protected_branch_no_gh' "$DVB_GRIND"
+  grep -q 'push_protected_branch_manual_recovery_needed' "$DVB_GRIND"
+}
