@@ -619,9 +619,13 @@ Safe to rerun indicators:
 - The `grind_done` line is printed to both stdout and the log, so seeing it
   means the marathon exited cleanly
 - `final_sync push_ok` in the log means all committed work reached origin
-- `final_sync push_failed` means the push was rejected (usually because
-  another worker pushed first); fix the git state and either rerun
-  `taskgrind --resume` or manually `git push` before starting a new grind
+- `final_sync push_failed` means the push was rejected AND the automatic
+  rebase recovery (introduced for non-fast-forward / squash-merge cases)
+  also failed — typically because the local branch and origin diverged on
+  conflicting content. Fix the git state and either rerun
+  `taskgrind --resume` or manually `git push` before starting a new grind.
+  Successful rebase recovery shows `final_sync rebase_recovered` followed
+  by `final_sync push_ok` and does not require operator intervention
 - The absence of `graceful_shutdown timeout` means the session got to
   commit its work naturally — a subsequent `taskgrind --resume` will pick
   up exactly where it stopped

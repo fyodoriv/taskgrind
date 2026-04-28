@@ -304,7 +304,10 @@ SCRIPT
   [[ "$output" != *"Pushing "* ]]
 }
 
-@test "final_sync reports non-fast-forward rejection with actionable detail" {
+@test "final_sync recovers from squash-merge divergence by rebasing and retrying push" {
+  # Same-tree divergence: local commit and origin commit have identical trees
+  # but different SHAs (the squash-merge case). git pull --rebase drops the
+  # equivalent local commit, then push is a no-op or fast-forward and succeeds.
   local remote_repo="$TEST_DIR/remote.git"
   git init --bare "$remote_repo" >/dev/null
 
@@ -334,12 +337,17 @@ TASKS
   git -C "$grind_repo" add -f TASKS.md
   git -C "$grind_repo" commit -m "local task commit" >/dev/null
 
-  echo "remote advance" > "$origin_repo/remote.txt"
-  git -C "$origin_repo" add remote.txt
-  git -C "$origin_repo" commit -m "remote advance" >/dev/null
+  # Origin advances with the SAME tree under a different SHA (squash-merge case).
+  # Achieve same-tree by removing the same content on origin under a fresh commit.
+  cat > "$origin_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+  git -C "$origin_repo" add -f TASKS.md
+  git -C "$origin_repo" commit -m "remote shipped same content" >/dev/null
   git -C "$origin_repo" push origin main >/dev/null 2>&1
 
-  local fake_devin="$TEST_DIR/fake-devin-non-fast-forward"
+  local fake_devin="$TEST_DIR/fake-devin-rebase-recovery"
   cat > "$fake_devin" <<'SCRIPT'
 #!/bin/bash
 for arg in "$@"; do
@@ -360,8 +368,82 @@ SCRIPT
 
   run "$DVB_GRIND" 1 "$grind_repo"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"non-fast-forward"* ]]
-  grep -Eq 'final_sync push_failed error=.*(fetch first|non-fast-forward|failed to push)' "$TEST_LOG"
+  grep -q 'final_sync rebase_attempt' "$TEST_LOG"
+  grep -q 'final_sync rebase_recovered' "$TEST_LOG"
+  grep -q 'final_sync push_ok' "$TEST_LOG"
+  # No push_failed should be logged in the recovery path
+  ! grep -q 'final_sync push_failed' "$TEST_LOG"
+}
+
+@test "final_sync surfaces unrecoverable conflict when rebase fails" {
+  # Real divergence: local and origin both modified the same file with
+  # different content. git pull --rebase fails with conflict, the rebase is
+  # aborted, the working tree is left clean, and the existing push_failed
+  # path runs.
+  local remote_repo="$TEST_DIR/remote.git"
+  git init --bare "$remote_repo" >/dev/null
+
+  local origin_repo="$TEST_DIR/origin"
+  git clone "$remote_repo" "$origin_repo" >/dev/null 2>&1
+  git -C "$origin_repo" config user.email "test@test.com"
+  git -C "$origin_repo" config user.name "Test"
+  git -C "$origin_repo" config core.hooksPath /dev/null
+  cat > "$origin_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Seed remote
+TASKS
+  echo "shared-line-v1" > "$origin_repo/shared.txt"
+  git -C "$origin_repo" add -f TASKS.md shared.txt
+  git -C "$origin_repo" commit -m "seed remote" >/dev/null
+  git -C "$origin_repo" push origin main >/dev/null 2>&1
+
+  local grind_repo="$TEST_DIR/grind-repo"
+  git clone "$remote_repo" "$grind_repo" >/dev/null 2>&1
+  git -C "$grind_repo" config user.email "test@test.com"
+  git -C "$grind_repo" config user.name "Test"
+  git -C "$grind_repo" config core.hooksPath /dev/null
+  cat > "$grind_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+  echo "local-divergent-content" > "$grind_repo/shared.txt"
+  git -C "$grind_repo" add -f TASKS.md shared.txt
+  git -C "$grind_repo" commit -m "local divergent commit" >/dev/null
+
+  echo "origin-divergent-content" > "$origin_repo/shared.txt"
+  git -C "$origin_repo" add shared.txt
+  git -C "$origin_repo" commit -m "origin divergent commit" >/dev/null
+  git -C "$origin_repo" push origin main >/dev/null 2>&1
+
+  local fake_devin="$TEST_DIR/fake-devin-conflict"
+  cat > "$fake_devin" <<'SCRIPT'
+#!/bin/bash
+for arg in "$@"; do
+  if [ "$arg" = "--version" ]; then
+    echo "fake-devin 1.0.0"
+    exit 0
+  fi
+done
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+exit 0
+SCRIPT
+  chmod +x "$fake_devin"
+
+  unset DVB_GRIND_CMD
+  export DVB_DEVIN_PATH="$fake_devin"
+  export DVB_CAFFEINATED=1
+  export DVB_DEADLINE_OFFSET=5
+
+  run "$DVB_GRIND" 1 "$grind_repo"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"non-fast-forward"* || "$output" == *"Push failed"* ]]
+  grep -q 'final_sync rebase_attempt' "$TEST_LOG"
+  grep -q 'final_sync rebase_aborted' "$TEST_LOG"
+  grep -Eq 'final_sync push_failed error=' "$TEST_LOG"
+  # The working tree should be clean — no rebase-merge or rebase-apply directory left
+  [ ! -d "$grind_repo/.git/rebase-merge" ]
+  [ ! -d "$grind_repo/.git/rebase-apply" ]
 }
 
 @test "graceful shutdown runs final_sync only once before EXIT cleanup" {

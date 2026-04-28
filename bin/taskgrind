@@ -1833,7 +1833,7 @@ final_sync() {
     echo "   📤 Pushing $ahead local commit(s) to origin..."
   fi
   log_write "[$(date '+%H:%M')] final_sync pushing commits=$ahead${_fs_suffix}"
-  local push_output push_first_line push_status=0
+  local push_output push_first_line push_status=0 _is_nff=0
   push_output=$(git -C "$_fs_repo" push origin HEAD 2>&1) || push_status=$?
   if [[ "$push_status" -eq 0 ]]; then
     log_write "[$(date '+%H:%M')] final_sync push_ok${_fs_suffix}"
@@ -1841,7 +1841,12 @@ final_sync() {
     while IFS= read -r _push_line; do
       [[ -z "$_push_line" ]] && continue
       case "$_push_line" in
-        *"[rejected]"*|*"non-fast-forward"*|*"failed to push"*|*"remote rejected"*|error:*)
+        *"[rejected]"*|*"non-fast-forward"*|*"fetch first"*)
+          push_first_line="$_push_line"
+          _is_nff=1
+          break
+          ;;
+        *"failed to push"*|*"remote rejected"*|error:*)
           push_first_line="$_push_line"
           break
           ;;
@@ -1850,6 +1855,37 @@ final_sync() {
         push_first_line="$_push_line"
       fi
     done <<< "$push_output"
+    # Auto-rebase recovery for non-fast-forward rejections. Common cause: a concurrent
+    # PR squash-merged the same content under a different SHA. `git pull --rebase`
+    # canonicalizes onto origin and drops the equivalent commit; the retry push then
+    # succeeds (or is a no-op). On real conflicts the rebase is aborted and the path
+    # falls through to the existing push_failed flow.
+    if [[ "$_is_nff" -eq 1 ]] && [[ -n "$_default_branch" ]]; then
+      local rebase_status=0 retry_output retry_status=0
+      log_write "[$(date '+%H:%M')] final_sync rebase_attempt branch=$_default_branch${_fs_suffix}"
+      git -C "$_fs_repo" pull --rebase --autostash origin "$_default_branch" >/dev/null 2>&1 || rebase_status=$?
+      if [[ "$rebase_status" -eq 0 ]]; then
+        log_write "[$(date '+%H:%M')] final_sync rebase_recovered branch=$_default_branch${_fs_suffix}"
+        retry_output=$(git -C "$_fs_repo" push origin HEAD 2>&1) || retry_status=$?
+        if [[ "$retry_status" -eq 0 ]]; then
+          log_write "[$(date '+%H:%M')] final_sync push_ok after_rebase=1${_fs_suffix}"
+          return 0
+        fi
+        push_output="$retry_output"
+        push_first_line=""
+        while IFS= read -r _push_line; do
+          [[ -z "$_push_line" ]] && continue
+          if [[ -z "$push_first_line" ]] && [[ "$_push_line" != To\ * ]]; then
+            push_first_line="$_push_line"
+          fi
+        done <<< "$retry_output"
+      else
+        if rebase_in_progress "$_fs_repo"; then
+          git -C "$_fs_repo" rebase --abort >/dev/null 2>&1 || true
+        fi
+        log_write "[$(date '+%H:%M')] final_sync rebase_aborted reason=conflict${_fs_suffix}"
+      fi
+    fi
     if [[ -n "$push_first_line" ]]; then
       echo "   ⚠ Push failed: $push_first_line — local commits preserved for manual push"
       log_write "[$(date '+%H:%M')] final_sync push_failed error=$push_first_line${_fs_suffix}"

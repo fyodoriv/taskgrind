@@ -737,6 +737,19 @@ and
 in the repo, fix the push or rebase problem, then rerun
 .B taskgrind \-\-resume
 if the grind was interrupted mid-shutdown.
+For non-fast-forward push rejections (the common case when a concurrent PR
+squash-merged the same content under a different SHA),
+.B final_sync
+attempts an automatic
+.B git pull --rebase --autostash
+recovery and retries the push. The log shows
+.B final_sync rebase_recovered
+followed by
+.B final_sync push_ok
+when this succeeds. If the rebase encounters a real conflict it is aborted,
+the working tree is left clean, and the existing
+.B final_sync push_failed
+path runs \[em] manual recovery is only required when the rebase itself fails.
 .SH DEVELOPMENT
 For repo maintenance, the standard local workflow is:
 .RS
