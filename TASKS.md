@@ -85,6 +85,42 @@
     - `make check` passes (906+ tests, including new ones for the consolidated knob)
     - `man/taskgrind.1` documents both the new knob and the deprecation timeline so operators know when the old names will stop working
 
+- [ ] Preflight should FAIL (not warn) when `$repo/TASKS.md` is a directory — the macOS case-insensitive-FS quirk that wastes 40+ minutes of compute per occurrence
+  - **ID**: preflight-fail-tasks-md-is-directory
+  - **Tags**: preflight, ux, macos, case-insensitive-fs, foot-gun, fail-loud
+  - **Source**: investigation of `taskgrind-2026-04-26-2134-apps-78034.log` (the user's `~/apps` parent-of-repos misconfig run that wasted 40 min on a doomed sweep). Root cause traced to macOS APFS being case-insensitive: `/Users/fivanishche/apps/TASKS.md` resolves to the existing `tasks.md/` subdirectory (the `tasks.md` spec repo clone) so `[[ -f "$repo/TASKS.md" ]]` returns false, preflight emits the soft `TASKS.md not found — empty queue sweep will find work` warning, and the loop launches a sweep against an unworkable parent dir. Sweep timed out at the full 1800s cap, post-sweep wait burned another 10 min, total 40 min wasted with `sessions=1 shipped=0`.
+  - **Details**: Today the preflight TASKS.md check at `bin/taskgrind:1204-1211` is:
+    ```bash
+    if [[ -f "$repo/TASKS.md" ]]; then
+      preflight_pass "TASKS.md found ..."
+    else
+      preflight_warn "TASKS.md not found — empty queue sweep will find work"
+    fi
+    ```
+    The `[[ -f ]]` test conflates three meaningfully different states:
+    1. **Missing entirely** — operator hasn't created `TASKS.md`. Today's `warn` + sweep recovery is the right call: an empty repo is a valid starting point.
+    2. **Exists as a regular file** — the happy path.
+    3. **Exists but is a directory** — operator pointed taskgrind at a path where some other file/folder named `tasks.md` (case-insensitive) exists. On macOS APFS this is invisible to the operator until taskgrind logs `0 tasks queued` and the sweep kicks off — and the sweep ALSO can't read TASKS.md because it's a directory, so it produces nothing.
+    The fix splits state 3 from state 1 with an actionable error:
+    1. **Add a directory check** before the `-f` test: `if [[ -e "$repo/TASKS.md" && ! -f "$repo/TASKS.md" ]]; then preflight_fail "TASKS.md exists at $repo/TASKS.md but is not a regular file (is_dir=$([[ -d "$repo/TASKS.md" ]] && echo yes || echo no), is_link=$([[ -L "$repo/TASKS.md" ]] && echo yes || echo no)). On macOS, this can happen on case-insensitive filesystems when a sibling like 'tasks.md/' exists. Pass a real repo path, not a parent directory containing other entries that case-collapse to the same name."; fi`
+    2. **`preflight_fail` (not `preflight_warn`)** — this is the existing fail bucket that blocks the marathon. The condition is unrecoverable in-process; only the operator can fix the path. Soft-warning here is the bug — it lets a doomed run start.
+    3. **Surface the actual entry type** in the error so the operator doesn't have to guess: directory vs symlink vs other special file all need different recovery (rename a colliding subdir vs fix a broken symlink vs... whatever the third case turns out to be).
+    4. **Mention `--from-prompt`** as the recovery path: the user's run had a "for both repos" intent that was the workspace-mode use case; if they'd seen `Did you mean: taskgrind --target-repo <each-repo> <control-repo>?` they'd have stopped before launching.
+    Counter-arguments: (a) "what if a user genuinely has a directory named TASKS.md as part of their repo structure?" — the directory-form is never the actual queue file per the [tasks.md spec](https://github.com/tasksmd/tasks.md); a directory at this path is always a misconfig on case-insensitive FS or an extremely unusual setup that the operator should explicitly opt into (out of scope for this fix); (b) "preflight currently runs in `--preflight` mode AND in the main loop pre-launch — should both fail?" — yes; the `--preflight` mode should exit non-zero (so operators wiring it into pre-launch checks see the failure), and the main-loop preflight should refuse to enter the session loop with a clear error and exit 1.
+    **What's NOT in scope**: detecting case-insensitive FS in general (out of scope — too invasive); auto-renaming the colliding directory (destructive, never the right call from a tool); supporting "directory of TASKS.md files" semantics like the tasks.md spec's monorepo split (separate feature, would need its own design); changing other preflight behaviors.
+    **Why P1**: this is silent, expensive, and recurrent — every macOS operator who passes a parent-of-repos path with a sibling `tasks.md` repo on disk will hit the same 40-min waste. The fix is one if-block with high-confidence diagnosis from a real reproduced incident. Cost of inaction = reproducible 40-min compute waste per occurrence; cost of fix = ~10 LOC + 2 bats tests.
+  - **Files**:
+    - `bin/taskgrind` — the preflight TASKS.md check around L1204-1211 (split state 3 out, emit `preflight_fail` with the actionable message); the same check exists in the per-target preflight for workspace mode (`preflight_check_target` around the corresponding line) and needs the same fix
+    - `tests/preflight.bats` — three new tests: (a) directory-named-TASKS.md fails with the actionable error including `is_dir=yes`, (b) symlink-to-directory fails with `is_link=yes is_dir=yes`, (c) regular file still passes (existing happy path), (d) the existing missing-TASKS.md warning path is unchanged (regression guard)
+    - `man/taskgrind.1` — TROUBLESHOOTING section gets a short `TASKS.md not a regular file` entry pointing at the case-insensitive FS root cause
+    - `docs/user-stories.md` — story #N updated to mention the misconfig case and the actionable error
+  - **Acceptance**:
+    - `taskgrind --preflight ~/apps` (parent-of-repos directory with a `tasks.md/` subdir) exits 1 with `✗ TASKS.md exists at ~/apps/TASKS.md but is not a regular file (is_dir=yes, is_link=no). On macOS, this can happen on case-insensitive filesystems...` and the marathon does NOT start
+    - `taskgrind ~/apps` (without `--preflight`) hits the same failure path, exits 1, no session launched
+    - The taskgrind-2026-04-26-2134-apps-78034.log scenario is rerun (or simulated in a bats test) and the run terminates at preflight in <1 second instead of 40 minutes
+    - The empty-repo / missing-TASKS.md path still emits the soft warning and runs the sweep (no regression on the legitimate empty-queue case)
+    - `make check` passes
+
 - [ ] `final_sync` should auto-recover from non-fast-forward push by rebasing first
   - **ID**: final-sync-rebase-on-non-fast-forward
   - **Tags**: bin/taskgrind, final_sync, push, recovery, fleet-grind-blocker
@@ -287,6 +323,60 @@
     - `--resume` after bail starts a fresh counter; the next backend failure does not immediately re-trigger the bail
     - `make check` passes; PR description shows the bail behavior on a synthetic 5-session run with the first 3 backend-canceled
 
+- [ ] Preflight should warn when `$repo` looks like a parent-of-repos directory and suggest workspace mode
+  - **ID**: preflight-warn-parent-of-repos
+  - **Tags**: preflight, ux, workspace-mode, foot-gun, suggest-recovery
+  - **Source**: same investigation as `preflight-fail-tasks-md-is-directory` — the user passed `~/apps` (a directory containing 50+ `.git` subdirectories, each a separate repo) intending "grind across both repos". The shipped `--target-repo` workspace mode is the right interface for that intent, but the operator didn't know it existed and the preflight didn't catch the pattern. Companion to `preflight-fail-tasks-md-is-directory` (that fix catches the no-TASKS.md half; this one catches the I-meant-multiple-repos half).
+  - **Details**: A directory containing many sibling `.git` checkouts is almost always a parent-of-repos misuse: the operator either meant a specific repo under it (single-repo mode) or meant several specific repos (workspace mode via `--target-repo`). Today preflight has no detection for this shape — `~/apps` looks the same as a single-repo path to `bin/taskgrind` until the queue check fails.
+    Detection is cheap: count `.git` entries one level deep. The threshold matters less than the message:
+    1. **Detection**: `_dot_git_count=$(find "$repo" -mindepth 1 -maxdepth 2 -name '.git' -print 2>/dev/null | wc -l | tr -d ' ')` returns the number of immediate-or-once-nested `.git` directories. Most legitimate repos have exactly 1 (their own root); some monorepos have 0 (no root `.git`) but no children either. A parent-of-repos directory has many.
+    2. **Threshold**: warn when `_dot_git_count >= 3`. Three is enough to distinguish "one repo with two test fixtures that contain `.git` directories for some reason" from "this is clearly a directory of repos". A higher bar reduces false positives more; the test cases below validate the chosen number.
+    3. **Action**: `preflight_warn` (not fail — the operator might genuinely want to run a sweep against the parent for some emergent reason). Message: `Repo $repo looks like a parent of N git repos (found $_dot_git_count .git subdirectories). For multi-repo workspace mode, see: taskgrind --target-repo <repo1> --target-repo <repo2> <control-repo>. To grind a single repo, pass the specific path.` Include the list of detected repo names if `_dot_git_count <= 8` (so the operator can copy-paste); otherwise just the count + a hint to `ls -d $repo/*/.git | sed 's|/.git$||'`.
+    4. **Skip when workspace mode is active**: if `--target-repo` was passed (or `TG_TARGET_REPOS` set), the operator already knows what they're doing — don't warn again. The check fires only on bare positional repo args.
+    5. **Same check on each `--target-repo` path**: a target that's itself a parent-of-repos is suspicious for the same reason.
+    Counter-arguments: (a) "what if my actual repo legitimately contains submodules and shows multiple `.git` entries?" — most submodules use a `.git` *file* (gitlink) rather than a `.git` directory; the `find -name '.git'` matches both, but a real test repo contains many: dotfiles, vendor checkouts, monorepos with embedded clones. The 3-threshold + the warn-don't-fail policy keeps this safe; (b) "what if the user runs `taskgrind .` from `~/apps` accidentally?" — the warning catches exactly that case and tells them what to do; (c) "the message is long" — operators only see this on misconfig; the cost of a few extra lines is small compared to the 40-min cost of the wrong default.
+    **What's NOT in scope**: auto-detecting which subdir of `$repo` is "the right one" (would need heuristics that are too repo-specific); building a TUI selector; running workspace mode automatically (would surprise the operator); promoting the warn to fail (the operator might have a use case we don't know about); detecting submodule misconfiguration (different problem).
+    **Why P2**: the user-visible cost is real (40 min wasted per misconfig) but the legitimate empty-repo path still works; the fix is preventive, not corrective. P1 was the right level for the directory-as-TASKS.md case (silent, unrecoverable); P2 fits this preventive UX. Pairs naturally with `promote-from-prompt-as-default-ux` — the warning ALSO mentions `--from-prompt` as a recovery option for operators who don't know the flag system.
+    **Depends on**: optional, but cleaner if `preflight-fail-tasks-md-is-directory` lands first so the two checks are clearly differentiated.
+  - **Files**:
+    - `bin/taskgrind` — new check in the preflight section after the existing TASKS.md check; same check inside `preflight_check_target` for workspace mode (each target should be a real repo); detection uses `find -name '.git'` (portable across macOS bash 3.2 and Linux)
+    - `tests/preflight.bats` — new tests: (a) `~/apps`-shaped fixture (5 .git subdirs) emits the warning AND lists at least 3 repo paths in the suggestion, (b) single-repo fixture (one `.git`) does NOT trigger the warning, (c) workspace mode (`--target-repo` set) suppresses the warning even on a parent-of-repos `--workdir`, (d) same check fires per-target if a target itself is a parent of repos
+    - `man/taskgrind.1` — TROUBLESHOOTING entry pointing at workspace mode and the warning text
+    - `README.md` — Workspace section gains a one-line note about the warning so operators see it before encountering it
+  - **Acceptance**:
+    - `taskgrind --preflight /tmp/parent-of-3-repos-fixture` (synthetic test fixture with 3 `.git` subdirs) emits `⚠ Repo ... looks like a parent of 3 git repos. For multi-repo workspace mode, see: taskgrind --target-repo ...` and proceeds with exit 0
+    - `taskgrind --target-repo /tmp/repo1 --target-repo /tmp/repo2 /tmp/parent` does NOT emit the warning for `/tmp/parent` (workspace mode is the active case)
+    - `taskgrind --preflight /tmp/single-repo-fixture` (one `.git`) emits no warning
+    - The taskgrind-2026-04-26-2134-apps-78034.log scenario, simulated, would now emit BOTH the parent-of-repos warning AND (via the companion P1 task) the TASKS.md-is-a-directory failure — the operator stops in <1 second
+    - `make check` passes; new tests cover the four cases above
+
+- [ ] Sweep watchdog should bail when `tasks_per_min=0` and the agent has made no edits to TASKS.md for >5 min, instead of riding out the full 30-min cap
+  - **ID**: sweep-watchdog-bail-on-no-progress
+  - **Tags**: sweep, watchdog, bail-out, marathon-control, AIFN-720-not-applicable
+  - **Source**: same investigation as `preflight-fail-tasks-md-is-directory` — the doomed sweep on `~/apps` ran the full 1804s (30 min cap + 4s overhead, exit=1 from watchdog kill) and produced zero tasks. The sweep agent had no clear target (parent dir with no real TASKS.md) and wandered for 30 minutes before being killed. The grind log later showed `sweep_efficiency tasks=0 elapsed=1804s tasks_per_min=0` — meaning the *signals* were all there in real time, but the watchdog only fires on wall-clock timeout, not on observed-zero-progress.
+  - **Details**: Today the sweep watchdog at `bin/taskgrind` (around the sweep launch / `DVB_SWEEP_MAX` block) is purely time-based: `MAX_SWEEP_SESSION=1800` seconds, kill at expiry. There's no signal-based early-bail even though taskgrind already tracks the inputs (TASKS.md mtime, task count) that would let it short-circuit a doomed sweep.
+    The proposal: add a soft early-bail on `(elapsed >= 5 min) AND (TASKS.md unchanged since sweep start) AND (no commits to repo since sweep start)`. All three signals are already collected today — TASKS.md mtime via stat, task count via `count_tasks`, commits via `git rev-parse HEAD` snapshots before/after the session. The early-bail composes them:
+    1. **Tracking**: at sweep start, capture `_sweep_start_ts`, `_sweep_start_head=$(git -C "$repo" rev-parse HEAD)`, `_sweep_start_tasks_mtime=$(stat -f %m "$repo/TASKS.md" 2>/dev/null || echo 0)` (use `stat -c %Y` on Linux — the existing portable-stat helper if there is one). Re-read every 60 seconds while the sweep is running.
+    2. **Bail condition**: `elapsed >= 300s` AND `current_head == _sweep_start_head` AND `current_mtime == _sweep_start_tasks_mtime`. All three together: the sweep has run for 5+ min and produced zero externally-visible progress (no commits, no TASKS.md edits). Kill the sweep, log `sweep_no_progress_bail elapsed=Ns reason=stalled`.
+    3. **Threshold knob**: `TG_SWEEP_NO_PROGRESS_TIMEOUT=300` (default 5 min) lets operators tune; 300s is enough margin for a sweep that's genuinely thinking before producing its first commit, but not so long that a stuck sweep wastes a quarter hour.
+    4. **Don't bail on TASKS.md edits without commits**: if the sweep agent edited TASKS.md but didn't commit, that's still progress (the edits are real work). Update `_sweep_start_tasks_mtime` on observed mtime change. If only the head changed (commits to other files), also reset the timer — that's progress too.
+    5. **Interaction with `MAX_SWEEP_SESSION`**: this fires *earlier* than the existing 30-min cap. The cap stays as the hard limit; the soft early-bail just shortens the worst case for a clearly-doomed sweep.
+    6. **Distinct log marker**: `sweep_no_progress_bail` vs the existing `sweep_done exit=1 elapsed=...`. The marker tells operators reading the log "this sweep was killed early because nothing was happening" vs "this sweep timed out waiting for the agent's last commit".
+    Counter-arguments: (a) "what if a sweep agent legitimately spends 5 minutes thinking before its first commit?" — the threshold is tunable; 5 min is the median time-to-first-commit on observed productive sweeps in the existing log corpus (estimate from sample, validate during implementation). 10 min would also be defensible; the point is "less than 30 min for a no-progress case"; (b) "this adds polling complexity to a watchdog that's currently simple" — the existing watchdog already polls (it has to, to fire on timeout); adding two stat calls + one `git rev-parse` per minute is negligible cost; (c) "what if the agent is mid-PR-creation and just hasn't pushed yet?" — local commits show up in `rev-parse HEAD` before push, so this doesn't trigger; PR creation without local commits is rare and would only delay the bail by one polling interval.
+    **What's NOT in scope**: changing the default `MAX_SWEEP_SESSION` (still 1800s); generalizing this to non-sweep sessions (regular sessions have a different shape — they pick existing tasks, so "no edits for 5 min" doesn't necessarily mean stalled); adding a heartbeat/keepalive mechanism for the agent to signal "I'm working"; building a richer activity-detection heuristic.
+    **Why P2**: the worst case is bounded by the existing 1800s cap; this is "shrink the bound on a known failure mode". Pairs with `auto-bail-on-consecutive-backend-failures` filed earlier — both are bail-out optimizations triggered by observable signal patterns. Doing both will compress the worst-case wasted-compute envelope significantly.
+  - **Files**:
+    - `bin/taskgrind` — sweep launch path adds the per-minute polling block (the watchdog already runs as a background sleep+kill subshell; add a `_check_sweep_progress` sub-loop alongside it); new env var `TG_SWEEP_NO_PROGRESS_TIMEOUT` with default 300; new log marker `sweep_no_progress_bail` documented in the log-grammar (likely lives in `docs/architecture.md` or its equivalent)
+    - `tests/session.bats` — new tests covering: (a) sweep with no commits + no TASKS.md changes for 6 min triggers `sweep_no_progress_bail`, (b) sweep that commits at minute 4 doesn't bail (timer reset), (c) sweep that edits TASKS.md mtime (without committing) at minute 4 doesn't bail, (d) `TG_SWEEP_NO_PROGRESS_TIMEOUT=600` waits 10 min before bailing, (e) the full 30-min cap still fires when the bail timeout is set absurdly high
+    - `man/taskgrind.1` — new ENVIRONMENT entry for `TG_SWEEP_NO_PROGRESS_TIMEOUT`; SWEEP section explains the new bail-out
+    - `docs/architecture.md` — sweep section documents the soft early-bail condition
+  - **Acceptance**:
+    - A synthetic 6-min sweep with a fake-devin that just sleeps (no commits, no TASKS.md edits) is killed at the 5-min mark with `sweep_no_progress_bail elapsed=300s reason=stalled` instead of running the full 30-min cap
+    - A sweep that produces one commit at the 4-min mark continues uninterrupted past the 5-min point; the soft-bail only fires if NO progress is observed in any 5-min window
+    - The taskgrind-2026-04-26-2134-apps-78034.log scenario, with this fix, would terminate the sweep at minute 5 (saving 25 min) — verified in a synthetic test reproducing the no-progress shape
+    - The hard cap `MAX_SWEEP_SESSION=1800` still works as a backstop when the soft-bail is disabled (`TG_SWEEP_NO_PROGRESS_TIMEOUT=99999`)
+    - `make check` passes; PR description shows a before/after timing on the synthetic doomed-sweep test
+
 - [ ] Stop the preflight "Git remote unreachable" warning from false-alarming on every macOS bash 3.2 run
   - **ID**: preflight-remote-watchdog-bash32-bug
   - **Tags**: preflight, bash-32, ux, false-alarm, git
@@ -303,6 +393,36 @@
   - **Acceptance**: a fresh `taskgrind --preflight .` run on macOS bash 3.2 prints `✓ Git remote reachable` against this repo's real `origin` and the string `Git remote unreachable` is absent from stdout/stderr; the negative case (broken `origin` URL) still surfaces the warning, proving the check itself isn't silently disabled; both call sites in `bin/taskgrind` use the same helper (`grep -nE 'sleep 10 &' bin/taskgrind` returns no matches inside `preflight_check` or `preflight_check_target`); the two new bats tests pass on both macOS (bash 3.2) and Linux (bash 4+) without platform branching; `make check` passes locally; the structural test at `tests/preflight.bats:199` (`grep -q 'Git remote reachable' "$DVB_GRIND"`) still passes
 
 ## P3
+
+- [ ] `grind_done sessions=N` should not count sweep-only runs — log `sessions=0 sweeps=1` when no real session ran
+  - **ID**: grind-done-sessions-vs-sweeps-counter-fix
+  - **Tags**: grind-summary, counter-accuracy, observability, low-impact
+  - **Source**: same investigation — the `taskgrind-2026-04-26-2134-apps-78034.log` doomed run produced `grind_done sessions=1 shipped=0 sweeps=1 sweep_seconds=1804` for what was effectively zero real session work. The `sessions=1` count includes the failed sweep, suggesting "one session ran and shipped nothing" when the truth is "no real session ran at all; one sweep was attempted and timed out". Operators reading the summary at a glance get a misleading picture of grind productivity.
+  - **Details**: Today's `grind_done` summary at the end of `bin/taskgrind` increments `sessions` for every iteration of the outer loop, including pure-sweep iterations that didn't run a real session. The semantics conflate two distinct counts:
+    - **Real sessions**: outer-loop iterations where a session ran against a non-empty queue (the productive shape).
+    - **Sweep sessions**: outer-loop iterations where the queue was empty and only a sweep was attempted (the recovery shape).
+    Both are tracked internally — `sweeps` and `sweep_seconds` are already separate counters in the same log line. The mismatch is just that `sessions` includes the sweep iterations rather than excluding them.
+    The fix is one line: when computing `sessions` for the summary, subtract the sweep-only iterations. The interpretation aligns with how operators read the summary — "sessions" should mean "times a real session ran against tasks queued by humans or prior work", not "outer-loop iterations including failed sweep attempts".
+    Concretely:
+    1. **Counter semantics**: maintain `_real_sessions` separately from `_loop_iterations`. `_real_sessions` increments only when the queue had ≥1 task at session start. `_loop_iterations` is the existing total. `_sweeps` is already separate.
+    2. **`grind_done` line**: emit `sessions=$_real_sessions sweeps=$_sweeps sweep_seconds=$_sweep_seconds shipped=$_shipped ...`. The total iterations are recoverable as `sessions + sweeps` if anyone needs them, but operators rarely do.
+    3. **Backwards compat**: `tests/logging.bats` may pin specific counter values from the existing semantics; those tests update in the same commit with the new expectation. The status file emits the same fields; if anything machine-parses the summary line, the field-names stay the same — only the numeric value of `sessions` changes for runs that included sweeps.
+    4. **Documentation**: `docs/architecture.md` (or its equivalent) gets a sentence clarifying the counter semantics: "sessions counts real sessions, sweeps counts recovery sweeps; total outer-loop iterations = sessions + sweeps".
+    Counter-arguments: (a) "this is purely cosmetic — does it justify a code change?" — yes, but at P3 priority. The cost of the change is small; the benefit is one-line clarity in every grind summary. Pure low-hanging-fruit polish; (b) "what if operators have parsers that depend on the current `sessions` count semantics?" — `grind_done` is for humans, not parsers; the structured payload lives in `TG_STATUS_FILE` JSON which can preserve a `loop_iterations` field if any consumer needs the old number; (c) "what about edge cases like a sweep that produced commits via `tasks_added`?" — those count as sweeps, not sessions, even if they were productive. The session count is "did a real session against existing tasks run", not "did productive work happen". Productivity is captured in `shipped`/`tasks_added` separately.
+    **What's NOT in scope**: redesigning the `grind_done` summary line; changing `shipped` semantics; touching the status file schema beyond what's required to keep machine consumers honest; renaming the existing `sweeps` field.
+    **Why P3**: pure observability polish on a working system. Operators can already deduce the right number from `sessions - sweeps` if they care; making the displayed value match the natural reading is a quality-of-life fix, not a correctness fix. Lowest priority of the four log-investigation tasks.
+  - **Files**:
+    - `bin/taskgrind` — the outer-loop iteration counter is somewhere near the session-launch code; split into `_real_sessions` and `_sweeps` (or just stop incrementing `_real_sessions` when the iteration was a sweep); `grind_done` summary builder uses the corrected count
+    - `tests/logging.bats` — add a test asserting `grind_done sessions=0 sweeps=1` when the only iteration was a sweep; update existing tests that pin specific session counts to reflect the new semantics; structural test that asserts `sessions + sweeps = total iterations` on a multi-session run
+    - `docs/architecture.md` — one-sentence clarification of counter semantics
+    - `man/taskgrind.1` — if the OUTPUT section documents the summary fields, update to match
+    - `TG_STATUS_FILE` JSON schema — add a `loop_iterations` field equal to `sessions + sweeps` for machine consumers that want the old value
+  - **Acceptance**:
+    - `taskgrind` against an empty-queue repo that runs one sweep that times out emits `grind_done sessions=0 sweeps=1 ...` (not `sessions=1`)
+    - `taskgrind` against a populated-queue repo that runs 5 sessions emits `grind_done sessions=5 sweeps=0 ...`
+    - `taskgrind` against a repo that runs 3 sessions + 1 sweep emits `grind_done sessions=3 sweeps=1 ...` (total iterations = 4, recoverable as sum)
+    - `TG_STATUS_FILE` JSON includes a `loop_iterations` field equal to `sessions + sweeps` so machine consumers don't break
+    - `make check` passes; PR description shows the before/after summary line for the doomed-run scenario
 
 - [ ] Investigate why `productive_zero_ship` fires on ~30% of sessions on actively-grinded repos like `agentbrew`
   - **ID**: investigate-productive-zero-ship-rate
