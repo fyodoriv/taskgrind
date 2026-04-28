@@ -459,6 +459,98 @@
   - **Files**: `bin/taskgrind` (lines ~1162-1175 and ~1260-1273 — replace both with a shared helper, define it near the other `preflight_*` helpers); `tests/preflight.bats` (add a positive-case regression test that asserts the warning does NOT appear when `git ls-remote` would succeed — point the test repo's `origin` at a local bare repo created in `BATS_TEST_TMPDIR` and grep `--preflight` output for the absence of `Git remote unreachable`; add a negative-case test where `origin` URL is bogus and the warning DOES still fire so the check itself isn't disabled by the fix); `tests/bash-compat.bats` (existing `/bin/bash bin/taskgrind --dry-run` smoke keeps the bash 3.2 floor honest — no edit expected, just confirm it still passes after the change)
   - **Acceptance**: a fresh `taskgrind --preflight .` run on macOS bash 3.2 prints `✓ Git remote reachable` against this repo's real `origin` and the string `Git remote unreachable` is absent from stdout/stderr; the negative case (broken `origin` URL) still surfaces the warning, proving the check itself isn't silently disabled; both call sites in `bin/taskgrind` use the same helper (`grep -nE 'sleep 10 &' bin/taskgrind` returns no matches inside `preflight_check` or `preflight_check_target`); the two new bats tests pass on both macOS (bash 3.2) and Linux (bash 4+) without platform branching; `make check` passes locally; the structural test at `tests/preflight.bats:199` (`grep -q 'Git remote reachable' "$DVB_GRIND"`) still passes
 
+- [ ] Decay the productive-timeout extension back to the default after a non-productive session
+  - **ID**: productive-timeout-monotonic-growth
+  - **Tags**: timeout, watchdog, session-budget, regression
+  - **Source**: 10-log audit on 2026-04-28 across `bosun`, `agentbrew`, `oncall-hub-api`, `oncall-hub-plugin`. In every grind where one session hit `productive_timeout` (commits made before watchdog kill → timeout extends to `new_timeout=5400s`), every subsequent session in the same run kept the 5400s ceiling regardless of whether it shipped anything. Examples: `taskgrind-2026-04-27-1942-oncall-hub-plugin-67032.log` (session 2 productive_timeout → sessions 3, 4, 5 all run at 5400s, two ship 0–1, total cumulative wall = ~8800s vs ~5400s if 3600s default were restored after each unproductive session); same shape in `taskgrind-2026-04-26-1156-agentbrew-41789.log` and `taskgrind-2026-04-27-0907-oncall-hub-plugin-57739.log`. The watchdog has only one direction (3600 → 5400 → never back).
+  - **Details**: The contract today is "if you ship in a 60-min budget, you've earned a 90-min budget." That's right for *the next session*, but the current code keeps the 90-min budget for the rest of the run. After 1 productive session, a 24h grind that has 23 unproductive sessions remaining still wastes up to 30 minutes per session waiting on a stuck backend before the watchdog fires. Fix: decay back to the default when a session ends with `shipped=0 AND tasks_added=0` (no work output at all). The decay rule is symmetric to the extension rule:
+    - Extension: `shipped >= 1 AND duration >= MAX_SESSION` → `MAX_SESSION = 5400`
+    - Decay: `shipped == 0 AND tasks_added == 0` → `MAX_SESSION = 3600`
+    - No-op: `shipped >= 1` (productive but didn't time out) → leave current value alone.
+    Keep one extension level only; don't allow further escalation past 5400s without a separate task to revisit. Today the code is at `bin/taskgrind` near the `productive_timeout` log emission (search `productive_timeout new_timeout`); the decay needs to fire at the same place after each session-end summary is written.
+    Counter-arguments: (a) "decay churns the budget on bursty workloads where every other session is productive" — addressed by basing the decay on `shipped + tasks_added == 0`, so a session that scouted 3 new tasks (real work) doesn't decay; (b) "what if `tasks_added` is from concurrent agents, not this session?" — taskgrind already distinguishes `tasks_added (external injection)` from `tasks_added (ids added during session)` in the log; the decay rule reads the in-session counter only; (c) "5400s is the right ceiling and the operator can override via TG_MAX_SESSION" — true, but the in-script default should match common cases. Operators who run high-throughput grinds can set `TG_MAX_SESSION=5400` explicitly and skip the decay entirely.
+    **Why P2**: cumulative compute waste is real but bounded. A 24h grind with 1 productive session + 23 unproductive ones at 5400s wastes ~6.9h of wall clock on watchdogs that should fire 30min earlier. P1 would mean it blocks current work; this just costs efficiency on long runs.
+    **What's NOT in scope**: changing the extension threshold (`shipped>=1` is fine); making the decay configurable beyond the existing `TG_MAX_SESSION` override; reworking the watchdog architecture; changing the productive-timeout log line format (parsers depend on it).
+  - **Files**:
+    - `bin/taskgrind` — locate the productive_timeout block (around the line that emits `productive_timeout sessionN shipped=N timeout=Xs new_timeout=5400s`); add a sibling decay path that emits `productive_timeout_decay sessionN reason=zero_output new_timeout=3600s` when the criteria match, then resets the in-script `MAX_SESSION` variable.
+    - `tests/session.bats` — add coverage: (a) productive session at 3600s → next session has 5400s budget, (b) productive session followed by zero-output session → third session has 3600s budget again, (c) two consecutive zero-output sessions don't decay further (already at 3600s, no event).
+    - `man/taskgrind.1` — ENVIRONMENT section for `TG_MAX_SESSION` adds a note: "Productive sessions extend the budget by +50% for the next session; unproductive sessions decay it back."
+    - `README.md` — if the section that mentions the timeout extension is present, mirror the decay rule.
+  - **Acceptance**:
+    - New tests in `tests/session.bats` pass on macOS (bash 3.2) and Linux
+    - Re-running the 10-log audit pattern (productive → zero-output → zero-output) on a fresh test fixture shows the watchdog firing at 3600s, not 5400s, on the second zero-output session
+    - `make check` passes
+    - The grind log in a real session shows the new `productive_timeout_decay` event line at least once when the conditions match
+
+- [ ] Log the conflicting file paths when `pre_session_recovery rebase_aborted` fires
+  - **ID**: rebase-abort-detail-in-pre-session-recovery
+  - **Tags**: logging, diagnostics, git-recovery
+  - **Source**: 10-log audit. `taskgrind-2026-04-27-1812-bosun-91842.log` line 17 emits `pre_session_recovery rebase_aborted` with no further detail. Operator triaging a 16-session bosun grind has no idea WHY the rebase aborted — was it conflicts? Was the worktree corrupted? Was main behind? The session continued (good) but the operator's only signal that something needed attention is a one-line mystery event.
+  - **Details**: `bin/taskgrind` already emits `pre_session_recovery <reason>` event lines for several cases (`rebase_aborted`, `merge_aborted`, `cherry_pick_aborted`). When the recovery aborts, `git rebase --abort` (or equivalent) suppresses the conflict info. The fix is to capture the pre-abort state once and emit it as a structured sub-line.
+    Concretely: before calling `git rebase --abort`, capture `git diff --name-only --diff-filter=U` (unmerged files) into a variable, then emit a second line `pre_session_recovery rebase_aborted_detail conflicts=<comma-sep-list-of-paths>`. Same shape as the existing `final_sync push_failed` → `final_sync push_stderr ...` pair (one event line + one detail line per occurrence).
+    Add equivalent detail lines for the `merge_aborted` and `cherry_pick_aborted` cases too, since they suffer the same opacity.
+    Counter-arguments: (a) "long lists of conflicting paths bloat logs" — cap at 10 paths; if more, append `... (+N more)`; (b) "what if `git diff` itself fails because the index is corrupt?" — fall through silently; the existing `pre_session_recovery rebase_aborted` already covers the no-detail case as a baseline; (c) "the existing tests are the reference for log format" — the new line is a sub-line of the existing event, no schema break.
+    **Why P2**: diagnostic-only — doesn't change behavior, just adds context. Not P3 because every silent rebase abort during a grind is a lost diagnostic opportunity, and a 24h grind hitting 2-3 of them with zero detail is a pattern worth fixing.
+    **What's NOT in scope**: changing the recovery logic (still aborts on conflict); adding interactive resolution; emitting conflict-line-numbers (path-only is enough to triage); changing the existing `pre_session_recovery` event format.
+  - **Files**:
+    - `bin/taskgrind` — locate the `pre_session_recovery` emission for rebase/merge/cherry-pick; add the conflict-paths capture + emit before each `--abort` call.
+    - `tests/git-sync.bats` (or wherever pre-session-recovery is tested) — add a test fixture that creates a known-conflict, triggers the rebase-abort path, asserts the `rebase_aborted_detail conflicts=` line is present with the expected file path.
+    - `man/taskgrind.1` — TROUBLESHOOTING section gets an entry: "If `pre_session_recovery rebase_aborted` fires, look for the next-line `rebase_aborted_detail` to see which files conflicted."
+  - **Acceptance**:
+    - Bats test asserting `rebase_aborted_detail` line appears when the abort path fires
+    - The line is present in real grind logs after the change (verifiable by grepping `pre_session_recovery rebase_aborted_detail` in any log that captures a real abort)
+    - `make check` passes
+    - No regression in the existing `pre_session_recovery rebase_aborted` event (still fires on every abort)
+
+- [ ] Slot ≥ 1 instances skip git_sync entirely — drift risk in long parallel grinds
+  - **ID**: slot-non-zero-git-sync-drift
+  - **Tags**: parallel, git-sync, slot-coordination, prevention
+  - **Source**: 10-log audit. `taskgrind-2026-04-26-2139-bosun-29965.log` runs at `slot=1` for 14 sessions / 10h6m. Every session ends with `git_sync skipped (slot=1, only slot 0 syncs)`. After 10h, this slot's local main can be 100+ commits behind origin; new commits in this slot land on a stale base. The log shows 102 tasks added during the run — much of that is concurrent work from slot=0 that this slot never pulled, so its TASKS.md edits compound the conflict surface.
+  - **Details**: The current rule "only slot 0 syncs" was designed to prevent N parallel taskgrind instances from racing on `git pull --rebase` against the same working tree. That's correct; the bug is that slot ≥ 1 instances never sync at all, ever. Two fix shapes possible:
+    1. **Lazy sync**: slot ≥ 1 instances run `git fetch origin main` (read-only, no rebase) every N sessions and emit a `git_sync_lazy_fetch slot=N behind=K` line so the operator can see drift. They never `pull --rebase` — that stays slot-0-only.
+    2. **Per-instance worktree**: each slot uses its own git worktree (`.worktrees/slot-1/`, `.worktrees/slot-2/`) so each can sync independently without racing on the shared working tree. This is a bigger change but matches what bosun does for pipelines.
+    Recommend (1) for this task — minimal change, surfaces the drift visibly, doesn't reorganize the worktree layout. The lazy-fetch + log line is enough that an operator running multi-slot can see "slot 1 is 47 commits behind" and decide whether to bail/restart that instance.
+    Counter-arguments: (a) "fetch isn't free" — `git fetch origin main` on a healthy LAN is ~100ms; running once every 10 sessions is in the noise; (b) "what if origin main has rebased and slot 1 has commits on a stale base?" — the lazy-fetch surfaces this; the fix is operator-level (kill slot 1, restart from a fresh main); doing the fix automatically risks losing slot-1 commits, so leaving it operator-decided is correct; (c) "this is a problem with the multi-slot model itself, not git_sync" — yes, but the proposed lazy-fetch is the smallest visible-drift fix, and a real multi-worktree refactor is its own task (`grind-session-slot-coordination` in bosun's TASKS.md tracks the bosun-side equivalent).
+    **Why P3** *(filed under P2 in this batch as it directly enables longer multi-slot grinds, but the actual blast radius is "drift surfaces noisily, operator restarts" not "work is lost")*. Promote to P2 only if a slot-N grind suffers data loss because of stale-base conflicts in a real run.
+    **What's NOT in scope**: per-slot worktrees (separate task); changing the slot=0 sync logic (works fine); rebasing slot ≥ 1 commits onto a fresher main automatically (too risky without operator approval); cross-slot coordination (out of scope; that's `grind-session-slot-coordination` in bosun).
+  - **Files**:
+    - `bin/taskgrind` — find the `git_sync skipped (slot=N, only slot 0 syncs)` emission; add a lazy-fetch path that runs every `TG_LAZY_FETCH_INTERVAL` (default 5) sessions for slot ≥ 1 and emits `git_sync_lazy_fetch slot=N behind=K` (where K = `git rev-list --count HEAD..origin/main` after the fetch).
+    - `tests/git-sync.bats` — add a test asserting slot=1 emits `git_sync_lazy_fetch` lines at the expected cadence.
+    - `man/taskgrind.1` — ENVIRONMENT section for the new env var; OPTIONS section mentions slot ≥ 1 lazy-fetch behavior under `--slot`.
+    - `AGENTS.md` — Local Test Notes / multi-slot section gets a sentence about the lazy-fetch behavior.
+  - **Acceptance**:
+    - Bats test for slot=1 lazy-fetch passes
+    - Real grind log on slot=1 shows `git_sync_lazy_fetch slot=1 behind=K` lines at the expected cadence
+    - `make check` passes
+    - The original `git_sync skipped (slot=N, only slot 0 syncs)` event line is still emitted (unchanged)
+
+- [ ] `ship_rate` in `grind_done` summary is misleading when concurrent agents add tasks
+  - **ID**: ship-rate-distorted-by-concurrent-task-additions
+  - **Tags**: metrics, observability, log-schema
+  - **Source**: 10-log audit. The most distorted examples:
+    - `taskgrind-2026-04-26-2139-bosun-29965.log` — `tasks_starting=44 tasks_after=123 tasks_added=102` over 14 sessions, but `ship_rate=19%`. The grind shipped a lot of work, but the ship-rate denominator (`tasks_starting`) was inflated by 102 concurrent additions.
+    - `taskgrind-2026-04-27-1812-bosun-91842.log` — `tasks_starting=132 tasks_after=152 tasks_added=28` over 16 sessions, `ship_rate=11%`. Same pattern.
+    - `taskgrind-2026-04-26-1247-bosun-17570.log` — `ship_rate=864%` because the formula divides one count by another and the queue happened to shrink dramatically.
+    The metric is doing arithmetic on two unrelated numbers. An operator looking at "ship_rate=11%" thinks the grind is broken; an operator looking at "ship_rate=864%" thinks something is wildly miscounted. Both are technically correct under the current definition (`shipped / tasks_starting * 100`) but operationally meaningless.
+  - **Details**: The fix is to redefine ship_rate to a metric that doesn't get fooled by concurrent additions. Two reasonable candidates:
+    1. **`shipped_per_hour`** — `shipped / (elapsed / 3600)`. Already partially logged as `rate=N/h`; promote it to the primary observability number. Independent of task count.
+    2. **`net_delta`** — `tasks_starting - tasks_after + tasks_added`. The actual closed-task count, ignoring concurrent additions. Pair with `tasks_added` as a denominator so the operator sees both axes.
+    Recommend BOTH — log `ship_rate=N/h` (renamed from `rate=N/h`, keep the old line for backwards-compat) AND `net_delta=K` so an operator sees `shipped=19 net_delta=18 ship_rate=2.5/h tasks_added=28 elapsed=10h6m` instead of today's confusing `shipped=19 ship_rate=11% rate=1.8/h`. The old percentage form goes away entirely — it doesn't communicate anything actionable.
+    Concretely, the `grind_done` log line at the end of `bin/taskgrind`'s main loop emits these fields. Update the order to lead with `shipped` and `net_delta` (the operator's two real questions: "did the grind ship work?" and "did the queue shrink?").
+    Counter-arguments: (a) "removing `ship_rate=%` breaks downstream parsers" — `grind_done` schema is internal; no documented external consumer; the field is still safely emittable as `ship_rate_pct=N` if someone needs to keep it; (b) "shipped_per_hour also gets fooled by network outages where the watchdog burns wall clock without shipping" — true, but that's the operator's signal that the run was unhealthy, not a flaw in the metric; (c) "this changes log schema and that's its own risk" — the change is additive (new fields) and a rename of one existing field; existing tests in `tests/logging.bats` need updating, but the tests are the authority on the schema, so they're the right place to ratify the change.
+    **Why P2**: every grind report on a contested repo (bosun, agentbrew) shows a misleading number that operators have learned to ignore. That erodes the trust in the entire log schema. Not P1 because nothing breaks; just trust does.
+    **What's NOT in scope**: building a dashboard or grafana view of grind metrics (out of scope for taskgrind); redefining the success/failure terminal state (still based on `shipped > 0`); adding a "true" ship-rate that distinguishes self-shipped from concurrent-shipped (we don't have visibility into other agents' commits without git-log analysis on every grind, which is too expensive).
+  - **Files**:
+    - `bin/taskgrind` — locate the `grind_done` event-line emission; replace `ship_rate=N%` with `ship_rate=N/h net_delta=K`; emit `tasks_added=K` and `tasks_starting=N` and `tasks_after=M` always (even on older paths that omitted them — Pattern 7 of the 10-log audit).
+    - `tests/logging.bats` — update the schema assertions to match the new field set; add a regression test that asserts `ship_rate=N%` is NOT present in the line.
+    - `man/taskgrind.1` — DESCRIPTION / EXAMPLES section gets a sample `grind_done` line with the new schema and a sentence explaining each field.
+    - `README.md` — sample run section, if any, gets the new format.
+  - **Acceptance**:
+    - `grind_done` line in any real grind log uses `shipped=N net_delta=K ship_rate=R/h tasks_added=A tasks_starting=S tasks_after=E` — no `%` in the rate field
+    - All existing `tests/logging.bats` assertions still pass; the new regression test passes
+    - `make check` passes
+    - On the `bosun-2026-04-26-2139` re-creation, the new line reads `shipped=29 net_delta=-79 ship_rate=2.8/h tasks_added=102 tasks_starting=44 tasks_after=123` — interpretable at a glance as "29 shipped, but queue grew because 102 concurrent additions"
+
 ## P3
 
 - [ ] `grind_done sessions=N` should not count sweep-only runs — log `sessions=0 sweeps=1` when no real session ran
