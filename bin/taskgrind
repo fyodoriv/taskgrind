@@ -13,6 +13,15 @@
 #        taskgrind --skill pipeline-ops ~/apps/bosun 10
 #                                             → 10h run with a custom skill
 #        taskgrind --backend claude-code 8     → 8h grind with Claude Code
+#        taskgrind --rotate-backends devin,claude-code,codex 8
+#                                             → mid-flight backend rotation: when
+#                                               the active backend hits a rate-limit
+#                                               in the session output, the NEXT session
+#                                               launches with the next backend in
+#                                               the list (cycling). Independent of
+#                                               --backend (which sets the starting
+#                                               backend; rotation cycles through the
+#                                               list when a rate-limit fires).
 #        taskgrind --prompt "focus on test coverage" 8
 #        taskgrind --target-repo ~/apps/frontend --target-repo ~/apps/backend ~/apps/control 8
 #                                             → workspace mode: control repo holds TASKS.md,
@@ -43,6 +52,11 @@
 #        Args can appear in any order. Hours is any bare integer (1-24).
 #
 # Env:   TG_BACKEND     — AI backend: devin, claude-code, codex (default: devin)
+#        TG_ROTATE_BACKENDS — comma-separated list for mid-flight rotation
+#                            (e.g. "devin,claude-code,codex"). When set, after
+#                            each session output is scanned for rate-limit / quota
+#                            / throttle patterns; on match, the next session
+#                            launches with the next backend in the list.
 #        TG_MODEL       — AI model (default: "claude-opus-4-7-max")
 #        TG_COOL        — seconds between sessions (default: 5)
 #        TG_SKILL       — skill to run (default: next-task)
@@ -169,8 +183,8 @@ for _tg_var in BACKEND BACKOFF_BASE BACKOFF_MAX COOL DEVIN_PATH \
                GIT_SYNC_TIMEOUT LOG MAX_FAST MAX_INSTANCES \
                MAX_SESSION MAX_ZERO_SHIP MIN_SESSION MODEL NET_CHECK_URL NET_MAX_WAIT \
                NET_RETRIES NET_RETRY_DELAY NET_WAIT NO_PUSH NO_STALL_EXIT NOTIFY PROMPT \
-               SESSION_GRACE SHUTDOWN_GRACE SKILL STATUS_FILE SWEEP_MAX SYNC_INTERVAL \
-               TARGET_REPOS; do
+               ROTATE_BACKENDS SESSION_GRACE SHUTDOWN_GRACE SKILL STATUS_FILE SWEEP_MAX \
+               SYNC_INTERVAL TARGET_REPOS; do
   _tg_ref="TG_${_tg_var}"
   if [[ -n "${!_tg_ref:-}" ]]; then
     export "DVB_${_tg_var}"="${!_tg_ref}"
@@ -187,6 +201,7 @@ repo="."
 skill="${DVB_SKILL:-next-task}"
 extra_prompt="${DVB_PROMPT:-}"
 _cli_backend=""
+_cli_rotate_backends=""
 _cli_model=""
 dry_run=0
 preflight_only=0
@@ -259,6 +274,15 @@ while [[ $# -gt 0 ]]; do
       fi
       _cli_backend="$2"
       [[ -z "$_cli_backend" ]] && { echo "Error: --backend requires a name (devin, claude-code, codex)" >&2; exit 1; }
+      shift 2
+      ;;
+    --rotate-backends=*) _cli_rotate_backends="${1#--rotate-backends=}"; [[ -z "$_cli_rotate_backends" ]] && { echo "Error: --rotate-backends requires comma-separated list (e.g. devin,claude-code,codex)" >&2; exit 1; }; shift ;;
+    --rotate-backends)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --rotate-backends requires comma-separated list (e.g. devin,claude-code,codex)" >&2; exit 1
+      fi
+      _cli_rotate_backends="$2"
+      [[ -z "$_cli_rotate_backends" ]] && { echo "Error: --rotate-backends requires comma-separated list" >&2; exit 1; }
       shift 2
       ;;
     --prompt=*) extra_prompt="${1#--prompt=}"; shift ;;
@@ -504,6 +528,38 @@ requested_model="$(dvb_resolve_model_alias "${_cli_model:-${DVB_MODEL:-${_fp_mod
 requested_backend="${_cli_backend:-${DVB_BACKEND:-${_fp_backend:-devin}}}"
 model="$requested_model"
 backend="$requested_backend"
+
+# ── Backend rotation list ────────────────────────────────────────────
+# Mid-flight backend switching: when --rotate-backends a,b,c is set, taskgrind
+# scans each session's output for rate-limit / quota patterns. On match, the
+# next session is launched with the next backend in the list (cycling).
+# Without this flag, the run stays on a single backend regardless of failures.
+# Source priority: --rotate-backends CLI flag → DVB_ROTATE_BACKENDS env var
+# (which mirrors TG_ROTATE_BACKENDS via the prefix-resolution loop above).
+_rotation_backends=()
+_current_rotation_index=0
+_rotation_raw="${_cli_rotate_backends:-${DVB_ROTATE_BACKENDS:-}}"
+if [[ -n "$_rotation_raw" ]]; then
+  IFS=',' read -ra _rotation_backends <<< "$_rotation_raw"
+  # Trim whitespace from each entry — users naturally type "devin, claude-code".
+  for ((_i = 0; _i < ${#_rotation_backends[@]}; _i++)); do
+    _rotation_backends[_i]="${_rotation_backends[_i]// /}"
+  done
+  unset _i
+  # If the configured starting backend is in the rotation list, start at its
+  # index so the first failure correctly advances to the NEXT backend rather
+  # than circling back to itself. Otherwise start at index 0 — the first
+  # rotation will pick _rotation_backends[1].
+  for ((_i = 0; _i < ${#_rotation_backends[@]}; _i++)); do
+    if [[ "${_rotation_backends[_i]}" == "$backend" ]]; then
+      _current_rotation_index=$_i
+      break
+    fi
+  done
+  unset _i
+fi
+unset _rotation_raw
+
 _cli_prompt="$extra_prompt"
 cooldown="${DVB_COOL:-5}"
 max_hours=24
@@ -1070,6 +1126,59 @@ resolve_backend_binary() {
     claude-code) _backend_binary=$(command -v claude 2>/dev/null || echo "") ;;
     codex) _backend_binary=$(command -v codex 2>/dev/null || echo "") ;;
   esac
+}
+
+# ── Mid-flight backend rotation ──────────────────────────────────────
+# When --rotate-backends is set, scan the just-completed session's output for
+# rate-limit / quota / throttle patterns. If a pattern matches, advance the
+# rotation cursor to the next backend in the list and re-resolve `devin_cmd`
+# so the next session launches with a different backend. Patterns mirror
+# the bosun BackendHealthService RATE_LIMIT_PATTERNS list (kept in sync — if
+# bosun adds a pattern we want to react here too).
+#
+# Idempotent: when the rotation list is empty (no flag) this is a no-op.
+# Safe: if the next backend's binary cannot be found, reverts to the previous
+# backend and logs a warning — never leaves the run in an unrunnable state.
+# (`_rotation_backends` array + `_current_rotation_index` are initialized
+# above at the same place backend/model are resolved from CLI/env.)
+_maybe_rotate_backend() {
+  local session_output_path="$1"
+  local trigger_reason="${2:-rate_limit}"
+  if [[ ${#_rotation_backends[@]} -le 1 ]]; then
+    return 0
+  fi
+  if [[ ! -s "$session_output_path" ]]; then
+    return 0
+  fi
+  if ! grep -qiE 'rate.?limit|429|too many requests|hit your limit|limit . resets|quota.?exceed|throttl|usage limit|out of usage' "$session_output_path" 2>/dev/null; then
+    return 0
+  fi
+
+  local prev_backend="$backend"
+  local prev_index="$_current_rotation_index"
+  local next_index=$(( (_current_rotation_index + 1) % ${#_rotation_backends[@]} ))
+  local next_backend="${_rotation_backends[$next_index]}"
+
+  if [[ "$next_backend" == "$prev_backend" ]]; then
+    # Single-element rotation list (or all entries identical) — nothing to swap to.
+    return 0
+  fi
+
+  backend="$next_backend"
+  resolve_backend_binary
+  if [[ -z "$_backend_binary" || ! -x "$_backend_binary" ]]; then
+    echo "   ⚠ Backend rotation $prev_backend → $next_backend skipped: binary not executable. Staying on $prev_backend."
+    log_write "[$(date '+%H:%M')] backend_rotation_skipped from=$prev_backend to=$next_backend reason=binary_missing"
+    backend="$prev_backend"
+    _current_rotation_index="$prev_index"
+    return 1
+  fi
+
+  devin_cmd=("$_backend_binary")
+  _current_rotation_index="$next_index"
+  echo "   ⤷ Backend rotated: $prev_backend → $next_backend (reason: $trigger_reason)"
+  log_write "[$(date '+%H:%M')] backend_rotated from=$prev_backend to=$next_backend reason=$trigger_reason index=$next_index"
+  return 0
 }
 
 # ── Preflight health checks ──────────────────────────────────────────
@@ -3790,6 +3899,12 @@ while [[ $(date +%s) -lt $deadline ]]; do
   if [[ $_dvb_finalizing -eq 0 ]]; then
     log_write "[$(date '+%H:%M')] session=$session ended exit=$session_exit duration=${session_elapsed}s tasks_after=$tasks_after shipped=$session_shipped"
   fi
+
+  # Mid-flight backend rotation: if --rotate-backends is set and the just-finished
+  # session output contains rate-limit / quota / throttle patterns, advance to the
+  # next backend in the rotation list before the next session launches. No-op
+  # otherwise. Must run BEFORE we truncate $session_output below.
+  _maybe_rotate_backend "$session_output" "rate_limit"
 
   # Truncate session output to prevent unbounded growth across sessions
   : > "$session_output" 2>/dev/null || true
