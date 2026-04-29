@@ -140,8 +140,13 @@ Extra focus prompt for every session.
 Seconds between sessions (default: 5).
 .TP
 .B TG_MAX_SESSION
-Max seconds per session before timeout (default: 3600). When a session ships
-work but hits this timeout, taskgrind logs a
+Max seconds per session before timeout (default: 5400, was 3600 before
+2026-04-29). The bump reflects bosun PR #1548 enforcing "code commits via
+pipelines only" \(em sessions are now an orchestrator role (launch +
+monitor + merge) and pipelines take 20\(en45 min each, so 90 min lets the
+agent batch 2\(en3 pipeline cycles per session vs ~1 in the old direct-
+edit model. When a session ships work but hits this timeout, taskgrind
+logs a
 .BR productive_timeout
 marker and adds 1800 seconds (30 minutes) to the next session's budget, up to
 a hard cap of 7200 seconds (2 hours). Operators who need a strict time budget

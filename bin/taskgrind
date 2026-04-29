@@ -64,7 +64,12 @@
 #        TG_LOG         — override log file path
 #        TG_STATUS_FILE — write machine-readable runtime status JSON to this path
 #        TG_NOTIFY      — desktop notification on completion (default: 1, set 0 to disable)
-#        TG_MAX_SESSION — max seconds per session before timeout (default: 3600)
+#        TG_MAX_SESSION — max seconds per session before timeout (default: 5400, was
+#                        3600 before 2026-04-29). Bumped after pre-commit hook AIFN-720
+#                        enforced "code commits via pipelines only" — sessions are now
+#                        an orchestrator role (launch + monitor + merge), and pipelines
+#                        take 20-45 min each. 90 min lets the agent batch 2-3 pipeline
+#                        cycles per session vs ~1 in the old direct-edit model.
 #        TG_SWEEP_MAX   — max seconds for a backlog-discovery sweep session,
 #                         independent of max_session (default: 1800)
 #        TG_MAX_FAST    — max consecutive fast failures before bail out (default: 20)
@@ -539,6 +544,29 @@ backend="$requested_backend"
 _rotation_backends=()
 _current_rotation_index=0
 _rotation_raw="${_cli_rotate_backends:-${DVB_ROTATE_BACKENDS:-}}"
+
+# When --rotate-backends is NOT set, auto-detect which backend binaries are
+# present on PATH and build the rotation list from whatever's installed.
+# This makes auto-rotation the OUT-OF-BOX behaviour: a user who installs
+# devin + claude + codex automatically gets graceful failover when one of
+# them is rate-limited or unavailable, with no flag required.
+#
+# Empty list → single-backend mode (no rotation, equivalent to the old
+# behaviour). 1-element list also no-ops (rotation needs ≥2 candidates).
+# Skipped in test mode (DVB_GRIND_CMD set) so the bats suite stays
+# independent of the real binaries on the runner's PATH.
+if [[ -z "$_rotation_raw" && -z "${DVB_GRIND_CMD:-}" ]]; then
+  _autodetected=()
+  [[ -x "$DVB_DEVIN_PATH" ]] && _autodetected+=("devin")
+  command -v claude >/dev/null 2>&1 && _autodetected+=("claude-code")
+  command -v codex  >/dev/null 2>&1 && _autodetected+=("codex")
+  if [[ ${#_autodetected[@]} -ge 2 ]]; then
+    _rotation_raw=$(IFS=,; echo "${_autodetected[*]}")
+    echo "   ↺ Auto-detected backends: ${_rotation_raw} — enabling rotation. Override with --rotate-backends or TG_ROTATE_BACKENDS." >&2
+  fi
+  unset _autodetected
+fi
+
 if [[ -n "$_rotation_raw" ]]; then
   IFS=',' read -ra _rotation_backends <<< "$_rotation_raw"
   # Trim whitespace from each entry — users naturally type "devin, claude-code".
@@ -564,7 +592,7 @@ _cli_prompt="$extra_prompt"
 cooldown="${DVB_COOL:-5}"
 max_hours=24
 max_fast="${DVB_MAX_FAST:-20}"
-max_session="${DVB_MAX_SESSION:-3600}"
+max_session="${DVB_MAX_SESSION:-5400}"
 # Sweep sessions get their own ceiling so a runaway sweep cannot inherit
 # the productive-timeout-escalated grind cap (which can climb to 7200 s)
 # and burn an entire chunk of the budget on backlog discovery. Default
@@ -1253,6 +1281,64 @@ _preflight_check_remote_reachable() {
   fi
 }
 
+# ── Bosun-server preflight ─────────────────────────────────────────────
+# When the configured skill drives bosun pipelines (fleet-grind, pipeline-ops,
+# rescue-pipeline, …), the agent will fail every session if the bosun server
+# isn't reachable: it can launch zero pipelines, so it falls into either direct
+# commits (now blocked by the pre-commit hook AIFN-720) or zero-ship streaks.
+# Cheaper to fail fast at preflight than to burn an hour of agent compute
+# discovering bosun is dead.
+#
+# Detects "bosun-dependent" by skill name pattern. Conservative — adds known
+# skills from `skill-plugins/orchestrator/` and the user's repo workflow. New
+# bosun-dependent skills should be added here when introduced.
+_skill_needs_bosun() {
+  # Skills that REQUIRE bosun pipelines to do meaningful work. Agent inside
+  # the session calls `POST /api/v1/pipelines/...` and observes the result.
+  # Skills not in this list (next-task, audit-error-handling, refactor, …)
+  # work the agent directly on files; they don't need bosun running.
+  case "$skill" in
+    fleet-grind|full-sweep|bosun|bosun-revive|inspect-and-heal-pipelines|\
+    pipeline-ops|rescue-pipeline|run-healthy-pipelines)
+      return 0 ;;
+    *pipeline*|*bosun*)
+      return 0 ;;
+    *)
+      return 1 ;;
+  esac
+}
+
+# Probe `${BOSUN_API_BASE}/api/v1/ready` (no auth required for readiness).
+# Sets `_bosun_health_status` to one of: ready | not-ready | unreachable.
+# Sets `_bosun_health_detail` to a human-readable explanation for warnings.
+_bosun_health_status=""
+_bosun_health_detail=""
+_check_bosun_health() {
+  _bosun_health_status="unreachable"
+  _bosun_health_detail=""
+  local base="${BOSUN_API_BASE:-http://localhost:9746}"
+  base="${base%/}"
+  local body http_status
+  if ! body=$(curl -sf --max-time 5 -o - -w '\n%{http_code}' "${base}/api/v1/ready" 2>/dev/null); then
+    _bosun_health_detail="${base}/api/v1/ready not reachable (curl exit ${?:-?})"
+    return 1
+  fi
+  http_status="${body##*$'\n'}"
+  body="${body%$'\n'*}"
+  if [[ "$http_status" != "200" ]]; then
+    _bosun_health_status="not-ready"
+    _bosun_health_detail="HTTP $http_status from ${base}/api/v1/ready"
+    return 1
+  fi
+  if echo "$body" | grep -q '"ready":true'; then
+    _bosun_health_status="ready"
+    return 0
+  fi
+  _bosun_health_status="not-ready"
+  _bosun_health_detail="response did not contain 'ready:true' — body: $(echo "$body" | head -c 120)"
+  return 1
+}
+
 slot_lock_file() {
   local slot="$1"
   echo "$_dvb_tmp/taskgrind-lock-${_lock_hash}-${slot}"
@@ -1383,6 +1469,27 @@ preflight_check() {
     preflight_pass "network-watchdog available"
   else
     preflight_warn "network-watchdog not found — using curl fallback for network checks"
+  fi
+
+  # 9. Bosun server reachable — when the skill drives bosun pipelines, the
+  # agent cannot do useful work without bosun. Skip otherwise. In test mode
+  # the user's local bosun isn't typically running; use a warning rather
+  # than a fail to keep the bats suite portable.
+  if _skill_needs_bosun; then
+    dvb_spinner_start "Checking bosun server..."
+    if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+      dvb_spinner_stop; preflight_pass "Bosun server check skipped (test mode)"
+    elif _check_bosun_health; then
+      dvb_spinner_stop
+      preflight_pass "Bosun server ready (${BOSUN_API_BASE:-http://localhost:9746})"
+    else
+      dvb_spinner_stop
+      if [[ "$_bosun_health_status" == "unreachable" ]]; then
+        preflight_fail "Bosun server unreachable — skill '$skill' depends on bosun pipelines. Start with 'orchestrator start' or set BOSUN_API_BASE. Detail: ${_bosun_health_detail}"
+      else
+        preflight_warn "Bosun server not ready (${_bosun_health_status}): ${_bosun_health_detail}. Sessions may pile up if pipelines can't launch."
+      fi
+    fi
   fi
 
   # Summary

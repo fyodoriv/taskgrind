@@ -232,8 +232,11 @@ EOF
   grep -q 'preflight_failed' "$DVB_GRIND"
 }
 
-@test "preflight has all 8 checks" {
-  # Structural: verify all 8 check categories exist
+@test "preflight has all 9 checks" {
+  # Structural: verify all 9 check categories exist. Check #9 (bosun-health)
+  # was added 2026-04-29 — only fires for skills that need bosun pipelines
+  # (fleet-grind, pipeline-ops, …), but the source code path is always
+  # present so structural grep passes.
   grep -q 'Backend binary' "$DVB_GRIND"
   grep -q 'Model accepted by' "$DVB_GRIND"
   grep -q 'Network connectivity' "$DVB_GRIND"
@@ -242,6 +245,7 @@ EOF
   grep -q 'Disk space' "$DVB_GRIND"
   grep -q 'TASKS.md' "$DVB_GRIND"
   grep -q 'network-watchdog' "$DVB_GRIND"
+  grep -q 'Bosun server reachable' "$DVB_GRIND"
 }
 
 @test "preflight check passes in test mode with DVB_GRIND_CMD" {
