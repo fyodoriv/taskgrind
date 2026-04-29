@@ -27,6 +27,17 @@ including repo\-local lanes such as standing\-audit\-gap\-loop.
 .BR \-\-backend " " \fIname\fR
 AI backend: devin, claude\-code, codex (default: devin).
 .TP
+.BR \-\-rotate\-backends " " \fIlist\fR
+Comma\-separated list of backends to cycle through when the active
+backend's session output contains rate\-limit, quota, or throttle
+patterns. After each session, taskgrind scans the just\-finished output
+for those patterns; on match, the next session launches with the next
+backend in the list (cycling). Independent of
+.BR \-\-backend ,
+which sets the starting backend; the rotation list controls only the
+swap target. Same effect as setting
+.BR TG_ROTATE_BACKENDS .
+.TP
 .BR \-\-model " " \fIname\fR
 AI model to use (default: "claude\-opus\-4\-7\-max"). Overrides TG_MODEL env var. Short aliases such as
 \fBopus\fR, \fBsonnet\fR, \fBhaiku\fR, \fBgpt\fR, \fBcodex\fR, and \fBswe\fR resolve to the
@@ -109,6 +120,12 @@ TG_ is the canonical prefix. DVB_ is supported as a backward\-compatible alias.
 .TP
 .B TG_BACKEND
 AI backend (default: devin).
+.TP
+.B TG_ROTATE_BACKENDS
+Comma\-separated list of backends to cycle through when the active
+backend's session output contains rate\-limit / quota / throttle
+patterns. Same effect as
+.BR \-\-rotate\-backends .
 .TP
 .B TG_MODEL
 AI model (default: "claude\-opus\-4\-7\-max").

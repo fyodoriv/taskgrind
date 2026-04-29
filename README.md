@@ -92,6 +92,7 @@ taskgrind --model "gpt-5.4 XHigh thinking fast" 8  # quote multi-word model name
 taskgrind --skill pipeline-ops ~/apps/bosun 10  # custom installed skill
 taskgrind --prompt "focus on test coverage" 8  # focus prompt
 taskgrind --backend claude-code 8       # use Claude Code backend
+taskgrind --rotate-backends devin,claude-code,codex 8  # mid-flight rotation: when the active backend's session output contains rate-limit / quota / throttle patterns, the next session launches with the next backend in the list (cycling)
 taskgrind --target-repo ~/apps/frontend --target-repo ~/apps/backend ~/apps/control 8  # workspace mode: control repo holds TASKS.md, agent has read/write access to target repos
 taskgrind --from-prompt "8h on agentbrew with frontend backend, focus on tests, use opus"  # natural-language brief; backend translates to config, then launches
 taskgrind --dry-run 8 ~/apps/myrepo    # print config without running
@@ -205,6 +206,7 @@ Before deploying, ensure:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TG_BACKEND` | `devin` | AI backend: `devin`, `claude-code`, `codex` |
+| `TG_ROTATE_BACKENDS` | (none) | Comma-separated list of backends to cycle through when the active backend's session output contains rate-limit / quota / throttle patterns. Same effect as `--rotate-backends`. |
 | `TG_MODEL` | `claude-opus-4-7-max` | AI model (set to an OpenAI model when using `--backend codex`) |
 | `TG_SKILL` | `next-task` | Skill to run each session |
 | `TG_PROMPT` | (none) | Focus prompt for every session |
