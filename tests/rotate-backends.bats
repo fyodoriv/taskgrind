@@ -101,3 +101,47 @@ PY
   run "$DVB_GRIND" --rotate-backends devin 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
 }
+
+# ── Self-investigation hook ────────────────────────────────────────────
+
+@test "self-investigate: _maybe_self_investigate function exists" {
+  grep -q '^_maybe_self_investigate()' "$DVB_GRIND"
+}
+
+@test "self-investigate: zero_ship_streak threshold env var" {
+  grep -q 'TG_SELF_INVESTIGATE_ZERO_SHIP_STREAK' "$DVB_GRIND"
+  grep -q 'DVB_SELF_INVESTIGATE_ZERO_SHIP_STREAK' "$DVB_GRIND"
+}
+
+@test "self-investigate: hook runs after _maybe_rotate_backend in session loop" {
+  python3 - "$DVB_GRIND" <<'PY'
+import sys, pathlib
+text = pathlib.Path(sys.argv[1]).read_text()
+i_rotate = text.find('_maybe_rotate_backend "$session_output" "rate_limit"')
+i_invest = text.find('_maybe_self_investigate')
+assert i_rotate != -1, "_maybe_rotate_backend call missing"
+assert i_invest != -1, "_maybe_self_investigate call missing"
+# self-investigate may appear in the function definition AND in the call site;
+# the call site must come AFTER the rotate call in the session loop.
+i_invest_call = text.find('_maybe_self_investigate', i_rotate)
+assert i_invest_call != -1, "_maybe_self_investigate call after rotate missing"
+PY
+}
+
+@test "self-investigate: rotate-backends fires on zero_ship_streak (structural trigger)" {
+  # When trigger_reason is not 'rate_limit', the rate-limit pattern check is skipped
+  # — the rotation fires on accumulated state alone.
+  grep -q 'zero_ship_streak' "$DVB_GRIND"
+  python3 - "$DVB_GRIND" <<'PY'
+import sys, pathlib
+text = pathlib.Path(sys.argv[1]).read_text()
+# The conditional guard inside _maybe_rotate_backend must skip pattern check
+# when reason is not 'rate_limit'.
+assert 'if [[ "$trigger_reason" == "rate_limit" ]]' in text, \
+  "structural-trigger guard missing — pattern check would block zero_ship_streak rotation"
+PY
+}
+
+@test "self-investigate: emits self_investigate log line for external observers" {
+  grep -q 'self_investigate anomaly=' "$DVB_GRIND"
+}

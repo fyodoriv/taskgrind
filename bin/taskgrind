@@ -1147,11 +1147,16 @@ _maybe_rotate_backend() {
   if [[ ${#_rotation_backends[@]} -le 1 ]]; then
     return 0
   fi
-  if [[ ! -s "$session_output_path" ]]; then
-    return 0
-  fi
-  if ! grep -qiE 'rate.?limit|429|too many requests|hit your limit|limit . resets|quota.?exceed|throttl|usage limit|out of usage' "$session_output_path" 2>/dev/null; then
-    return 0
+  # Pattern-based triggers (rate_limit) require an output file to scan.
+  # Structural triggers (zero_ship_streak, …) skip the pattern check —
+  # they fire on accumulated state, not on session-output content.
+  if [[ "$trigger_reason" == "rate_limit" ]]; then
+    if [[ ! -s "$session_output_path" ]]; then
+      return 0
+    fi
+    if ! grep -qiE 'rate.?limit|429|too many requests|hit your limit|limit . resets|quota.?exceed|throttl|usage limit|out of usage' "$session_output_path" 2>/dev/null; then
+      return 0
+    fi
   fi
 
   local prev_backend="$backend"
@@ -1179,6 +1184,35 @@ _maybe_rotate_backend() {
   echo "   ⤷ Backend rotated: $prev_backend → $next_backend (reason: $trigger_reason)"
   log_write "[$(date '+%H:%M')] backend_rotated from=$prev_backend to=$next_backend reason=$trigger_reason index=$next_index"
   return 0
+}
+
+# ── Self-investigation hook ──────────────────────────────────────────
+# After each session, look for "things are off" patterns that warrant action
+# beyond the rate-limit detector. The user's framing: bosun+taskgrind should
+# investigate their own issues mid-run and fix on the way. Patterns we surface
+# so far:
+#
+#   1. consecutive_zero_ship >= TG_SELF_INVESTIGATE_ZERO_SHIP_STREAK (default 3)
+#      — the active backend is producing output but not shipping. May not
+#      contain a rate-limit phrase, but it is structurally stuck. If a
+#      rotation list is configured, rotate. Otherwise just log.
+#   2. session_exit non-zero AND the last 3 sessions also had non-zero exits
+#      — backend is crashing systematically. Same response: rotate if possible.
+#
+# Logs every detection (whether or not it acts) so an external observer
+# (bosun grind dashboard, post-mortem scripts) can see what was tried.
+_maybe_self_investigate() {
+  local _zero_ship_streak_threshold="${TG_SELF_INVESTIGATE_ZERO_SHIP_STREAK:-${DVB_SELF_INVESTIGATE_ZERO_SHIP_STREAK:-3}}"
+
+  if [[ "$consecutive_zero_ship" -ge "$_zero_ship_streak_threshold" ]]; then
+    log_write "[$(date '+%H:%M')] self_investigate anomaly=zero_ship_streak streak=$consecutive_zero_ship threshold=$_zero_ship_streak_threshold backend=$backend"
+    if [[ ${#_rotation_backends[@]} -gt 1 ]]; then
+      echo "   ↺ Self-investigation: $consecutive_zero_ship sessions shipped 0 — trying backend rotation."
+      _maybe_rotate_backend "" "zero_ship_streak"
+    else
+      echo "   ⚠ Self-investigation: $consecutive_zero_ship sessions shipped 0 — no rotation list configured (set --rotate-backends)."
+    fi
+  fi
 }
 
 # ── Preflight health checks ──────────────────────────────────────────
@@ -3905,6 +3939,12 @@ while [[ $(date +%s) -lt $deadline ]]; do
   # next backend in the rotation list before the next session launches. No-op
   # otherwise. Must run BEFORE we truncate $session_output below.
   _maybe_rotate_backend "$session_output" "rate_limit"
+
+  # Self-investigation: detect "things are off" patterns that don't show up
+  # in the session output (zero-ship streaks, persistent crashes) and act —
+  # typically by rotating to the next backend if a rotation list is set.
+  # Logs every detection for external observability.
+  _maybe_self_investigate
 
   # Truncate session output to prevent unbounded growth across sessions
   : > "$session_output" 2>/dev/null || true
