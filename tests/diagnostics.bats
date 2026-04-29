@@ -563,8 +563,11 @@ SCRIPT
   ! grep -q -- ' -- Run the' "$DVB_GRIND_INVOKE_LOG"
 }
 
-@test "DVB_MAX_SESSION defaults to 3600" {
-  grep -q 'DVB_MAX_SESSION:-3600' "$DVB_GRIND"
+@test "DVB_MAX_SESSION defaults to 5400 (90 min, post 2026-04-29 pipelines-era)" {
+  # Bumped from 3600 → 5400 after bosun PR #1548 enforced "code commits via
+  # pipelines only" — sessions are now an orchestrator role and pipelines
+  # take 20-45 min each, so 90 min lets the agent batch 2-3 cycles.
+  grep -q 'DVB_MAX_SESSION:-5400' "$DVB_GRIND"
 }
 
 @test "timeout watchdog uses kill-0 polling to detect session exit" {

@@ -206,12 +206,12 @@ Before deploying, ensure:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TG_BACKEND` | `devin` | AI backend: `devin`, `claude-code`, `codex` |
-| `TG_ROTATE_BACKENDS` | (none) | Comma-separated list of backends to cycle through when the active backend's session output contains rate-limit / quota / throttle patterns. Same effect as `--rotate-backends`. |
+| `TG_ROTATE_BACKENDS` | (auto-detected) | Comma-separated list of backends to cycle through when the active backend hits rate-limit / quota / throttle / zero-ship-streak patterns. **Default since 2026-04-29: auto-detected from PATH** — if 2+ of `devin` / `claude` / `codex` are installed, taskgrind enables rotation automatically. Set explicitly to override. Set empty to disable. Same effect as `--rotate-backends`. |
 | `TG_MODEL` | `claude-opus-4-7-max` | AI model (set to an OpenAI model when using `--backend codex`) |
 | `TG_SKILL` | `next-task` | Skill to run each session |
 | `TG_PROMPT` | (none) | Focus prompt for every session |
 | `TG_COOL` | `5` | Seconds between sessions |
-| `TG_MAX_SESSION` | `3600` | Max seconds per session. Auto-increases by 1800 s (cap 7200 s) after a session that shipped but hit the timeout; see the "Productive timeout auto-increase" feature. |
+| `TG_MAX_SESSION` | `5400` | Max seconds per session (90 min, was 3600 before 2026-04-29). Bumped after bosun PR #1548 enforced "code commits via pipelines only" — sessions are now an orchestrator role (launch + monitor + merge) and pipelines take 20-45 min each, so 90 min lets the agent batch 2-3 pipeline cycles per session. Auto-increases by 1800 s (cap 7200 s) after a session that shipped but hit the timeout; see the "Productive timeout auto-increase" feature. |
 | `TG_SWEEP_MAX` | `1800` | Max seconds for a backlog-discovery sweep session. Independent of `TG_MAX_SESSION` so the productive-timeout escalation cannot lengthen sweeps. Each completed sweep emits `sweep_efficiency tasks=N elapsed=Ns tasks_per_min=N.NN` for trend analysis. |
 | `TG_MIN_SESSION` | `30` | Fast-failure threshold in seconds |
 | `TG_MAX_FAST` | `20` | Max consecutive fast failures before bail |
