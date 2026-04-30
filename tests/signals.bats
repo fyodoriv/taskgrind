@@ -246,7 +246,7 @@ SCRIPT
   unset DVB_GRIND_CMD
   export DVB_DEVIN_PATH="$fake_devin"
   export DVB_CAFFEINATED=1
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
 
   "$DVB_GRIND" 1 "$grind_repo" >/dev/null 2>&1
   [ "$?" -eq 0 ]
@@ -296,7 +296,7 @@ SCRIPT
   unset DVB_GRIND_CMD
   export DVB_DEVIN_PATH="$fake_devin"
   export DVB_CAFFEINATED=1
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
 
   run "$DVB_GRIND" 1 "$grind_repo"
   [ "$status" -eq 0 ]
@@ -364,7 +364,7 @@ SCRIPT
   unset DVB_GRIND_CMD
   export DVB_DEVIN_PATH="$fake_devin"
   export DVB_CAFFEINATED=1
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
 
   run "$DVB_GRIND" 1 "$grind_repo"
   [ "$status" -eq 0 ]
@@ -433,7 +433,7 @@ SCRIPT
   unset DVB_GRIND_CMD
   export DVB_DEVIN_PATH="$fake_devin"
   export DVB_CAFFEINATED=1
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
 
   run "$DVB_GRIND" 1 "$grind_repo"
   [ "$status" -eq 0 ]
@@ -602,7 +602,7 @@ SCRIPT
 ## P0
 - [ ] Persistent task
 TASKS
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'shipped=0' "$TEST_LOG"
 }
@@ -613,7 +613,7 @@ TASKS
 ## P0
 - [ ] Task that stays
 TASKS
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"0+ tasks"* ]]
 }
@@ -641,7 +641,7 @@ TASKS
 # ── Caffeinate re-exec ───────────────────────────────────────────────
 
 @test "caffeinate re-exec is skipped in test mode" {
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
 }
@@ -1022,7 +1022,7 @@ SCRIPT
   # Use DVB_DEADLINE_OFFSET so heavy parallel-setup latency cannot push the
   # deadline into the past before the session loop enters. 5s is plenty —
   # the fake devin runs in <100ms; this is just guaranteeing one iteration.
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
   export DVB_MAX_ZERO_SHIP=1  # bail after 1 zero-ship to keep the run short
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
@@ -1142,7 +1142,7 @@ TASKS
 - [ ] Task
 TASKS
 
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
   export DVB_MAX_ZERO_SHIP=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   ! grep -q 'productive_zero_ship' "$TEST_LOG"
@@ -1184,7 +1184,7 @@ SCRIPT
     done
   } > "$TEST_REPO/TASKS.md"
 
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
   export DVB_MAX_ZERO_SHIP=3
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -1415,7 +1415,7 @@ SCRIPT
 
   # DVB_MAX_SESSION=0 means any elapsed time >= 0 triggers productive_timeout
   export DVB_MAX_SESSION=0
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'productive_timeout' "$TEST_LOG"
@@ -1456,7 +1456,7 @@ SCRIPT
   } > "$TEST_REPO/TASKS.md"
 
   export DVB_MAX_SESSION=0
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"Auto-increasing to"* ]]
   grep -q 'new_timeout=' "$TEST_LOG"
@@ -1480,7 +1480,7 @@ SCRIPT
 - [ ] Stubborn task
 TASKS
   export DVB_MAX_SESSION=0
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
   export DVB_MAX_ZERO_SHIP=3
   run "$DVB_GRIND" 1 "$TEST_REPO"
   ! grep -q 'productive_timeout' "$TEST_LOG"

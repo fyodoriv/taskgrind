@@ -1289,7 +1289,7 @@ _maybe_self_investigate() {
     log_write "[$(date '+%H:%M')] self_investigate anomaly=zero_ship_streak streak=$consecutive_zero_ship threshold=$_zero_ship_streak_threshold backend=$backend"
     if [[ ${#_rotation_backends[@]} -gt 1 ]]; then
       echo "   ↺ Self-investigation: $consecutive_zero_ship sessions shipped 0 — trying backend rotation."
-      _maybe_rotate_backend "" "zero_ship_streak"
+      _maybe_rotate_backend "" "zero_ship_streak" || true
     else
       echo "   ⚠ Self-investigation: $consecutive_zero_ship sessions shipped 0 — no rotation list available (install another backend or set TG_ROTATE_BACKENDS)."
     fi
@@ -4286,7 +4286,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
   # rate-limit / quota / throttle patterns, advance to the next backend in the
   # rotation list before the next session launches. No-op otherwise. Must run
   # BEFORE we truncate $session_output below.
-  _maybe_rotate_backend "$session_output" "rate_limit"
+  _maybe_rotate_backend "$session_output" "rate_limit" || true
 
   # Self-investigation: detect "things are off" patterns that don't show up
   # in the session output (zero-ship streaks, persistent crashes) and act —

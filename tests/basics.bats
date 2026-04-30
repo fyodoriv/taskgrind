@@ -551,7 +551,7 @@ EOF
   [ "$status" -eq 0 ]
 
   # Step 3: reproduce the CI cap.
-  run grep -nF 'TEST_JOBS=4' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
+  run grep -nF 'TEST_JOBS=2' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
   [ "$status" -eq 0 ]
 
   # The legacy "Flaky tests" Known Issues bullet must not reappear — it would
@@ -663,16 +663,22 @@ PY
 
   run grep -nF 'npm install -g @tasks-md/lint' "$workflow"
   [ "$status" -eq 0 ]
+
+  run grep -nF 'sudo apt-get install -y -qq npm parallel shellcheck' "$workflow"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'brew install bats-core parallel shellcheck' "$workflow"
+  [ "$status" -eq 0 ]
 }
 
 @test "bats parallelism defaults to the CI-safe cap" {
   local workflow="$BATS_TEST_DIRNAME/../.github/workflows/check.yml"
   local makefile="$BATS_TEST_DIRNAME/../Makefile"
 
-  run grep -nF "TEST_JOBS: '4'" "$workflow"
+  run grep -nF "TEST_JOBS: '2'" "$workflow"
   [ "$status" -eq 0 ]
 
-  run grep -nF 'if [ "$$jobs" -gt 4 ]; then jobs=4; fi' "$makefile"
+  run grep -nF 'if [ "$$jobs" -gt 2 ]; then jobs=2; fi' "$makefile"
   [ "$status" -eq 0 ]
 }
 

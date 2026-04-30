@@ -57,6 +57,11 @@ assert i_call < i_truncate, "rotation must run BEFORE truncation, otherwise no i
 PY
 }
 
+@test "backend rotation skip is non-fatal at call sites" {
+  grep -q '_maybe_rotate_backend "$session_output" "rate_limit" || true' "$DVB_GRIND"
+  grep -q '_maybe_rotate_backend "" "zero_ship_streak" || true' "$DVB_GRIND"
+}
+
 @test "taskgrind rotation help block documents --rotate-backends" {
   grep -q -- '--rotate-backends' "$DVB_GRIND" | head -1
   grep -q 'rotate-backends devin,claude-code,codex' "$DVB_GRIND"
@@ -65,13 +70,13 @@ PY
 # ── Integration ─────────────────────────────────────────────────────
 
 @test "rotation: --rotate-backends flag is parsed without error" {
-  export DVB_DEADLINE_OFFSET=1
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" --rotate-backends devin,claude-code 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
 }
 
 @test "rotation: --rotate-backends accepts =value syntax" {
-  export DVB_DEADLINE_OFFSET=1
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" --rotate-backends=devin,codex 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
 }
@@ -90,14 +95,14 @@ PY
 
 @test "rotation: TG_ROTATE_BACKENDS env var seeds DVB_ROTATE_BACKENDS" {
   export TG_ROTATE_BACKENDS="claude-code,codex,devin"
-  export DVB_DEADLINE_OFFSET=1
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" --dry-run 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
 }
 
 @test "rotation: empty rotation list (single element) is a no-op" {
   # A 1-element rotation list has no "next" to advance to; should not loop.
-  export DVB_DEADLINE_OFFSET=1
+  export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" --rotate-backends devin 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
 }

@@ -60,19 +60,19 @@ jobs:
         if: runner.os == 'Linux' && steps.test-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq npm parallel
+          sudo apt-get install -y -qq npm parallel shellcheck
           sudo npm install -g bats @tasks-md/lint
 
       - name: Install bats (macOS)
         if: runner.os == 'macOS' && steps.test-cache.outputs.cache-hit != 'true'
         run: |
-          brew install bats-core parallel
+          brew install bats-core parallel shellcheck
           npm install -g @tasks-md/lint
 
       - name: Run tests
         if: steps.test-cache.outputs.cache-hit != 'true'
         env:
-          TEST_JOBS: '4'
+          TEST_JOBS: '2'
         run: |
           make test
 

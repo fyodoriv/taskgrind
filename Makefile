@@ -3,10 +3,10 @@
 PREFIX ?= /usr/local
 TESTS ?= tests/*.bats
 TASKS_MD ?= TASKS.md
-# Default parallelism: cap at 4 to match GitHub Actions and keep deadline-heavy
+# Default parallelism: cap at 2 to match GitHub Actions and keep deadline-heavy
 # bats tests inside the stable envelope on slower shared runners and busy local
-# machines. Use TEST_JOBS=8 explicitly when stress-testing parallel flakes.
-AUTO_TEST_JOBS = $(shell jobs=$$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4); expr "$$jobs" + 0 >/dev/null 2>&1 || jobs=4; if [ "$$jobs" -gt 4 ]; then jobs=4; fi; if [ "$$jobs" -lt 2 ]; then jobs=2; fi; echo "$$jobs")
+# machines. Use TEST_JOBS=4 or TEST_JOBS=8 explicitly when stress-testing parallel flakes.
+AUTO_TEST_JOBS = $(shell jobs=$$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4); expr "$$jobs" + 0 >/dev/null 2>&1 || jobs=4; if [ "$$jobs" -gt 2 ]; then jobs=2; fi; if [ "$$jobs" -lt 2 ]; then jobs=2; fi; echo "$$jobs")
 TEST_JOBS ?= $(AUTO_TEST_JOBS)
 TEST_CACHE_BASENAME = .test-cache
 
