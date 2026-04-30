@@ -9,7 +9,7 @@ Only the latest version on `main` is supported.
 If you discover a security vulnerability, please report it responsibly:
 
 1. **Do not** open a public GitHub issue
-2. Email the maintainer or open a [private security advisory](https://github.com/cbrwizard/taskgrind/security/advisories/new) on GitHub
+2. Email the maintainer or open a [private security advisory](https://github.com/fyodoriv/taskgrind/security/advisories/new) on GitHub
 
 We will acknowledge your report within 48 hours and provide a fix timeline.
 

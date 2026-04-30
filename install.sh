@@ -1,10 +1,10 @@
 #!/bin/sh
 # Install taskgrind — autonomous multi-session grind tool
-# Usage: curl -fsSL https://raw.githubusercontent.com/cbrwizard/taskgrind/main/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/fyodoriv/taskgrind/main/install.sh | sh
 set -e
 
 INSTALL_DIR="${TASKGRIND_INSTALL_DIR:-$HOME/apps/taskgrind}"
-REPO="https://github.com/cbrwizard/taskgrind.git"
+REPO="https://github.com/fyodoriv/taskgrind.git"
 
 # Check for git
 if ! command -v git >/dev/null 2>&1; then

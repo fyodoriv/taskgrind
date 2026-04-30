@@ -43,6 +43,11 @@ taskgrind_test_setup() {
 - [ ] Default test task
 TASKS
   export HOME="$TEST_HOME"
+  export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=main
+  export GIT_AUTHOR_NAME="Taskgrind Tests"
+  export GIT_AUTHOR_EMAIL="taskgrind-tests@example.invalid"
+  export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+  export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
   export TASKGRIND_DIR="$TEST_DOTFILES"
   export DVB_LOG="$TEST_LOG"
   export DVB_COOL=0

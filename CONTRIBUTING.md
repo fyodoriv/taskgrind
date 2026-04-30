@@ -3,7 +3,7 @@
 ## Quick Start
 
 ```bash
-git clone https://github.com/cbrwizard/taskgrind.git
+git clone https://github.com/fyodoriv/taskgrind.git
 cd taskgrind
 make check   # runs shellcheck + bats test suite
 make audit   # runs the local repo audit workflow
@@ -12,7 +12,7 @@ make test TESTS=tests/bash-compat.bats  # targeted rerun with its own cache key
 make install # symlink to /usr/local/bin + install man page
 ```
 
-Requires [bats-core](https://github.com/bats-core/bats-core) and [shellcheck](https://www.shellcheck.net/):
+Requires [bats-core](https://github.com/bats-core/bats-core) and [shellcheck](https://www.shellcheck.net/). `make audit` also uses [`@tasks-md/lint`](https://www.npmjs.com/package/@tasks-md/lint), either from `PATH` or through the `npx --yes` fallback:
 
 ```bash
 # macOS
@@ -21,7 +21,7 @@ brew install bats-core shellcheck
 # Ubuntu / Debian
 sudo apt-get update
 sudo apt-get install -y npm shellcheck
-sudo npm install -g bats
+sudo npm install -g bats @tasks-md/lint
 
 # Fedora / RHEL
 sudo dnf install -y bats ShellCheck

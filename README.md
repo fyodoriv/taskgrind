@@ -1,23 +1,21 @@
 # taskgrind
 
-[![check](https://github.com/cbrwizard/taskgrind/actions/workflows/check.yml/badge.svg)](https://github.com/cbrwizard/taskgrind/actions/workflows/check.yml)
+[![check](https://github.com/fyodoriv/taskgrind/actions/workflows/check.yml/badge.svg)](https://github.com/fyodoriv/taskgrind/actions/workflows/check.yml)
 
 ## TL;DR
 
-Taskgrind runs repeated AI coding sessions against any repo that keeps its queue
-in `TASKS.md`, stopping when the deadline, queue state, or stall guard says the
-run is done. Use `taskgrind --preflight` to verify the backend and repo before a
-long run, then steer later sessions with repo-local prompt or model overrides
-instead of restarting the whole grind.
+Taskgrind is an autonomous multi-backend coding marathon for repos that keep
+their queue in `TASKS.md`. It repeatedly launches fresh Devin, Claude Code, or
+Codex sessions until the deadline, queue state, or stall guard stops the run.
+
+Use `taskgrind --preflight` to verify the backend and repo before a long run,
+then steer later sessions with repo-local prompt or model overrides instead of
+restarting the whole grind.
 
 Sessions should exit before context fills; context exhaustion can crash the
 process and lose uncommitted work.
 
-Autonomous multi-session grind — runs sequential AI coding sessions until a deadline. Each session starts with full context. State lives in [`TASKS.md`](https://github.com/tasksmd/tasks.md) + git, so sessions pick up seamlessly. Sessions still need to exit before the model context fills up; a context-exhausted crash can drop any uncommitted work from that session.
-
 Taskgrind ships built-in backends for Devin, Claude Code, and Codex, and it works with any repo that uses the [tasks.md spec](https://tasks.md) for task management.
-
-For local tests and repo audit helpers, keep `DVB_GRIND_CMD` to a single executable path. If you need a compound shell command, wrap it in a helper script first so preflight and session launch can validate it correctly.
 
 ## Prerequisites
 
@@ -58,20 +56,20 @@ taskgrind --preflight --backend codex --model o3 ~/apps/myrepo
 ### Homebrew (macOS / Linux)
 
 ```bash
-brew install cbrwizard/tap/taskgrind
+brew install fyodoriv/tap/taskgrind
 ```
 
 ### Manual
 
 ```bash
 # One-liner
-curl -fsSL https://raw.githubusercontent.com/cbrwizard/taskgrind/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/fyodoriv/taskgrind/main/install.sh | sh
 
 # Or clone manually
-git clone https://github.com/cbrwizard/taskgrind.git ~/apps/taskgrind
+git clone https://github.com/fyodoriv/taskgrind.git ~/apps/taskgrind
 
 # Custom install directory
-TASKGRIND_INSTALL_DIR=~/tools/taskgrind sh -c "$(curl -fsSL https://raw.githubusercontent.com/cbrwizard/taskgrind/main/install.sh)"
+TASKGRIND_INSTALL_DIR=~/tools/taskgrind sh -c "$(curl -fsSL https://raw.githubusercontent.com/fyodoriv/taskgrind/main/install.sh)"
 
 # Add to PATH (add to your shell rc)
 export PATH="$HOME/apps/taskgrind/bin:$PATH"
@@ -627,6 +625,8 @@ and [`@tasks-md/lint`](https://www.npmjs.com/package/@tasks-md/lint) for `make
 audit` (install with `npm install -g @tasks-md/lint`, or rely on the `npx
 --yes @tasks-md/lint` fallback the audit target falls through to).
 
+For local tests and repo audit helpers, keep `DVB_GRIND_CMD` to a single executable path. If you need a compound shell command, wrap it in a helper script first so preflight and session launch can validate it correctly.
+
 Taskgrind runtime files must stay compatible with `/bin/bash` 3.2, and
 `tests/verify-bash32-compat.sh` is the guard that enforces that contract during
 the bats suite.
@@ -638,7 +638,7 @@ brew install bats-core shellcheck
 # Ubuntu / Debian
 sudo apt-get update
 sudo apt-get install -y npm shellcheck
-sudo npm install -g bats
+sudo npm install -g bats @tasks-md/lint
 
 # Fedora / RHEL
 sudo dnf install -y bats ShellCheck
@@ -649,7 +649,7 @@ On Linux, the supported `bats` install path is the npm flow above so local
 
 ## History
 
-Extracted from [dotfiles](https://github.com/cbrwizard/dotfiles) where it lived as `dvb-grind`. The `dvb-grind` name still works as a shell alias in dotfiles for backward compatibility.
+Extracted from [dotfiles](https://github.com/fyodoriv/dotfiles) where it lived as `dvb-grind`. The `dvb-grind` name still works as a shell alias in dotfiles for backward compatibility.
 
 ## Docs
 

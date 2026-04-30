@@ -50,16 +50,24 @@ jobs:
           path: .test-cache-*
           key: tests-${{ runner.os }}-${{ hashFiles('Makefile', 'bin/taskgrind', 'lib/*.sh', 'tests/*.bats', 'tests/test_helper.bash', 'tests/verify-bash32-compat.sh', 'install.sh') }}
 
+      - name: Set up Node for tasks-lint
+        if: steps.test-cache.outputs.cache-hit != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install bats (Linux)
         if: runner.os == 'Linux' && steps.test-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq npm parallel
-          sudo npm install -g bats
+          sudo npm install -g bats @tasks-md/lint
 
       - name: Install bats (macOS)
         if: runner.os == 'macOS' && steps.test-cache.outputs.cache-hit != 'true'
-        run: brew install bats-core parallel
+        run: |
+          brew install bats-core parallel
+          npm install -g @tasks-md/lint
 
       - name: Run tests
         if: steps.test-cache.outputs.cache-hit != 'true'

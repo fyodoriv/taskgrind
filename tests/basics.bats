@@ -652,6 +652,19 @@ PY
   [ "$status" -eq 0 ]
 }
 
+@test "GitHub Actions test job installs tasks-lint before bats runs" {
+  local workflow="$BATS_TEST_DIRNAME/../.github/workflows/check.yml"
+
+  run grep -nF 'Set up Node for tasks-lint' "$workflow"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'sudo npm install -g bats @tasks-md/lint' "$workflow"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'npm install -g @tasks-md/lint' "$workflow"
+  [ "$status" -eq 0 ]
+}
+
 @test ".gitignore covers local runtime state and split test cache artifacts" {
   run grep -nF '.taskgrind-state' "$BATS_TEST_DIRNAME/../.gitignore"
   [ "$status" -eq 0 ]

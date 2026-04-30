@@ -3,6 +3,16 @@
 <!-- policy: keep runtime files /bin/bash 3.2 compatible (guarded by tests/bash-compat.bats) -->
 <!-- policy: run `make check` before claiming a task complete; remove the task block in the same commit that ships the fix -->
 
+## P0
+
+- [ ] Make Claude Code a first-class runtime backend with Devin parity
+  - **ID**: claude-code-first-class-backend-parity
+  - **Tags**: backend, claude-code, parity, runtime, cli, tests
+  - **Source**: 2026-04-30 operator request: Taskgrind should run with Claude Code, not just Devin, and it should behave exactly the same: same session lifecycle, same error handling, same backend switching, same recovery semantics.
+  - **Details**: Treat this as parity-hardening, not a docs-only task. Audit every Devin-only path and make `--backend claude-code`, `TG_BACKEND=claude-code`, backend auto-detection, `TG_ROTATE_BACKENDS`, `--rotate-backends`, and self-investigation rotation run through the same lifecycle as Devin. Claude Code must share the same preflight gates, startup sanity probe behavior, model override handling, prompt construction, timeout watchdog, fast-failure accounting, log/status fields, git sync/final-sync behavior, resume compatibility checks, and operator-facing diagnostics. Backend-specific invocation flags are fine, but they must be isolated behind the backend abstraction so the rest of the marathon loop does not special-case Devin.
+  - **Files**: `bin/taskgrind`, `lib/constants.sh`, `tests/features.bats`, `tests/preflight.bats`, `tests/session.bats`, `tests/diagnostics.bats`, `tests/test_helper.bash`, `README.md`, `man/taskgrind.1`, `docs/user-stories.md`
+  - **Acceptance**: `taskgrind --dry-run --backend claude-code <repo>` and `TG_BACKEND=claude-code taskgrind --dry-run <repo>` show the same config surface as Devin except for backend name and backend-specific flags; a stubbed Claude Code backend can run at least one full session through the normal marathon loop and produces the same `session_start`, `session_end`, fast-failure, timeout, status-file, and final-sync behavior already tested for Devin; preflight failures for missing/non-executable Claude Code, rejected models, silent stubs, and startup probe failures use the same actionable error style as Devin; rotation between `devin,claude-code` works in both directions without losing counters, prompt overlays, task state, or git-sync/final-sync behavior; resume rejects incompatible backend changes and accepts matching Claude Code resumes; all backend-specific behavior is covered by regression tests rather than only structural greps; docs show Claude Code as a fully supported backend, not experimental; `make check` passes locally and the GitHub Actions `check` workflow is green after the change lands
+
 ## P1
 
 - [ ] Get the GitHub Actions test job green again on `main` so CI signals what local `make check` does
@@ -503,6 +513,14 @@
     - On the `bosun-2026-04-26-2139` re-creation, the new line reads `shipped=29 net_delta=-79 ship_rate=2.8/h tasks_added=102 tasks_starting=44 tasks_after=123` — interpretable at a glance as "29 shipped, but queue grew because 102 concurrent additions"
 
 ## P3
+
+- [ ] Prevent accidental semver-named root artifacts from polluting repo status
+  - **ID**: prevent-semver-root-artifacts
+  - **Tags**: developer-experience, repo-hygiene, tooling
+  - **Source**: 2026-04-30 README/CI cleanup noticed pre-existing untracked files named `=1.11.0`, `=2.32.4`, and `=5.5.0` in the repo root; `=5.5.0` contains pip install output, which suggests a misquoted dependency/version command redirected stdout into a filename instead of a log.
+  - **Details**: Root-level files whose names are only a version comparator suffix are almost certainly command-artifact trash, but they currently show up as ordinary untracked files and make every agent start by wondering whether they are user work. Add a small guard so this shape is either ignored intentionally or detected with a clear cleanup hint. Prefer a targeted rule over broad ignores: the repo should not hide arbitrary generated output, only the known accidental `=<version>` filename pattern if that is the right call after checking how the files were created.
+  - **Files**: `.gitignore`, `Makefile`, `tests/makefile-cleanup.bats`, docs only if the chosen guard needs an operator note
+  - **Acceptance**: a fresh `git status --short` after the guard no longer distracts agents with accidental `=<semver>` artifacts; the guard does not ignore legitimate source/docs files; a regression test or lint/audit check proves the chosen behavior; existing pre-existing artifacts are handled explicitly by the operator rather than silently deleted by an agent; `make check` passes
 
 - [ ] Extract a deadline-path test helper that disables all stall exits
   - **ID**: deadline-status-test-stall-exit-helper
