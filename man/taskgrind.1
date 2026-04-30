@@ -179,31 +179,44 @@ so post-mortems can spot a degrading sweep without summing every
 line by hand.
 .TP
 .B TG_MIN_SESSION
-Fast\-failure threshold in seconds (default: 30).
+Fast\-failure threshold in seconds (default: 30); shorter runs are treated as
+startup or network failures rather than real work.
 .TP
 .B TG_MAX_FAST
-Max consecutive fast failures before bail (default: 20).
+Max consecutive fast failures before bail (default: 20); high enough to collect
+diagnostics while bounding broken backend loops.
 .TP
 .B TG_MAX_ZERO_SHIP
-Max consecutive zero\-ship sessions before bail (default: 50).
+Max consecutive zero\-ship sessions before bail (default: 6), aligned to the
+5-session diminishing-returns window plus one confirmation trip.
+.TP
+.B TG_SELF_INVESTIGATE_ZERO_SHIP_STREAK
+Consecutive zero\-ship sessions before stall-warning prompts, mid-run
+self-investigation, and backend rotation (default: 3).
 .TP
 .B TG_BACKOFF_BASE
-Base seconds for fast\-failure backoff (default: 15).
+Base seconds for fast\-failure backoff (default: 15); slows crash loops after
+diagnostics start.
 .TP
 .B TG_BACKOFF_MAX
-Cap for fast\-failure backoff in seconds (default: 120).
+Cap for fast\-failure backoff in seconds (default: 120); keeps recovery checks
+at least every 2 minutes.
 .TP
 .B TG_NET_WAIT
-Network polling interval in seconds (default: 30).
+Network polling interval in seconds (default: 30); responsive for Wi-Fi
+recovery without log spam.
 .TP
 .B TG_NET_MAX_WAIT
-Max time to wait for network recovery in seconds (default: 14400).
+Max time to wait for network recovery in seconds (default: 3600, 1h);
+longer outages should be resumed explicitly after connectivity returns.
 .TP
 .B TG_NET_RETRIES
-Network check retry attempts before declaring down (default: 3).
+Network check retry attempts before declaring down (default: 3); filters
+transient DNS/HTTP blips.
 .TP
 .B TG_NET_RETRY_DELAY
-Seconds between network check retries (default: 2).
+Seconds between network check retries (default: 2); keeps false-negative probes
+under 10 seconds.
 .TP
 .B TG_NET_CHECK_URL
 Override the fallback curl connectivity check URL when
@@ -211,16 +224,20 @@ Override the fallback curl connectivity check URL when
 is unavailable (default: https://connectivitycheck.gstatic.com/generate_204).
 .TP
 .B TG_SYNC_INTERVAL
-Git sync every N sessions (default: 5, 0=every).
+Git sync every N sessions (default: 5, 0=every); amortizes fetch/rebase
+overhead while keeping long grinds fresh.
 .TP
 .B TG_EMPTY_QUEUE_WAIT
-Seconds to wait after an empty sweep before exiting (default: 600).
+Seconds to wait after an empty sweep before exiting (default: 600); gives
+external agents time to inject follow-up work.
 .TP
 .B TG_MAX_INSTANCES
-Max concurrent taskgrind instances allowed per repo (default: 2).
+Max concurrent taskgrind instances allowed per repo (default: 2); one sync owner
+plus one conflict-avoiding worker.
 .TP
 .B TG_GIT_SYNC_TIMEOUT
-Max seconds for between\-session git sync (default: 30).
+Max seconds for between\-session git sync (default: 30); longer hangs need
+operator recovery.
 .TP
 .B TG_LOG
 Override log file path.
@@ -955,4 +972,4 @@ Run lint plus the cached test flow before committing.
 .BR bats (1),
 .BR shellcheck (1)
 .SH AUTHORS
-Created by cbrwizard. Extracted from dotfiles where it lived as dvb\-grind.
+Created by Fyodor Ivanishchev. Extracted from dotfiles where it lived as dvb\-grind.

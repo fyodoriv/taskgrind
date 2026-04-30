@@ -48,7 +48,8 @@
 #        TG_ROTATE_BACKENDS — comma-separated list overriding auto-detected
 #                            mid-flight rotation.
 #        TG_MODEL       — AI model (default: "gpt-5-5-xhigh-priority")
-#        TG_COOL        — seconds between sessions (default: 5)
+#        TG_COOL        — seconds between sessions (default: 5; short settle
+#                         window for filesystem/git-hook cleanup)
 #        TG_SKILL       — skill to run (default: next-task)
 #        TG_PROMPT      — extra focus prompt prepended to every session
 #        TG_LOG         — override log file path
@@ -61,20 +62,34 @@
 #                        take 20-45 min each. 90 min lets the agent batch 2-3 pipeline
 #                        cycles per session vs ~1 in the old direct-edit model.
 #        TG_SWEEP_MAX   — max seconds for a backlog-discovery sweep session,
-#                         independent of max_session (default: 1800)
-#        TG_MAX_FAST    — max consecutive fast failures before bail out (default: 20)
-#        TG_MAX_ZERO_SHIP — max consecutive zero-ship sessions before bail (default: 50)
-#        TG_BACKOFF_BASE — base seconds for fast-failure backoff (default: 15)
-#        TG_BACKOFF_MAX — cap for fast-failure backoff (default: 120)
-#        TG_NET_WAIT    — network polling interval in seconds (default: 30)
-#        TG_NET_MAX_WAIT — max time to wait for network in seconds (default: 14400)
-#        TG_NET_RETRIES — network check retry attempts before declaring down (default: 3)
+#                         independent of max_session (default: 1800; splits
+#                         runaway sweeps instead of inheriting the 90m cap)
+#        TG_MAX_FAST    — max consecutive fast failures before bail out
+#                         (default: 20; enough samples for diagnostics)
+#        TG_MAX_ZERO_SHIP — max consecutive zero-ship sessions before bail
+#                         (default: 6; follows the 5-session throughput window)
+#        TG_SELF_INVESTIGATE_ZERO_SHIP_STREAK — consecutive zero-ship sessions
+#                         before stall warnings and mid-run self-investigation
+#                         (default: 3)
+#        TG_BACKOFF_BASE — base seconds for fast-failure backoff (default: 15;
+#                         slows crash loops without hiding recovery)
+#        TG_BACKOFF_MAX — cap for fast-failure backoff (default: 120; keeps
+#                         recovery checks at least every 2 min)
+#        TG_NET_WAIT    — network polling interval in seconds (default: 30;
+#                         responsive for Wi-Fi recovery without log spam)
+#        TG_NET_MAX_WAIT — max time to wait for network in seconds (default:
+#                         3600; one-hour local outage budget)
+#        TG_NET_RETRIES — network check retry attempts before declaring down
+#                         (default: 3; filters transient DNS/HTTP blips)
 #        TG_NET_RETRY_DELAY — seconds between network check retries (default: 2)
 #        TG_NET_CHECK_URL — override the fallback connectivity check URL
-#        TG_MIN_SESSION — fast-failure threshold in seconds (default: 30)
+#        TG_MIN_SESSION — fast-failure threshold in seconds (default: 30;
+#                         shorter sessions are usually startup/network faults)
 #        TG_DEVIN_PATH  — override devin binary path (default: auto-detect from PATH)
-#        TG_GIT_SYNC_TIMEOUT — max seconds for between-session git sync (default: 30)
-#        TG_SYNC_INTERVAL — git sync every N sessions (default: 5, 0=every session)
+#        TG_GIT_SYNC_TIMEOUT — max seconds for between-session git sync
+#                         (default: 30; hangs need operator action)
+#        TG_SYNC_INTERVAL — git sync every N sessions (default: 5, 0=every
+#                         session; amortizes fetch/rebase overhead)
 #        TG_EMPTY_QUEUE_WAIT — seconds to wait after an empty sweep (default: 600)
 #        TG_SHUTDOWN_GRACE — seconds to wait for current session on exit (default: 120)
 #        TG_SESSION_GRACE — seconds to wait after session SIGINT before SIGTERM (default: 15)
@@ -85,7 +100,8 @@
 #                         SECOND consecutive trip without any flag set)
 #        TG_NO_STALL_EXIT — never auto-exit on diminishing_returns; log
 #                         advisory only (default: 0)
-#        TG_MAX_INSTANCES — max concurrent instances per repo (default: 2)
+#        TG_MAX_INSTANCES — max concurrent instances per repo (default: 2;
+#                         one sync owner plus one conflict-avoiding worker)
 #        TG_NO_PUSH     — 1 = never auto-push commits to origin; agent prompt
 #                         also forbids `git push` / `gh pr merge` (default: 0)
 #        TG_NO_PR_FALLBACK — 1 = on `final_sync` push rejected by branch
@@ -191,8 +207,8 @@ for _tg_var in BACKEND BACKOFF_BASE BACKOFF_MAX COOL DEVIN_PATH \
                MAX_SESSION MAX_ZERO_SHIP MIN_SESSION MODEL NET_CHECK_URL NET_MAX_WAIT \
                NET_RETRIES NET_RETRY_DELAY NET_WAIT NO_PUSH NO_STALL_EXIT NOTIFY PROMPT \
                PUBLIC_WRITE_TOKEN \
-               ROTATE_BACKENDS SESSION_GRACE SHUTDOWN_GRACE SKILL STATUS_FILE SWEEP_MAX \
-               SYNC_INTERVAL TARGET_REPOS; do
+               ROTATE_BACKENDS SELF_INVESTIGATE_ZERO_SHIP_STREAK SESSION_GRACE \
+               SHUTDOWN_GRACE SKILL STATUS_FILE SWEEP_MAX SYNC_INTERVAL TARGET_REPOS; do
   _tg_ref="TG_${_tg_var}"
   if [[ -n "${!_tg_ref:-}" ]]; then
     export "DVB_${_tg_var}"="${!_tg_ref}"
@@ -601,20 +617,21 @@ fi
 unset _rotation_raw
 
 _cli_prompt="$extra_prompt"
-cooldown="${DVB_COOL:-5}"
+cooldown="${DVB_COOL:-$DVB_DEFAULT_COOL}"
 max_hours=24
-max_fast="${DVB_MAX_FAST:-20}"
-max_session="${DVB_MAX_SESSION:-5400}"
+max_fast="${DVB_MAX_FAST:-$DVB_DEFAULT_MAX_FAST}"
+max_session="${DVB_MAX_SESSION:-$DVB_DEFAULT_MAX_SESSION}"
 # Sweep sessions get their own ceiling so a runaway sweep cannot inherit
 # the productive-timeout-escalated grind cap (which can climb to 7200 s)
 # and burn an entire chunk of the budget on backlog discovery. Default
 # 1800 s matches the cheaper "healthy" sweep observed in the 2026-04-24
 # run; a sweep that needs longer should be split into smaller audit
 # passes rather than allowed to expand without bound.
-sweep_max_session="${DVB_SWEEP_MAX:-1800}"
-max_zero_ship="${DVB_MAX_ZERO_SHIP:-50}"
-sync_interval="${DVB_SYNC_INTERVAL:-5}"
-max_instances="${DVB_MAX_INSTANCES:-2}"
+sweep_max_session="${DVB_SWEEP_MAX:-$DVB_DEFAULT_SWEEP_MAX}"
+max_zero_ship="${DVB_MAX_ZERO_SHIP:-$DVB_DEFAULT_MAX_ZERO_SHIP}"
+sync_interval="${DVB_SYNC_INTERVAL:-$DVB_DEFAULT_SYNC_INTERVAL}"
+max_instances="${DVB_MAX_INSTANCES:-$DVB_DEFAULT_MAX_INSTANCES}"
+self_investigate_zero_ship_streak="${DVB_SELF_INVESTIGATE_ZERO_SHIP_STREAK:-$DVB_DEFAULT_SELF_INVESTIGATE_ZERO_SHIP_STREAK}"
 
 # Validate numeric env vars
 if ! [[ "$cooldown" =~ ^[0-9]+$ ]]; then
@@ -631,6 +648,9 @@ if ! [[ "$sweep_max_session" =~ ^[0-9]+$ ]] || [[ "$sweep_max_session" -lt 1 ]];
 fi
 if ! [[ "$max_zero_ship" =~ ^[0-9]+$ ]]; then
   echo "Error: TG_MAX_ZERO_SHIP must be numeric, got '$max_zero_ship'" >&2; exit 1
+fi
+if ! [[ "$self_investigate_zero_ship_streak" =~ ^[0-9]+$ ]]; then
+  echo "Error: TG_SELF_INVESTIGATE_ZERO_SHIP_STREAK must be numeric, got '$self_investigate_zero_ship_streak'" >&2; exit 1
 fi
 if ! [[ "$sync_interval" =~ ^[0-9]+$ ]]; then
   echo "Error: TG_SYNC_INTERVAL must be numeric, got '$sync_interval'" >&2; exit 1
@@ -1048,8 +1068,8 @@ _check_network_once() {
 # Checks up to 3 times with 2s delays before declaring network down.
 # Test mode skips retries (instant pass/fail from sentinel file).
 check_network() {
-  local retries="${DVB_NET_RETRIES:-3}"
-  local delay="${DVB_NET_RETRY_DELAY:-2}"
+  local retries="${DVB_NET_RETRIES:-$DVB_DEFAULT_NET_RETRIES}"
+  local delay="${DVB_NET_RETRY_DELAY:-$DVB_DEFAULT_NET_RETRY_DELAY}"
   if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
     _check_network_once; return $?
   fi
@@ -1263,7 +1283,7 @@ _maybe_rotate_backend() {
 # Logs every detection (whether or not it acts) so an external observer
 # (bosun grind dashboard, post-mortem scripts) can see what was tried.
 _maybe_self_investigate() {
-  local _zero_ship_streak_threshold="${TG_SELF_INVESTIGATE_ZERO_SHIP_STREAK:-${DVB_SELF_INVESTIGATE_ZERO_SHIP_STREAK:-3}}"
+  local _zero_ship_streak_threshold="$self_investigate_zero_ship_streak"
 
   if [[ "$consecutive_zero_ship" -ge "$_zero_ship_streak_threshold" ]]; then
     log_write "[$(date '+%H:%M')] self_investigate anomaly=zero_ship_streak streak=$consecutive_zero_ship threshold=$_zero_ship_streak_threshold backend=$backend"
@@ -2540,7 +2560,7 @@ sync_target_repo() {
   local _ts_pid=$!
   # Reuse the same timeout knob as the control repo so operators tuning sync
   # cost have one variable to adjust, not two.
-  local _ts_sync_timeout="${DVB_GIT_SYNC_TIMEOUT:-30}"
+  local _ts_sync_timeout="${DVB_GIT_SYNC_TIMEOUT:-$DVB_DEFAULT_GIT_SYNC_TIMEOUT}"
   (
     trap 'kill $! 2>/dev/null; exit 0' TERM
     sleep "$_ts_sync_timeout" &
@@ -2619,7 +2639,7 @@ sync_target_repo() {
 # ── Graceful shutdown — let the current session finish before exiting ─
 # On INT/TERM during a session, sends SIGINT (commit & exit), waits up to
 # DVB_SHUTDOWN_GRACE (default 120s), then SIGTERM if still alive.
-_shutdown_grace="${DVB_SHUTDOWN_GRACE:-120}"
+_shutdown_grace="${DVB_SHUTDOWN_GRACE:-$DVB_DEFAULT_SHUTDOWN_GRACE}"
 
 graceful_shutdown() {
   local sig_exit="$1"
@@ -3376,7 +3396,7 @@ if [[ -n "${DVB_MIN_SESSION:-}" ]]; then
 elif [[ -n "${DVB_GRIND_CMD:-}" ]]; then
   min_session_secs=0
 else
-  min_session_secs=30
+  min_session_secs="$DVB_DEFAULT_MIN_SESSION"
 fi
 consecutive_fast=0
 _productive_zero_ship=0
@@ -3384,8 +3404,8 @@ _sweep_done=0
 
 wait_for_network() {
   local wait_start waited
-  local interval="${DVB_NET_WAIT:-30}"
-  local max_wait="${DVB_NET_MAX_WAIT:-14400}"
+  local interval="${DVB_NET_WAIT:-$DVB_DEFAULT_NET_WAIT}"
+  local max_wait="${DVB_NET_MAX_WAIT:-$DVB_DEFAULT_NET_MAX_WAIT}"
   wait_start=$(date +%s)
 
   set_phase "waiting_for_network"
@@ -3506,7 +3526,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
     fi
     if [[ "$_sweep_done" -eq 1 ]]; then
       # Sweep already ran once and found nothing — wait before giving up
-      _empty_wait="${DVB_EMPTY_QUEUE_WAIT:-600}"
+      _empty_wait="${DVB_EMPTY_QUEUE_WAIT:-$DVB_DEFAULT_EMPTY_QUEUE_WAIT}"
       # Cap at remaining deadline so tests and short runs aren't stuck
       _remaining=$(( deadline - $(date +%s) ))
       [[ $_remaining -lt $_empty_wait ]] && _empty_wait=$_remaining
@@ -3790,7 +3810,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
   fi
 
   # Stall warning — nudge the agent to try different approaches
-  if [[ $consecutive_zero_ship -ge 3 ]]; then
+  if [[ $consecutive_zero_ship -ge $self_investigate_zero_ship_streak ]]; then
     prompt+=" WARNING: Previous $consecutive_zero_ship sessions shipped nothing — tasks count in TASKS.md did not decrease. You MUST remove completed task blocks from TASKS.md for work to count. If previous sessions created PRs, merge them and remove those tasks first. Then decompose the next unclaimed unblocked task into 2-4 sub-tasks and implement the first one."
   fi
 
@@ -3843,7 +3863,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
       log_write "[$(date '+%H:%M')] session_timeout session=$session max=${max_session}s"
       kill -INT "$_dvb_pid" 2>/dev/null || true
       # Grace period: let devin commit before force-killing
-      _grace="${DVB_SESSION_GRACE:-15}"
+      _grace="${DVB_SESSION_GRACE:-$DVB_DEFAULT_SESSION_GRACE}"
       sleep "$_grace" &
       wait $! 2>/dev/null || exit 0
       if kill -0 "$_dvb_pid" 2>/dev/null; then
@@ -3919,9 +3939,9 @@ while [[ $(date +%s) -lt $deadline ]]; do
 
     # Network is up but session still crashed fast — back off
     if [[ $consecutive_fast -ge 3 ]]; then
-      backoff_base="${DVB_BACKOFF_BASE:-15}"
+      backoff_base="${DVB_BACKOFF_BASE:-$DVB_DEFAULT_BACKOFF_BASE}"
       backoff=$(( consecutive_fast * backoff_base ))
-      backoff_max="${DVB_BACKOFF_MAX:-120}"
+      backoff_max="${DVB_BACKOFF_MAX:-$DVB_DEFAULT_BACKOFF_MAX}"
       [[ $backoff -gt $backoff_max ]] && backoff=$backoff_max
       echo "   ⚠ ${consecutive_fast} fast failures (exit=$session_exit, network OK). Backing off ${backoff}s..."
       log_write "[$(date '+%H:%M')] fast_fail consecutive=$consecutive_fast backoff=${backoff}s exit=$session_exit"
@@ -4196,7 +4216,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
       log_write "[$(date '+%H:%M')] stall_bail consecutive_zero_ship=$consecutive_zero_ship"
       set_phase "failed"
       break
-    elif [[ $consecutive_zero_ship -ge 3 ]]; then
+    elif [[ $consecutive_zero_ship -ge $self_investigate_zero_ship_streak ]]; then
       echo "   ⚠ ${consecutive_zero_ship} consecutive zero-ship sessions — adding stall warning to next prompt."
       log_write "[$(date '+%H:%M')] stall_warning consecutive_zero_ship=$consecutive_zero_ship"
     fi
@@ -4299,7 +4319,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
       dvb_spinner_start "Syncing git..."
       [[ -n "${_git_out:-}" ]] && rm -f "$_git_out"
       _git_out=$(mktemp "$_dvb_tmp/taskgrind-gsy-XXXXXX")
-      _git_sync_timeout="${DVB_GIT_SYNC_TIMEOUT:-30}"
+      _git_sync_timeout="${DVB_GIT_SYNC_TIMEOUT:-$DVB_DEFAULT_GIT_SYNC_TIMEOUT}"
       # Detect sync base branch — don't hardcode "main"; repos may use master/develop/etc.
       read -r _default_branch _default_branch_source < <(detect_default_branch "$repo")
       (

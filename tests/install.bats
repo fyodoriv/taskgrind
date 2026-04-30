@@ -60,7 +60,7 @@ SCRIPT
   [ "$status" -eq 0 ]
   [ -d "$INSTALL_TARGET/bin" ]
   grep -q "^clone$" "$INSTALL_LOG"
-  grep -q "^https://github.com/cbrwizard/taskgrind.git$" "$INSTALL_LOG"
+  grep -q "^https://github.com/fyodoriv/taskgrind.git$" "$INSTALL_LOG"
   grep -q "^$INSTALL_TARGET$" "$INSTALL_LOG"
   [[ "$output" == *"taskgrind installed to $INSTALL_TARGET"* ]]
   [[ "$output" == *"export PATH=\"$INSTALL_TARGET/bin:\$PATH\""* ]]

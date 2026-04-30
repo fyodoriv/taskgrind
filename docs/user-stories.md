@@ -254,7 +254,7 @@ taskgrind --dry-run
   log:      ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
   status:   disabled
   notify:   1
-  max_session: 3600s
+  max_session: 5400s
   early_exit_on_stall: 0
 ```
 
@@ -509,7 +509,7 @@ Sample log showing the transition:
 Session 7's prompt (shown by `taskgrind --dry-run` style expansion) now
 includes:
 ```
-Run the next-task skill. Session 7, 285 minutes remaining, timeout 3600s.
+Run the next-task skill. Session 7, 285 minutes remaining, timeout 5400s.
 COMPLETION PROTOCOL: …
 AUTONOMY: …
 Previous session: session_exit=0 shipped=0 tasks_before=9 tasks_after=9.

@@ -28,7 +28,8 @@ SCRIPT
 }
 
 @test "DVB_MAX_FAST defaults to 20" {
-  grep -q 'DVB_MAX_FAST:-20' "$DVB_GRIND"
+  grep -Fq 'DVB_DEFAULT_MAX_FAST="20"' "$BATS_TEST_DIRNAME/../lib/constants.sh"
+  grep -Fq 'DVB_MAX_FAST:-$DVB_DEFAULT_MAX_FAST' "$DVB_GRIND"
 }
 
 @test "max fast failures bails out with diagnostic" {
@@ -283,6 +284,13 @@ SCRIPT
   [[ "$output" == *"TG_BACKOFF_MAX must be numeric"* ]]
 }
 
+@test "DVB_SELF_INVESTIGATE_ZERO_SHIP_STREAK=abc exits with must be numeric error" {
+  export DVB_SELF_INVESTIGATE_ZERO_SHIP_STREAK=abc
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"TG_SELF_INVESTIGATE_ZERO_SHIP_STREAK must be numeric"* ]]
+}
+
 @test "DVB_SYNC_INTERVAL=abc exits with must be numeric error" {
   export DVB_SYNC_INTERVAL=abc
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -391,7 +399,8 @@ SCRIPT
   mirrored=$(awk '/^for _tg_var in/,/; do$/' "$DVB_GRIND" | tr -d '\\' | tr -s ' \t\n' ' ')
   for knob in EMPTY_QUEUE_WAIT NET_WAIT NET_MAX_WAIT NET_RETRIES NET_RETRY_DELAY \
               BACKOFF_BASE BACKOFF_MAX MIN_SESSION MAX_FAST MAX_ZERO_SHIP \
-              SHUTDOWN_GRACE SESSION_GRACE GIT_SYNC_TIMEOUT; do
+              SELF_INVESTIGATE_ZERO_SHIP_STREAK SHUTDOWN_GRACE SESSION_GRACE \
+              GIT_SYNC_TIMEOUT; do
     [[ "$mirrored" == *" $knob "* ]]
   done
 }
@@ -568,7 +577,8 @@ SCRIPT
   # Bumped from 3600 → 5400 after bosun PR #1548 enforced "code commits via
   # pipelines only" — sessions are now an orchestrator role and pipelines
   # take 20-45 min each, so 90 min lets the agent batch 2-3 cycles.
-  grep -q 'DVB_MAX_SESSION:-5400' "$DVB_GRIND"
+  grep -Fq 'DVB_DEFAULT_MAX_SESSION="5400"' "$BATS_TEST_DIRNAME/../lib/constants.sh"
+  grep -Fq 'DVB_MAX_SESSION:-$DVB_DEFAULT_MAX_SESSION' "$DVB_GRIND"
 }
 
 @test "timeout watchdog uses kill-0 polling to detect session exit" {

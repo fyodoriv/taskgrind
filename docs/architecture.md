@@ -40,11 +40,11 @@ The same principle now applies to shipped-work accounting. Raw queue deltas are 
 
 ## Why diminishing-returns uses a 5-session rolling window
 
-`TG_MAX_ZERO_SHIP` already covers the runaway case — many consecutive sessions
+`TG_MAX_ZERO_SHIP` already covers the runaway case — 6 consecutive sessions
 with no work landed means something is structurally broken. But there is a
 separate, softer failure mode: a grind that ships just enough to look alive
-while the actual throughput has collapsed. Picture a 50-session overnight run
-where sessions 40 through 50 ship a single task between them. Zero-ship never
+while the actual throughput has collapsed. Picture an overnight run
+where the last several sessions ship a single task between them. Zero-ship never
 trips (there was one ship in there), yet the grind is clearly not making its
 deadline. The diminishing-returns guard fills that gap.
 
@@ -72,7 +72,7 @@ to fire after restarts.
 
 ## Why productive-timeout sessions get a bigger budget next time
 
-The per-session timeout (`TG_MAX_SESSION`, default 3600 s) exists to stop runaway
+The per-session timeout (`TG_MAX_SESSION`, default 5400 s) exists to stop runaway
 sessions from chewing through the marathon budget, but treating it as a hard
 cap punishes healthy work. A session that shipped something before the clock
 ran out was not runaway — it was proving the task was real and making real

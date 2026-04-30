@@ -75,18 +75,17 @@ PY
   local status_file="$TEST_DIR/status.json"
   export DVB_STATUS_FILE="$status_file"
   # 5 s was historically enough for one session to land before the
-  # deadline expired, but parallel bats load (TEST_JOBS=6) can eat most
+  # deadline expired, but parallel bats load (TEST_JOBS=4) can eat most
   # of that budget on fixture setup. Match the longer 30 s deadline
   # used by the sibling TG_STATUS_FILE tests so the assertion on
   # `last_session.result == "success"` always has a session to record.
   export DVB_DEADLINE_OFFSET=30
-  # The default test fixture has one no-ship task; over a 30 s window
-  # the grind churns through enough zero-ship sessions to trip the new
-  # diminishing-returns default exit, which would set current_phase to
-  # "failed". This test is about the status-file mechanism, not the
-  # exit reason, so opt out of the stall-exit policy and let the
-  # deadline drive the clean shutdown.
+  # The default test fixture has one no-ship task; over a 30 s window the
+  # grind can churn through enough zero-ship sessions to trip the default
+  # stall exits. This test is about the status-file mechanism, not the exit
+  # reason, so opt out and let the deadline drive the clean shutdown.
   export TG_NO_STALL_EXIT=1
+  export TG_MAX_ZERO_SHIP=999
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
@@ -127,14 +126,14 @@ PY
   export TG_STATUS_FILE="$status_file"
   # The default fake devin is a no-op so the queue never drains. The grind
   # therefore loops on a single task until DVB_DEADLINE fires. 5s is too
-  # tight under TEST_JOBS=6 parallel load (bats fixture setup can eat most
+  # tight under TEST_JOBS=4 parallel load (bats fixture setup can eat most
   # of that budget) — bump to 30s so session 1 always lands well inside the
   # deadline.
   export DVB_DEADLINE_OFFSET=30
-  # 30 s is also long enough for the new diminishing-returns default exit
-  # to trigger after ~6 zero-ship sessions, which would set current_phase
-  # to "failed". This test asserts the deadline path, so opt out.
+  # 30 s is also long enough for default stall exits to trigger after repeated
+  # zero-ship sessions. This test asserts the deadline path, so opt out.
   export TG_NO_STALL_EXIT=1
+  export TG_MAX_ZERO_SHIP=999
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
@@ -173,9 +172,9 @@ PY
   export DVB_STATUS_FILE="$legacy_status_file"
   export DVB_DEADLINE_OFFSET=5
   # See `status file captures startup and completion states` for the
-  # rationale behind disabling the new diminishing-returns default exit
-  # in this test.
+  # rationale behind disabling default stall exits in this test.
   export TG_NO_STALL_EXIT=1
+  export TG_MAX_ZERO_SHIP=999
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
 

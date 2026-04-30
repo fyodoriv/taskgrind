@@ -3,7 +3,7 @@
 ## Quick Start
 
 ```bash
-git clone https://github.com/cbrwizard/taskgrind.git
+git clone https://github.com/fyodoriv/taskgrind.git
 cd taskgrind
 make check   # runs shellcheck + bats test suite
 make audit   # runs the local repo audit workflow
@@ -12,7 +12,7 @@ make test TESTS=tests/bash-compat.bats  # targeted rerun with its own cache key
 make install # symlink to /usr/local/bin + install man page
 ```
 
-Requires [bats-core](https://github.com/bats-core/bats-core) and [shellcheck](https://www.shellcheck.net/):
+Requires [bats-core](https://github.com/bats-core/bats-core) and [shellcheck](https://www.shellcheck.net/). `make audit` also uses [`@tasks-md/lint`](https://www.npmjs.com/package/@tasks-md/lint), either from `PATH` or through the `npx --yes` fallback:
 
 ```bash
 # macOS
@@ -21,7 +21,7 @@ brew install bats-core shellcheck
 # Ubuntu / Debian
 sudo apt-get update
 sudo apt-get install -y npm shellcheck
-sudo npm install -g bats
+sudo npm install -g bats @tasks-md/lint
 
 # Fedora / RHEL
 sudo dnf install -y bats ShellCheck
@@ -143,7 +143,7 @@ When adding a new env var:
 - Use `DVB_GRIND_CMD` to point at a single stub executable path (never the real binary); if a helper needs a compound command, wrap it in a script first
 - Use `make test TESTS=tests/<file>.bats` for tight local reruns before falling back to the full suite
 - Use `make test-force TESTS=tests/<file>.bats` when you need to bypass the cache and re-run the suite from scratch
-- `make test` auto-caps `TEST_JOBS` at 6 to avoid local `bats --jobs 9` terminations; set `TEST_JOBS=<n>` when you need to probe a different level
+- `make test` auto-caps `TEST_JOBS` at 4 to match GitHub Actions and avoid deadline-sensitive parallel flakes; set `TEST_JOBS=<n>` when you need to probe a different level
 - If you touch runtime shell code, keep it `/bin/bash` 3.2 compatible and use `tests/verify-bash32-compat.sh` plus `tests/bash-compat.bats` to catch Bash-4-only syntax before the full suite does
 - Structural tests (`grep -q` on the script) are fine for verifying code patterns
 
@@ -153,11 +153,11 @@ When adding a new env var:
 
 ## Diagnosing a Flaky Bats Test
 
-The bats suite is split across many `tests/*.bats` files and runs with auto-capped parallelism (`TEST_JOBS=6` by default; see `Makefile`). Most flakes seen historically were timing-dependent tests with deadlines that were too tight to survive parallel CPU contention, or fake-backend fixtures that did not satisfy the startup probe contract. If a test fails intermittently:
+The bats suite is split across many `tests/*.bats` files and runs with auto-capped parallelism (`TEST_JOBS=4` by default; see `Makefile`). Most flakes seen historically were timing-dependent tests with deadlines that were too tight to survive parallel CPU contention, or fake-backend fixtures that did not satisfy the startup probe contract. If a test fails intermittently:
 
 1. **Reproduce in isolation first.** `bats tests/<file>.bats -f "<test name>"` — if it always passes alone, the failure is parallel-load specific.
 2. **Force serial execution.** `make test TEST_JOBS=1 TESTS=tests/<file>.bats` — if it now passes, parallelism is the trigger.
-3. **Reproduce the auto-capped CI load.** `make test-force TESTS=tests/<file>.bats TEST_JOBS=6` reproduces the bats `--jobs 6` setting that `make test` uses on CI runners.
+3. **Reproduce the auto-capped CI load.** `make test-force TESTS=tests/<file>.bats TEST_JOBS=4` reproduces the bats `--jobs 4` setting that `make test` uses on CI runners.
 
 Common root causes to check before declaring a flake:
 

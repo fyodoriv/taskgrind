@@ -385,7 +385,7 @@ SCRIPT
   chmod +x "$stub_devin"
   export DVB_GRIND_CMD="$stub_devin"
   export DVB_VALIDATE_BACKEND_STARTUP=1
-  # 5s is too tight under TEST_JOBS=6 parallel load: the deadline can fire
+  # 5s is too tight under TEST_JOBS=4 parallel load: the deadline can fire
   # before the probe runs, so the script exits with 0
   # (deadline_expired_before_session_loop) instead of 1
   # (backend_probe_failed). 30s is plenty — the probe still fails
@@ -424,7 +424,7 @@ SCRIPT
   chmod +x "$versioned_devin"
   export DVB_GRIND_CMD="$versioned_devin"
   export DVB_VALIDATE_BACKEND_STARTUP=1
-  # 5s would be too tight under TEST_JOBS=6 — session 1 needs to actually
+  # 5s would be too tight under TEST_JOBS=4 — session 1 needs to actually
   # run to completion here (we assert `session=1 ended`). 30s is plenty;
   # the fake backend exits immediately so the test stays fast.
   export DVB_DEADLINE_OFFSET=30

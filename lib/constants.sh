@@ -15,6 +15,45 @@ DVB_RESUME_STATE_VERSION="1"
 DVB_RESUME_STATE_BASENAME=".taskgrind-state"
 DVB_MODEL_ALIASES=$'opus=claude-opus-4-7-max\nsonnet=claude-sonnet-4.6\nhaiku=claude-haiku-4.5\nswe=swe-1.6\ncodex=gpt-5.5\ngpt=gpt-5-5-xhigh-priority'
 
+# TG_COOL=5: short settle window between sessions without materially reducing grind time.
+DVB_DEFAULT_COOL="5"
+# TG_MAX_FAST=20: enough crash samples for diagnostics while still bounding a broken backend loop.
+DVB_DEFAULT_MAX_FAST="20"
+# TG_MAX_SESSION=5400: pipeline-era sessions need 90m to launch, monitor, and merge several Bosun cycles.
+DVB_DEFAULT_MAX_SESSION="5400"
+# TG_SWEEP_MAX=1800: backlog sweeps should split after 30m instead of inheriting productive-session timeouts.
+DVB_DEFAULT_SWEEP_MAX="1800"
+# TG_MAX_ZERO_SHIP=6: one full diminishing-returns window plus one confirmation trip before bailing.
+DVB_DEFAULT_MAX_ZERO_SHIP="6"
+# TG_SYNC_INTERVAL=5: amortizes fetch/rebase overhead while keeping long grinds reasonably fresh.
+DVB_DEFAULT_SYNC_INTERVAL="5"
+# TG_MAX_INSTANCES=2: permits one sync owner plus one conflict-avoiding worker by default.
+DVB_DEFAULT_MAX_INSTANCES="2"
+# TG_MIN_SESSION=30: sessions shorter than 30s are likely startup/network failures, not real work.
+DVB_DEFAULT_MIN_SESSION="30"
+# TG_NET_WAIT=30: frequent enough for Wi-Fi recovery, sparse enough not to spam logs.
+DVB_DEFAULT_NET_WAIT="30"
+# TG_NET_MAX_WAIT=3600: one hour covers common local outages without hiding half-day network failures.
+DVB_DEFAULT_NET_MAX_WAIT="3600"
+# TG_NET_RETRIES=3: filters transient DNS/HTTP blips before entering network-wait mode.
+DVB_DEFAULT_NET_RETRIES="3"
+# TG_NET_RETRY_DELAY=2: retry quickly while keeping the false-negative probe under 10s.
+DVB_DEFAULT_NET_RETRY_DELAY="2"
+# TG_BACKOFF_BASE=15: fast-failure loops slow down quickly without delaying the first few diagnostics.
+DVB_DEFAULT_BACKOFF_BASE="15"
+# TG_BACKOFF_MAX=120: caps fast-failure sleep at two minutes so recovery checks stay frequent.
+DVB_DEFAULT_BACKOFF_MAX="120"
+# TG_GIT_SYNC_TIMEOUT=30: fetch/rebase should be short between sessions; longer hangs need operator action.
+DVB_DEFAULT_GIT_SYNC_TIMEOUT="30"
+# TG_EMPTY_QUEUE_WAIT=600: gives external agents ten minutes to inject follow-up work after an empty sweep.
+DVB_DEFAULT_EMPTY_QUEUE_WAIT="600"
+# TG_SHUTDOWN_GRACE=120: lets an interrupted session commit and exit before force termination.
+DVB_DEFAULT_SHUTDOWN_GRACE="120"
+# TG_SESSION_GRACE=15: lets a timed-out backend handle SIGINT without losing the whole grind budget.
+DVB_DEFAULT_SESSION_GRACE="15"
+# TG_SELF_INVESTIGATE_ZERO_SHIP_STREAK=3: three zero-ship sessions is enough evidence to rotate/investigate.
+DVB_DEFAULT_SELF_INVESTIGATE_ZERO_SHIP_STREAK="3"
+
 dvb_default_model_for_backend() {
   case "$1" in
     codex) printf '%s' "$DVB_DEFAULT_CODEX_MODEL" ;;

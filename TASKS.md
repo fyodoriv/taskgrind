@@ -3,6 +3,16 @@
 <!-- policy: keep runtime files /bin/bash 3.2 compatible (guarded by tests/bash-compat.bats) -->
 <!-- policy: run `make check` before claiming a task complete; remove the task block in the same commit that ships the fix -->
 
+## P0
+
+- [ ] Make Claude Code a first-class runtime backend with Devin parity
+  - **ID**: claude-code-first-class-backend-parity
+  - **Tags**: backend, claude-code, parity, runtime, cli, tests
+  - **Source**: 2026-04-30 operator request: Taskgrind should run with Claude Code, not just Devin, and it should behave exactly the same: same session lifecycle, same error handling, same backend switching, same recovery semantics.
+  - **Details**: Treat this as parity-hardening, not a docs-only task. Audit every Devin-only path and make `--backend claude-code`, `TG_BACKEND=claude-code`, backend auto-detection, `TG_ROTATE_BACKENDS`, `--rotate-backends`, and self-investigation rotation run through the same lifecycle as Devin. Claude Code must share the same preflight gates, startup sanity probe behavior, model override handling, prompt construction, timeout watchdog, fast-failure accounting, log/status fields, git sync/final-sync behavior, resume compatibility checks, and operator-facing diagnostics. Backend-specific invocation flags are fine, but they must be isolated behind the backend abstraction so the rest of the marathon loop does not special-case Devin.
+  - **Files**: `bin/taskgrind`, `lib/constants.sh`, `tests/features.bats`, `tests/preflight.bats`, `tests/session.bats`, `tests/diagnostics.bats`, `tests/test_helper.bash`, `README.md`, `man/taskgrind.1`, `docs/user-stories.md`
+  - **Acceptance**: `taskgrind --dry-run --backend claude-code <repo>` and `TG_BACKEND=claude-code taskgrind --dry-run <repo>` show the same config surface as Devin except for backend name and backend-specific flags; a stubbed Claude Code backend can run at least one full session through the normal marathon loop and produces the same `session_start`, `session_end`, fast-failure, timeout, status-file, and final-sync behavior already tested for Devin; preflight failures for missing/non-executable Claude Code, rejected models, silent stubs, and startup probe failures use the same actionable error style as Devin; rotation between `devin,claude-code` works in both directions without losing counters, prompt overlays, task state, or git-sync/final-sync behavior; resume rejects incompatible backend changes and accepts matching Claude Code resumes; all backend-specific behavior is covered by regression tests rather than only structural greps; docs show Claude Code as a fully supported backend, not experimental; `make check` passes locally and the GitHub Actions `check` workflow is green after the change lands
+
 ## P1
 
 - [ ] Get the GitHub Actions test job green again on `main` so CI signals what local `make check` does
@@ -10,12 +20,12 @@
   - **Tags**: ci, github-actions, tests, macos, audit
   - **Details**: CI on `origin/main` has been red for at least 4 consecutive runs (24923869624, 24922967941, 24965479765, 24966395800 — span 2026-04-25 → 2026-04-26) with the same set of ~19 failing tests, while local `make check` passes 798/798 in isolation. The failures are stable and reproducible across both `test (macos-latest)` and `test (ubuntu-latest)`, but **they do not fire locally**, so local `make check` keeps green-lighting changes that ship into a permanently-red CI signal. That kills the value of the workflow — operators eyeballing the badge can no longer tell the difference between a real regression and the steady-state flake. Two distinct clusters need separate root-causing:
     1. **macos-latest `make audit` cluster (tests 18–25 in `tests/basics.bats`)**: confirmed root cause from inspecting `.github/workflows/check.yml` is that the `lint` job installs `@tasks-md/lint` globally but the `test` job does not. When `make audit` runs inside the bats `test` job, it falls through to the `npx --yes @tasks-md/lint` fallback in `Makefile:64-68`, and *something* about that path on the macOS runner produces a different exit code than locally. Hypothesis worth verifying: `npx --yes` does a network fetch on first call, which can hang or fail under CI sandboxing on macOS; the Linux `test` job presumably does the same fall-through but appears to succeed because of the cached `~/.npm` from running `make audit` indirectly during another step. Fix candidates: (a) install `@tasks-md/lint` globally in the `test` job's `Install bats (macOS)` step too, mirroring the `lint` job; (b) make `make audit` skip tasks-lint cleanly when `npx` is available but uncached, with a clear log line; (c) re-architect so `make audit` always uses a pre-cached binary or fails with an actionable hint instead of falling through to network npx.
-    2. **Cross-platform failure cluster (tests `final_sync ...` 719–723, `status file captures ...` 394–396, `pre-session recovery classifies ...` 595–596, `git rebase failure logs conflict details` 324–326)**: 13 tests that fail under CI's bats parallelism but pass locally at `make check`'s `--jobs 8` cap. Heavily overlaps with the documented parallel-load flake list (the same suite passes 798/798 in isolation). The root cause hypothesis is that GHA runners' I/O latency variance is much higher than local APFS, so race-window assumptions in tests (e.g. "sleep 0.2 is enough for the next-test dispatch to land") that work locally fall through on slow CI disks. Fix candidates: (a) cap `TEST_JOBS` lower in CI specifically (`TEST_JOBS=4` env var only when `GITHUB_ACTIONS=true`); (b) replace race-prone polling with deterministic file-existence loops (`_wait_for_file_pattern` already exists in `tests/test_helper.bash` for exactly this); (c) add a per-test `BATS_TEST_RETRIES=2` on the known-flaky tests as a stopgap while the polling refactor lands.
+    2. **Cross-platform failure cluster (tests `final_sync ...` 719–723, `status file captures ...` 394–396, `pre-session recovery classifies ...` 595–596, `git rebase failure logs conflict details` 324–326)**: 13 tests that fail under GitHub Actions bats parallelism, and a local `tests/session.bats` rerun also failed when forced to `TEST_JOBS=8`. This points at deadline windows that are too tight under high parallel load, not only a CI-vs-local gap. Fix candidates: (a) cap `TEST_JOBS` to a stable default of 4 locally and in CI while leaving 8 as an explicit stress diagnostic; (b) replace race-prone polling with deterministic file-existence loops (`_wait_for_file_pattern` already exists in `tests/test_helper.bash` for exactly this); (c) add a per-test `BATS_TEST_RETRIES=2` on the known-flaky tests as a stopgap while the polling refactor lands.
     Both clusters predate the recent perf+docs work — confirmed by diffing failure lists between origin/main at `87d19a6` (one day before this stack) and `4eb6ff4` (after). Identical test names, just renumbered because new tests landed in between.
     **Why P1, not P0**: CI is just an information surface; nothing is actually broken in the runtime. But operators who use the badge to filter PRs are losing trust, and every new push wastes 16+ runner-minutes producing the same red status, so this can't sit indefinitely.
     **What's NOT in scope**: rewriting the bats parallelism scheduler, replacing the GHA workflow with a different CI provider, or fixing fundamental flakiness in tests that race on real wall-clock (those are addressed by tagging in the separate `make-test-fast-target` task). The goal here is "the CI badge tells the truth again."
-  - **Files**: `.github/workflows/check.yml` (most likely fix point — install tasks-lint in test job, or set CI-only TEST_JOBS); `Makefile` (audit fallback path, possibly add a clear-error mode); `tests/test_helper.bash` (if polling refactor needed); `AGENTS.md` (document the CI-vs-local parallelism tradeoff if a CI-only cap is added)
-  - **Acceptance**: `gh run view <latest-run-id>` shows ✓ on both `test (ubuntu-latest)` and `test (macos-latest)` jobs for at least 3 consecutive pushes to main; the `make audit` cluster (8 macos tests) and the parallel-flake cluster (13 cross-platform tests) are each diagnosed in the commit message with the actual root cause (not a guess); the chosen fix is the cheapest of the candidates listed above that actually closes the gap (don't grow scope into a parallelism rewrite); `make check` still passes locally after the fix; if a CI-only `TEST_JOBS` override lands, AGENTS.md "Local Test Notes" reflects it so future agents don't get surprised by the divergence
+  - **Files**: `.github/workflows/check.yml` (most likely fix point — install tasks-lint in test job, or set a safe TEST_JOBS cap); `Makefile` (audit fallback path, possibly add a clear-error mode); `tests/test_helper.bash` (if polling refactor needed); `AGENTS.md` (document the local/CI parallelism tradeoff if a TEST_JOBS cap is added)
+  - **Acceptance**: `gh run view <latest-run-id>` shows ✓ on both `test (ubuntu-latest)` and `test (macos-latest)` jobs for at least 3 consecutive pushes to main; the `make audit` cluster (8 macos tests) and the parallel-flake cluster (13 cross-platform tests) are each diagnosed in the commit message with the actual root cause (not a guess); the chosen fix is the cheapest of the candidates listed above that actually closes the gap (don't grow scope into a parallelism rewrite); `make check` still passes locally after the fix; if a `TEST_JOBS` cap lands, AGENTS.md "Local Test Notes" reflects it so future agents don't get surprised by the stable default
 
 - [ ] Slim the `--help` env-var block from 33 vars to ~12 by hiding tuning knobs in the man page only
   - **ID**: simplify-help-surface-area
@@ -123,6 +133,14 @@
 
 ## P2
 
+- [ ] Replace wall-clock-sensitive session tests with deterministic deadline helpers
+  - **ID**: deterministic-deadline-session-tests
+  - **Tags**: tests, flake-prevention, deadline, bats
+  - **Source**: 2026-04-30 CI/public-metadata delivery found `tests/session.bats` failures that reproduced only under parallel load (`inferred shipped: local successor rollover counts despite flat queue`, then `empty queue wait honors DVB_EMPTY_QUEUE_WAIT`) and required larger `DVB_DEADLINE_OFFSET` values plus a safe `TEST_JOBS=4` cap as the short-term mitigation.
+  - **Details**: The failing tests depend on real wall-clock deadlines being far enough away after process spawn, git setup, and runner I/O variance. Raising offsets makes the suite less flaky but also makes serial debugging slower and preserves the root class of problem. Add deterministic test helpers that avoid "sleep/offset should be enough" assertions for deadline-path behavior. Possible approaches: centralize a helper that sets a generous deadline plus explicit stall-exit/session-count controls; add a fake time command hook for tests if the runtime can support it without production surface area; or restructure these assertions around observable loop milestones instead of elapsed seconds. Keep the fix targeted to tests — do not change production deadline semantics unless a test exposes a real runtime bug.
+  - **Files**: `tests/test_helper.bash`, `tests/session.bats`, `Makefile` only if a new focused test target/tag helps isolate deadline-path tests, `AGENTS.md` if the helper becomes the required pattern for new deadline tests
+  - **Acceptance**: no `tests/session.bats` test needs an arbitrary `DVB_DEADLINE_OFFSET` larger than the minimum required by the scenario just to survive runner load; deadline-path tests pass in at least 3 consecutive `make test-force TESTS=tests/session.bats TEST_JOBS=8` runs on a local machine; the same tests pass once with `TEST_JOBS=4` to match GitHub Actions; serial `make test-force TESTS=tests/session.bats TEST_JOBS=1` does not get materially slower than the pre-helper baseline; `make check` passes
+
 - [ ] Detect stranded local commits at grind launch and warn — surface unpushed work before another autonomous session buries it deeper
   - **ID**: health-check-detect-stranded-commits
   - **Tags**: preflight, health-check, git-hygiene, prevention, AIFN-720-not-applicable
@@ -212,55 +230,6 @@
     - The session env passed to the backend contains `TG_REPO_CLASS=solo|shared` in every session, verifiable by inspecting the invocation log under test
     - `make check` passes with the new tests
     - PR description shows a before/after of `taskgrind --dry-run` output for both a solo personal repo and a shared repo, demonstrating the new banner line
-
-- [ ] Audit and document every default value in `bin/taskgrind` — kill arbitrary numbers, justify the rest
-  - **ID**: audit-arbitrary-default-numbers
-  - **Tags**: cli, defaults, docs, technical-debt
-  - **Source**: `simplify-help-surface-area` audit — many defaults look picked from a hat (`MAX_FAST=20`, `MAX_ZERO_SHIP=50`, `BACKOFF_MAX=120`, `EMPTY_QUEUE_WAIT=600`, `NET_MAX_WAIT=14400`). If `--help` is going to hide these vars and tell users to trust the defaults, the defaults need to actually deserve trust.
-  - **Details**: The script today defaults ~17 numeric tuning vars at the top of `bin/taskgrind`:
-    | Var | Default | Looks arbitrary? |
-    |---|---|---|
-    | `TG_MAX_FAST` | 20 | Yes — why 20? what's the false-positive cost vs benefit? |
-    | `TG_MAX_SESSION` | 3600 | Plausible (1h budget per session) |
-    | `TG_SWEEP_MAX` | 1800 | Plausible (sweep cap = 30min) but 30 min feels long for "find work" |
-    | `TG_MAX_ZERO_SHIP` | 50 | Yes — why 50? |
-    | `TG_SYNC_INTERVAL` | 5 | Yes — every 5 sessions feels arbitrary |
-    | `TG_NET_RETRIES` | 3 | Standard |
-    | `TG_NET_RETRY_DELAY` | 2 | Standard |
-    | `TG_GIT_SYNC_TIMEOUT` | 30 | Plausible |
-    | `TG_SHUTDOWN_GRACE` | 120 | Plausible |
-    | `TG_NET_WAIT` | 30 | Plausible |
-    | `TG_NET_MAX_WAIT` | 14400 | 4 hours seems extreme — why? |
-    | `TG_EMPTY_QUEUE_WAIT` | 600 | Yes — why 10 min? |
-    | `TG_SESSION_GRACE` | 15 | Plausible |
-    | `TG_BACKOFF_BASE` | 15 | Plausible |
-    | `TG_BACKOFF_MAX` | 120 | Plausible |
-    | `TG_COOL` | 5 | Plausible |
-    | default `hours` | 10 | Yes — most users grind shorter |
-
-    **For each default**: either (a) cite a measurement / observation that justified the value (e.g. "MAX_FAST=20: a real backend hung-and-restored cycle takes ~7 fast-failure sessions in field telemetry; 20 leaves headroom for two cycles before declaring real failure"), or (b) change the default to a measurably better number, or (c) flag it as "needs measurement, do not change yet" with the planned measurement approach. Goal: every default value has either a `# default: N — <one-sentence-justification>` comment in `bin/taskgrind` next to its declaration, OR a TASKS.md follow-up to measure.
-    The audit should also look at *interaction* defaults — e.g. `MAX_ZERO_SHIP=50` × `MAX_SESSION=3600` × `BACKOFF_MAX=120` — and check that the worst-case duration is reasonable. If 50 zero-ship sessions can happen back-to-back at 1h each, that's 50h of wasted compute before bail-out, which is way past any operator's intent. Cap the worst case in the audit, even if individual numbers look fine in isolation.
-    Specific changes likely to land based on the audit (treat as predictions, not requirements):
-    - `MAX_ZERO_SHIP=50` → 20 (50 is too forgiving — three full grind days of nothing being shipped before bail)
-    - `EMPTY_QUEUE_WAIT=600` → 60 (10 minutes of pure idle is a long stall; if external task injection is the use case, 1 minute is enough to detect file changes)
-    - default `hours=10` → 8 (matches a typical workday + buffer; 10h was likely chosen because it's a round number)
-    - `NET_MAX_WAIT=14400` → 3600 (4h of waiting for network is rarely the right answer — most operators would prefer the marathon to error out and let them retry)
-    These are *predictions*; the actual numbers should fall out of the audit, not be set in stone here.
-    Counter-arguments: (a) "changing defaults breaks user expectations" — addressed by versioning the change in `man/taskgrind.1` and the `grind_done` log line announcing notable default shifts; (b) "this is yak-shaving on a working system" — addressed by the audit being concrete (every default gets a comment or a follow-up task), not open-ended philosophizing; (c) "tests pin specific values" — `tests/*.bats` have a few tests asserting specific defaults (`tests/basics.bats: DVB_MAX_FAST defaults to 20`, etc.); when defaults change, those tests get updated in the same commit and the new value is justified in the commit message.
-    **What's NOT in scope**: changing the *mechanism* of any default (e.g., switching from per-session backoff to per-failure-class backoff); making defaults dynamic / context-aware; rewriting the diminishing-returns detector; touching env vars that aren't numeric defaults (the strings, paths, and bools have their own design considerations).
-    **Why P2**: this is the substrate for `simplify-help-surface-area`. Hiding 21 env vars from `--help` is only safe if the defaults actually work for everyone — otherwise users have to set the hidden vars to fix things, and we've created a worse trap than the current 33-var wall. Doing this in parallel (or right after) the surface-slim is the right ordering.
-  - **Files**:
-    - `bin/taskgrind` — for each defaulted var, add an inline comment `# default: N — <one-sentence-justification>` in the same block that defines `${DVB_FOO:-N}`; defaults that change get a comment plus the new value; defaults that need measurement get a `# TODO(measure):` with a link to a follow-up task ID
-    - `man/taskgrind.1` ENVIRONMENT section — the justifications belong here too so operators reading the man page understand the trade-offs without spelunking source
-    - `tests/basics.bats` and friends — update any test that asserts a specific default value; new test added: `every numeric default has a justification comment within 3 lines of its declaration` (lints against silent default drift)
-    - `docs/user-stories.md` — if any default change affects an existing user story (e.g. story #N said "after 50 zero-ship sessions taskgrind exits"), update that story
-    - `README.md` — env table headers add a "Default rationale" column where applicable
-  - **Acceptance**:
-    - Every numeric default in `bin/taskgrind` has a one-line `# default: ... — ...` comment within 3 lines of its declaration (verified by a new lint test)
-    - Default values that get changed are justified in the commit message with the measurement or reasoning that drove them
-    - The man page reflects every changed default; CLI parity test still passes
-    - `make check` passes — any test that asserted a specific default value is updated to assert the new one
-    - The PR description has a small table summarizing each default's "old → new (or kept) — why" so reviewers can sanity-check the call
 
 - [ ] Share immutable per-file fixtures via `setup_file()` so the bats suite stops paying full setup cost on every test
   - **ID**: bats-setup-file-shared-fixtures
@@ -552,6 +521,22 @@
     - On the `bosun-2026-04-26-2139` re-creation, the new line reads `shipped=29 net_delta=-79 ship_rate=2.8/h tasks_added=102 tasks_starting=44 tasks_after=123` — interpretable at a glance as "29 shipped, but queue grew because 102 concurrent additions"
 
 ## P3
+
+- [ ] Prevent accidental semver-named root artifacts from polluting repo status
+  - **ID**: prevent-semver-root-artifacts
+  - **Tags**: developer-experience, repo-hygiene, tooling
+  - **Source**: 2026-04-30 README/CI cleanup noticed pre-existing untracked files named `=1.11.0`, `=2.32.4`, and `=5.5.0` in the repo root; `=5.5.0` contains pip install output, which suggests a misquoted dependency/version command redirected stdout into a filename instead of a log.
+  - **Details**: Root-level files whose names are only a version comparator suffix are almost certainly command-artifact trash, but they currently show up as ordinary untracked files and make every agent start by wondering whether they are user work. Add a small guard so this shape is either ignored intentionally or detected with a clear cleanup hint. Prefer a targeted rule over broad ignores: the repo should not hide arbitrary generated output, only the known accidental `=<version>` filename pattern if that is the right call after checking how the files were created.
+  - **Files**: `.gitignore`, `Makefile`, `tests/makefile-cleanup.bats`, docs only if the chosen guard needs an operator note
+  - **Acceptance**: a fresh `git status --short` after the guard no longer distracts agents with accidental `=<semver>` artifacts; the guard does not ignore legitimate source/docs files; a regression test or lint/audit check proves the chosen behavior; existing pre-existing artifacts are handled explicitly by the operator rather than silently deleted by an agent; `make check` passes
+
+- [ ] Extract a deadline-path test helper that disables all stall exits
+  - **ID**: deadline-status-test-stall-exit-helper
+  - **Tags**: tests, maintainability, defaults, stall-detection
+  - **Source**: 2026-04-30 defaults-audit verification — lowering `TG_MAX_ZERO_SHIP` exposed that status-file tests which opt out of `TG_NO_STALL_EXIT` can still hit the hard zero-ship bail before their deadline.
+  - **Details**: Several tests assert the clean deadline/completion path for status files and logging. They need the run to end because the deadline expires, not because low-throughput guards fire. Today each test has to remember the exact combination of env vars (`TG_NO_STALL_EXIT=1` plus a high `TG_MAX_ZERO_SHIP`) and comments explaining why. Extract a small helper in `tests/test_helper.bash`, for example `disable_stall_exits_for_deadline_tests`, that sets every stall-exit override needed for deadline-path tests and documents the intent once. Then replace duplicated per-test exports in logging/status tests with the helper.
+  - **Files**: `tests/test_helper.bash`, `tests/logging.bats`, any other status/deadline tests that carry the same manual env setup
+  - **Acceptance**: deadline-oriented status/logging tests call the helper instead of duplicating stall-exit env vars; the helper disables both diminishing-returns and hard zero-ship bails; comments in individual tests shrink to the scenario-specific deadline assertion; `make test-force TESTS=tests/logging.bats` and `make check` pass
 
 - [ ] Fix targeted `make test-force TESTS='file file'` cache-key handling so multi-file focused runs do not fail after passing
   - **ID**: make-test-force-multi-file-cache-key
