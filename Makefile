@@ -3,14 +3,10 @@
 PREFIX ?= /usr/local
 TESTS ?= tests/*.bats
 TASKS_MD ?= TASKS.md
-# Default parallelism: cap at 8 to balance throughput against the macOS per-user
-# process limit. bats --jobs 9+ historically hit signal 15 terminations on
-# macOS at this suite's size; 8 stays inside the safe envelope while leveraging
-# Apple Silicon's 8+ performance cores. The RUN_BATS recipe also bumps the
-# soft process limit (`ulimit -Su unlimited`) so the headroom is real, not
-# theoretical — without that, even --jobs 8 can hit the default 709-process
-# soft cap during burst spawning at test teardown + next-test dispatch overlap.
-AUTO_TEST_JOBS = $(shell jobs=$$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4); expr "$$jobs" + 0 >/dev/null 2>&1 || jobs=4; if [ "$$jobs" -gt 8 ]; then jobs=8; fi; if [ "$$jobs" -lt 2 ]; then jobs=2; fi; echo "$$jobs")
+# Default parallelism: cap at 4 to match GitHub Actions and keep deadline-heavy
+# bats tests inside the stable envelope on slower shared runners and busy local
+# machines. Use TEST_JOBS=8 explicitly when stress-testing parallel flakes.
+AUTO_TEST_JOBS = $(shell jobs=$$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4); expr "$$jobs" + 0 >/dev/null 2>&1 || jobs=4; if [ "$$jobs" -gt 4 ]; then jobs=4; fi; if [ "$$jobs" -lt 2 ]; then jobs=2; fi; echo "$$jobs")
 TEST_JOBS ?= $(AUTO_TEST_JOBS)
 TEST_CACHE_BASENAME = .test-cache
 

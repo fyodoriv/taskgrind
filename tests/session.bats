@@ -541,7 +541,7 @@ TASKS
 
 @test "runs multiple sessions when deadline allows" {
   # Fake devin that exits instantly; generous deadline to avoid flake under load
-  export DVB_DEADLINE_OFFSET=8
+  export DVB_DEADLINE_OFFSET=20
   run "$DVB_GRIND" 1 "$TEST_REPO"
   local count
   count=$(wc -l < "$DVB_GRIND_INVOKE_LOG")
@@ -549,7 +549,7 @@ TASKS
 }
 
 @test "session counter increments across sessions" {
-  export DVB_DEADLINE_OFFSET=8
+  export DVB_DEADLINE_OFFSET=20
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'session 1' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'session 2' "$DVB_GRIND_INVOKE_LOG"
@@ -1571,7 +1571,7 @@ TASKS
   git -C "$TEST_REPO" add TASKS.md
   git -C "$TEST_REPO" commit -q -m "chore: seed queue"
 
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
   [ "$status" -eq 0 ]

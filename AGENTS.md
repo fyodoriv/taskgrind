@@ -41,7 +41,7 @@ make lint       # shellcheck (run from bin/ with -x for source resolution)
 make test       # bats suite across tests/*.bats (cached, skips when unchanged)
 make test-force # bats suite without cache
 make test TESTS=tests/bash-compat.bats  # targeted rerun with its own cache key
-make test TEST_JOBS=4                   # override the auto-capped parallelism for diagnostics
+make test TEST_JOBS=8                   # stress-test higher parallelism for diagnostics
 make check      # lint + test (run before committing)
 make uninstall  # remove symlink and man page
 ```
@@ -54,7 +54,7 @@ make uninstall  # remove symlink and man page
 4. **Source paths are relative** — `$TASKGRIND_DIR/lib/constants.sh`, derived from script location
 5. **Test with `DVB_GRIND_CMD`** — all tests use a fake devin stub, never the real binary
 6. **Use `TESTS=...` for tight loops** — `make test TESTS=tests/bash-compat.bats` or another file reruns just that selection and caches it separately from the full suite
-7. **Parallel bats is auto-capped at 8** — `make test` / `make check` cap `TEST_JOBS` at 8 by default. Going past 8 historically hit `signal 15` terminations from `bats --jobs 9+` because of the macOS per-user soft process limit (~709 by default) during teardown + next-test-dispatch overlap. The `RUN_BATS` recipe in the Makefile bumps the soft limit (`ulimit -Su unlimited`) before invoking bats so that 8 workers stay inside the safe envelope; if you bump the cap higher, expect to revisit that ulimit. Set `TEST_JOBS=<n>` to probe a different level
+7. **Parallel bats is auto-capped at 4** — `make test` / `make check` cap `TEST_JOBS` at 4 by default to match GitHub Actions and avoid deadline-sensitive flakes on slower shared runners or busy local machines. Use `TEST_JOBS=8` only as an explicit stress diagnostic; going past 8 historically hit `signal 15` terminations from `bats --jobs 9+` because of the macOS per-user soft process limit (~709 by default) during teardown + next-test-dispatch overlap.
 8. **Keep runtime files `/bin/bash` 3.2 compatible** — `tests/bash-compat.bats` smokes `/bin/bash bin/taskgrind --dry-run` and rejects common Bash-4-only syntax in sourced runtime files
 9. **Every session adds tasks** — any user prompt, log review, incident debrief, or interactive investigation in this repo (or its sibling personal repos `agentbrew`, `bosun`) should produce at least one TASKS.md addition. Observations that surface failure modes, ergonomic friction, missing telemetry, or "huh, that's odd" findings are durable work — file them with full Details / Files / Acceptance per the template style of existing entries before the session ends. The default state is "this prompt produced N new tasks"; "no new tasks" is acceptable only if the prompt was purely informational (`--help` / status query) and explicitly noted. Failure mode this prevents: agent reasons about a problem, the user accepts the analysis, and the lesson dies with the session because nobody filed it
 
@@ -64,7 +64,8 @@ make uninstall  # remove symlink and man page
 - Docs and startup work usually land in `tests/basics.bats`, `tests/preflight.bats`, or `tests/installer-output.bats`; start with the narrowest one before rerunning the whole suite.
 - Avoid hardcoding suite counts in docs. The total bats count changes as focused files land, so agents should treat `tests/*.bats` plus the current `make test` output as the source of truth.
 - `make test` caches passing results per `TESTS` target and `TEST_JOBS` value, while `make test-force` always reruns the selected suite from scratch.
-- `make test` and `make check` auto-cap `TEST_JOBS` at 8 unless you override it explicitly for diagnostics. The `RUN_BATS` recipe also raises the per-user soft process limit (`ulimit -Su unlimited`) so the cap is real, not theoretical.
+- `make test` and `make check` auto-cap `TEST_JOBS` at 4 unless you override it explicitly for diagnostics. The `RUN_BATS` recipe still raises the per-user soft process limit (`ulimit -Su unlimited`) before invoking bats.
+- GitHub Actions pins the full bats suite to `TEST_JOBS=4`, matching the local default so CI and local `make check` exercise the same stable parallelism.
 
 ## Architecture
 

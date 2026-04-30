@@ -75,7 +75,7 @@ PY
   local status_file="$TEST_DIR/status.json"
   export DVB_STATUS_FILE="$status_file"
   # 5 s was historically enough for one session to land before the
-  # deadline expired, but parallel bats load (TEST_JOBS=6) can eat most
+  # deadline expired, but parallel bats load (TEST_JOBS=4) can eat most
   # of that budget on fixture setup. Match the longer 30 s deadline
   # used by the sibling TG_STATUS_FILE tests so the assertion on
   # `last_session.result == "success"` always has a session to record.
@@ -126,7 +126,7 @@ PY
   export TG_STATUS_FILE="$status_file"
   # The default fake devin is a no-op so the queue never drains. The grind
   # therefore loops on a single task until DVB_DEADLINE fires. 5s is too
-  # tight under TEST_JOBS=6 parallel load (bats fixture setup can eat most
+  # tight under TEST_JOBS=4 parallel load (bats fixture setup can eat most
   # of that budget) — bump to 30s so session 1 always lands well inside the
   # deadline.
   export DVB_DEADLINE_OFFSET=30
