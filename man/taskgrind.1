@@ -944,8 +944,8 @@ Re-run the selected bats suite from scratch without using the cached result.
 .B "make test TESTS=tests/bash\-compat.bats"
 Re-run one bats file with its own cache key for tight local loops.
 .TP
-.B "make test TEST_JOBS=4"
-Override the default parallelism when diagnosing local bats scheduling issues.
+.B "make test TEST_JOBS=2"
+Reproduce the default GitHub Actions parallelism when diagnosing bats scheduling issues.
 .TP
 .B make audit
 Run the offline repo-audit loop: scan for TODO/FIXME markers, run shellcheck,

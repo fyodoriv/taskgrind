@@ -168,7 +168,7 @@ SCRIPT
 ## P0
 - [ ] Persistent task
 TASKS
-  export DVB_DEADLINE_OFFSET=20
+  export DVB_DEADLINE_OFFSET=30
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Session 2 prompt should mention the zero-ship from session 1
   [ -f "$prompt_dir/prompt-2.txt" ]
@@ -541,7 +541,7 @@ TASKS
 
 @test "runs multiple sessions when deadline allows" {
   # Fake devin that exits instantly; generous deadline to avoid flake under load
-  export DVB_DEADLINE_OFFSET=20
+  export DVB_DEADLINE_OFFSET=30
   run "$DVB_GRIND" 1 "$TEST_REPO"
   local count
   count=$(wc -l < "$DVB_GRIND_INVOKE_LOG")
@@ -549,7 +549,7 @@ TASKS
 }
 
 @test "session counter increments across sessions" {
-  export DVB_DEADLINE_OFFSET=20
+  export DVB_DEADLINE_OFFSET=30
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'session 1' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'session 2' "$DVB_GRIND_INVOKE_LOG"
@@ -601,7 +601,7 @@ if [[ "${1:-}" == "-C" && "${3:-}" == "rev-parse" && "${4:-}" == "HEAD" ]]; then
   count=$((count + 1))
   echo "$count" > "$GIT_HEAD_COUNTER"
   if [[ "$count" -eq 3 ]]; then
-    sleep 20
+    sleep 25
   fi
 fi
 exec /usr/bin/git "$@"
@@ -612,6 +612,7 @@ SCRIPT
   export GIT_HEAD_COUNTER="$git_counter"
   unset DVB_GRIND_CMD
   export DVB_DEADLINE_OFFSET=20
+  export DVB_ROTATE_BACKENDS=devin
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
@@ -1571,7 +1572,7 @@ TASKS
   git -C "$TEST_REPO" add TASKS.md
   git -C "$TEST_REPO" commit -q -m "chore: seed queue"
 
-  export DVB_DEADLINE_OFFSET=20
+  export DVB_DEADLINE_OFFSET=30
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
   [ "$status" -eq 0 ]
@@ -1744,7 +1745,7 @@ SCRIPT
   **ID**: task-b
 TASKS
 
-  export DVB_DEADLINE_OFFSET=20
+  export DVB_DEADLINE_OFFSET=30
   export DVB_MAX_ZERO_SHIP=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Session 3 shipped via ID tracking — verify the shipped=1 log

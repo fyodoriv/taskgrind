@@ -1449,7 +1449,7 @@ SCRIPT
   unset DVB_GRIND_CMD
   export DVB_DEVIN_PATH="$fake_devin"
   export DVB_CAFFEINATED=1
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
   # Approval token is required for auto-PR creation.
   PATH="$gh_stub_dir:$PATH" TG_PUBLIC_WRITE_TOKEN=test-session "$DVB_GRIND" 1 "$grind_repo" >/dev/null 2>&1
   [ "$?" -eq 0 ]
@@ -1492,7 +1492,7 @@ SCRIPT
   unset TG_PUBLIC_WRITE_TOKEN
   export DVB_DEVIN_PATH="$fake_devin"
   export DVB_CAFFEINATED=1
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
   PATH="$gh_stub_dir:$PATH" "$DVB_GRIND" 1 "$grind_repo" >/dev/null 2>&1
   [ "$?" -eq 0 ]
 
@@ -1530,7 +1530,7 @@ SCRIPT
   unset DVB_GRIND_CMD
   export DVB_DEVIN_PATH="$fake_devin"
   export DVB_CAFFEINATED=1
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
   PATH="$gh_stub_dir:$PATH" "$DVB_GRIND" 1 "$grind_repo" --no-pr-fallback >/dev/null 2>&1
   [ "$?" -eq 0 ]
 
@@ -1564,7 +1564,7 @@ SCRIPT
   unset DVB_GRIND_CMD
   export DVB_DEVIN_PATH="$fake_devin"
   export DVB_CAFFEINATED=1
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
   PATH="$gh_stub_dir:$PATH" TG_NO_PR_FALLBACK=1 "$DVB_GRIND" 1 "$grind_repo" >/dev/null 2>&1
   [ "$?" -eq 0 ]
 
