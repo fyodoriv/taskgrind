@@ -7,21 +7,14 @@
 # Usage: taskgrind                              → 10h grind (default)
 #        taskgrind 10                          → 10h grind, current dir
 #        taskgrind ~/apps/myrepo 10            → 10h grind in specific repo
-#        taskgrind --model claude-opus-4-7-max 8 → 8h grind with specific model
-#        taskgrind --model "gpt-5.4 XHigh thinking fast" 8
+#        taskgrind --model gpt-5-5-xhigh-priority 8 → 8h grind with specific model
+#        taskgrind --model "gpt-5.5 XHigh thinking fast" 8
 #                                               → quote multi-word model names
 #        taskgrind --skill pipeline-ops ~/apps/bosun 10
 #                                             → 10h run with a custom skill
 #        taskgrind --backend claude-code 8     → 8h grind with Claude Code
 #        taskgrind --rotate-backends devin,claude-code,codex 8
-#                                             → mid-flight backend rotation: when
-#                                               the active backend hits a rate-limit
-#                                               in the session output, the NEXT session
-#                                               launches with the next backend in
-#                                               the list (cycling). Independent of
-#                                               --backend (which sets the starting
-#                                               backend; rotation cycles through the
-#                                               list when a rate-limit fires).
+#                                             → override auto-detected backend rotation.
 #        taskgrind --prompt "focus on test coverage" 8
 #        taskgrind --target-repo ~/apps/frontend --target-repo ~/apps/backend ~/apps/control 8
 #                                             → workspace mode: control repo holds TASKS.md,
@@ -52,12 +45,9 @@
 #        Args can appear in any order. Hours is any bare integer (1-24).
 #
 # Env:   TG_BACKEND     — AI backend: devin, claude-code, codex (default: devin)
-#        TG_ROTATE_BACKENDS — comma-separated list for mid-flight rotation
-#                            (e.g. "devin,claude-code,codex"). When set, after
-#                            each session output is scanned for rate-limit / quota
-#                            / throttle patterns; on match, the next session
-#                            launches with the next backend in the list.
-#        TG_MODEL       — AI model (default: "claude-opus-4-7-max")
+#        TG_ROTATE_BACKENDS — comma-separated list overriding auto-detected
+#                            mid-flight rotation.
+#        TG_MODEL       — AI model (default: "gpt-5-5-xhigh-priority")
 #        TG_COOL        — seconds between sessions (default: 5)
 #        TG_SKILL       — skill to run (default: next-task)
 #        TG_PROMPT      — extra focus prompt prepended to every session
@@ -103,7 +93,19 @@
 #                         the auto-PR fallback (open a PR via `gh pr create`)
 #                         and log `push_protected_branch_manual_recovery_needed`
 #                         instead. Default 0: PR fallback runs when `gh` is on
-#                         PATH and `TG_NO_PUSH` is not set.
+#                         PATH, `TG_NO_PUSH` is not set, and
+#                         `TG_PUBLIC_WRITE_TOKEN` is set.
+#        TG_PUBLIC_WRITE_TOKEN — approval token for final_sync auto-PR creation.
+#                         When set (any non-empty string, e.g. "session-2026-05-01"),
+#                         taskgrind may push a feature branch and open a PR via
+#                         `gh pr create` when the direct push is blocked by branch
+#                         protection. When unset (default), auto-PR creation is
+#                         blocked: taskgrind writes the draft PR body to a temp
+#                         file, prints `Approval needed — draft body at <path>`,
+#                         and falls through to
+#                         `push_protected_branch_manual_recovery_needed`. This
+#                         prevents unapproved public writes from agent sessions.
+#                         Set once per grind run to authorize the specific PR.
 #        TG_TARGET_REPOS — colon-separated workspace target repo paths. Same
 #                         effect as repeating `--target-repo PATH`. The control
 #                         repo (positional arg) holds TASKS.md and the slot
@@ -188,6 +190,7 @@ for _tg_var in BACKEND BACKOFF_BASE BACKOFF_MAX COOL DEVIN_PATH \
                GIT_SYNC_TIMEOUT LOG MAX_FAST MAX_INSTANCES \
                MAX_SESSION MAX_ZERO_SHIP MIN_SESSION MODEL NET_CHECK_URL NET_MAX_WAIT \
                NET_RETRIES NET_RETRY_DELAY NET_WAIT NO_PUSH NO_STALL_EXIT NOTIFY PROMPT \
+               PUBLIC_WRITE_TOKEN \
                ROTATE_BACKENDS SESSION_GRACE SHUTDOWN_GRACE SKILL STATUS_FILE SWEEP_MAX \
                SYNC_INTERVAL TARGET_REPOS; do
   _tg_ref="TG_${_tg_var}"
@@ -253,13 +256,13 @@ while [[ $# -gt 0 ]]; do
     --resume) resume_run=1; shift ;;
     --no-push) _cli_no_push=1; shift ;;
     --no-pr-fallback) _cli_no_pr_fallback=1; shift ;;
-    --model=*) _cli_model="${1#--model=}"; [[ -z "$_cli_model" ]] && { echo "Error: --model requires a non-empty name (example: --model claude-opus-4-7-max). See 'taskgrind --help'." >&2; exit 1; }; shift ;;
+    --model=*) _cli_model="${1#--model=}"; [[ -z "$_cli_model" ]] && { echo "Error: --model requires a non-empty name (example: --model gpt-5-5-xhigh-priority). See 'taskgrind --help'." >&2; exit 1; }; shift ;;
     --model)
       if [[ $# -lt 2 ]]; then
-        echo "Error: --model requires a name (example: --model claude-opus-4-7-max). See 'taskgrind --help'." >&2; exit 1
+        echo "Error: --model requires a name (example: --model gpt-5-5-xhigh-priority). See 'taskgrind --help'." >&2; exit 1
       fi
       _cli_model="$2"
-      [[ -z "$_cli_model" ]] && { echo "Error: --model requires a non-empty name (example: --model claude-opus-4-7-max). See 'taskgrind --help'." >&2; exit 1; }
+      [[ -z "$_cli_model" ]] && { echo "Error: --model requires a non-empty name (example: --model gpt-5-5-xhigh-priority). See 'taskgrind --help'." >&2; exit 1; }
       shift 2
       ;;
     --skill=*) skill="${1#--skill=}"; [[ -z "$skill" ]] && { echo "Error: --skill requires a non-empty name" >&2; exit 1; }; _cli_skill_set=1; shift ;;
@@ -354,9 +357,14 @@ translate_from_prompt() {
   # Pick the backend + model for the translator call: explicit CLI > env >
   # default. We deliberately do NOT use prompt-derived model/backend (that
   # would be circular — we are running this CALL to learn what they are).
-  local _trans_model _trans_backend
-  _trans_model="$(dvb_resolve_model_alias "${_cli_model:-${DVB_MODEL:-$DVB_DEFAULT_MODEL}}")"
+  local _trans_model _trans_backend _trans_model_source
   _trans_backend="${_cli_backend:-${DVB_BACKEND:-devin}}"
+  _trans_model_source="${_cli_model:-${DVB_MODEL:-}}"
+  if [[ -n "$_trans_model_source" ]]; then
+    _trans_model="$(dvb_resolve_model_alias "$_trans_model_source")"
+  else
+    _trans_model="$(dvb_default_model_for_backend "$_trans_backend")"
+  fi
 
   local _home_path="${HOME:-/}"
   # Build the translation prompt with a quoted heredoc + manual placeholder
@@ -529,16 +537,20 @@ if [[ -z "$extra_prompt" && -n "$_fp_focus" ]]; then
   extra_prompt="$_fp_focus"
 fi
 
-requested_model="$(dvb_resolve_model_alias "${_cli_model:-${DVB_MODEL:-${_fp_model:-$DVB_DEFAULT_MODEL}}}")"
 requested_backend="${_cli_backend:-${DVB_BACKEND:-${_fp_backend:-devin}}}"
+_requested_model_source="${_cli_model:-${DVB_MODEL:-${_fp_model:-}}}"
+if [[ -n "$_requested_model_source" ]]; then
+  requested_model="$(dvb_resolve_model_alias "$_requested_model_source")"
+else
+  requested_model="$(dvb_default_model_for_backend "$requested_backend")"
+fi
 model="$requested_model"
 backend="$requested_backend"
 
 # ── Backend rotation list ────────────────────────────────────────────
-# Mid-flight backend switching: when --rotate-backends a,b,c is set, taskgrind
-# scans each session's output for rate-limit / quota patterns. On match, the
-# next session is launched with the next backend in the list (cycling).
-# Without this flag, the run stays on a single backend regardless of failures.
+# Mid-flight backend switching: taskgrind scans each session's output for
+# rate-limit / quota patterns. On match, the next session is launched with
+# the next backend in the auto-detected or user-configured list (cycling).
 # Source priority: --rotate-backends CLI flag → DVB_ROTATE_BACKENDS env var
 # (which mirrors TG_ROTATE_BACKENDS via the prefix-resolution loop above).
 _rotation_backends=()
@@ -717,7 +729,7 @@ case "$backend" in
   *) echo "Error: unknown backend '$backend'. Supported: devin, claude-code, codex (example: --backend devin or TG_BACKEND=claude-code). See 'taskgrind --help'." >&2; exit 1 ;;
 esac
 
-# Warn when codex backend uses default Anthropic model
+# Warn when codex backend uses a Claude model
 if [[ "$backend" == "codex" && "$model" == *claude* ]]; then
   echo "Warning: TG_MODEL='$model' is an Anthropic model but backend is codex (OpenAI)." >&2
   echo "  Set TG_MODEL to an OpenAI model (e.g. o3, gpt-4o) or codex may reject it." >&2
@@ -979,6 +991,27 @@ _refresh_model() {
 }
 _refresh_model
 
+model_context_profile() {
+  case "$model" in
+    *opus-4-7*|*opus-4.7*|*opus*1m*|*opus*1M*) printf '%s' "large" ;;
+    *) printf '%s' "standard" ;;
+  esac
+}
+
+fleet_context_guard() {
+  local profile
+  case "$skill" in
+    fleet-grind) ;;
+    *) return 0 ;;
+  esac
+  profile="$(model_context_profile)"
+  if [[ "$profile" == "large" ]]; then
+    printf '%s' "CONTEXT_BUDGET: Model profile large. You have more headroom than the GPT-5.5 standard profile, but still checkpoint via commits and notes before broadening scope; prefer a clean session boundary over filling context."
+  else
+    printf '%s' "CONTEXT_BUDGET: Model profile standard. Keep this fleet-grind session to one merge/fill/fix cycle and at most one narrow sweep. Avoid broad history reads unless required. Commit notes/TASKS changes before expanding scope. Exit cleanly before context grows instead of trying to finish every phase."
+  fi
+}
+
 net_check_url="${DVB_NET_CHECK_URL:-https://connectivitycheck.gstatic.com/generate_204}"
 
 # ── Network check functions ──────────────────────────────────────────
@@ -1157,14 +1190,14 @@ resolve_backend_binary() {
 }
 
 # ── Mid-flight backend rotation ──────────────────────────────────────
-# When --rotate-backends is set, scan the just-completed session's output for
-# rate-limit / quota / throttle patterns. If a pattern matches, advance the
-# rotation cursor to the next backend in the list and re-resolve `devin_cmd`
-# so the next session launches with a different backend. Patterns mirror
-# the bosun BackendHealthService RATE_LIMIT_PATTERNS list (kept in sync — if
-# bosun adds a pattern we want to react here too).
+# Scan the just-completed session's output for rate-limit / quota / throttle
+# patterns. If a pattern matches, advance the rotation cursor to the next
+# backend in the list and re-resolve `devin_cmd` so the next session launches
+# with a different backend. Patterns mirror the bosun BackendHealthService
+# RATE_LIMIT_PATTERNS list (kept in sync — if bosun adds a pattern we want to
+# react here too).
 #
-# Idempotent: when the rotation list is empty (no flag) this is a no-op.
+# Idempotent: when the rotation list is empty this is a no-op.
 # Safe: if the next backend's binary cannot be found, reverts to the previous
 # backend and logs a warning — never leaves the run in an unrunnable state.
 # (`_rotation_backends` array + `_current_rotation_index` are initialized
@@ -1223,7 +1256,7 @@ _maybe_rotate_backend() {
 #   1. consecutive_zero_ship >= TG_SELF_INVESTIGATE_ZERO_SHIP_STREAK (default 3)
 #      — the active backend is producing output but not shipping. May not
 #      contain a rate-limit phrase, but it is structurally stuck. If a
-#      rotation list is configured, rotate. Otherwise just log.
+#      rotation list is available, rotate. Otherwise just log.
 #   2. session_exit non-zero AND the last 3 sessions also had non-zero exits
 #      — backend is crashing systematically. Same response: rotate if possible.
 #
@@ -1238,7 +1271,7 @@ _maybe_self_investigate() {
       echo "   ↺ Self-investigation: $consecutive_zero_ship sessions shipped 0 — trying backend rotation."
       _maybe_rotate_backend "" "zero_ship_streak"
     else
-      echo "   ⚠ Self-investigation: $consecutive_zero_ship sessions shipped 0 — no rotation list configured (set --rotate-backends)."
+      echo "   ⚠ Self-investigation: $consecutive_zero_ship sessions shipped 0 — no rotation list available (install another backend or set TG_ROTATE_BACKENDS)."
     fi
   fi
 }
@@ -1361,29 +1394,48 @@ _check_bosun_health() {
 # observability + after-the-fact alert, not a hard gate.
 _pipeline_baseline_file=""
 
+_bosun_api_auth_args=()
+_resolve_bosun_api_auth_args() {
+  local token=""
+  _bosun_api_auth_args=()
+  if [[ -n "${BOSUN_TOKEN:-}" ]]; then
+    token="$BOSUN_TOKEN"
+  elif [[ -n "${HOME:-}" && -f "$HOME/.orchestrator/auth-token" ]]; then
+    token=$(sed -n '1p' "$HOME/.orchestrator/auth-token" 2>/dev/null) || token=""
+  fi
+  if [[ -n "$token" ]]; then
+    _bosun_api_auth_args=(-H "Authorization: Bearer $token")
+  fi
+}
+
 _pipeline_count_via_api() {
   local base="${BOSUN_API_BASE:-http://localhost:9746}"
   base="${base%/}"
-  local body
-  if ! body=$(curl -sf --max-time 5 "${base}/api/v1/pipelines?limit=500" 2>/dev/null); then
+  local body count
+  _resolve_bosun_api_auth_args
+  if ! body=$(curl -sf --max-time 5 "${_bosun_api_auth_args[@]}" "${base}/api/v1/pipelines?limit=500" 2>/dev/null); then
     echo 0
-    return 1
+    return 0
   fi
   if command -v jq >/dev/null 2>&1; then
-    echo "$body" | jq -r '(.pipelines // .) | length' 2>/dev/null || echo 0
+    count=$(echo "$body" | jq -r '(.pipelines // .) | length' 2>/dev/null) || count=0
   else
-    # Fallback: count `"id":` occurrences in the JSON. Approximates pipeline
-    # count when jq isn't available; pipeline objects always have an id field.
-    echo "$body" | grep -o '"id":' | wc -l | tr -d ' '
+    count=$(echo "$body" | grep -o '"id":' | wc -l | tr -d ' ') || count=0
   fi
+  case "$count" in
+    ""|*[!0-9]*) echo 0 ;;
+    *) echo "$count" ;;
+  esac
 }
 
 _capture_pipeline_baseline() {
   local count
-  count=$(_pipeline_count_via_api 2>/dev/null || echo 0)
+  count=$(_pipeline_count_via_api 2>/dev/null)
   _pipeline_baseline_file="$_dvb_tmp/taskgrind-baseline-${_lock_hash}.json"
   printf '{"startCount":%d,"startTime":%d,"pid":%d}\n' "$count" "$(date +%s)" "$$" > "$_pipeline_baseline_file"
-  log_write "[$(date '+%H:%M')] pipeline_baseline count=$count file=$_pipeline_baseline_file"
+  if type log_write >/dev/null 2>&1; then
+    log_write "[$(date '+%H:%M')] pipeline_baseline count=$count file=$_pipeline_baseline_file"
+  fi
 }
 
 _verify_pipeline_completion_rate() {
@@ -1401,7 +1453,7 @@ _verify_pipeline_completion_rate() {
   [[ -z "$start_count" ]] && start_count=0
 
   local end_count
-  end_count=$(_pipeline_count_via_api 2>/dev/null || echo 0)
+  end_count=$(_pipeline_count_via_api 2>/dev/null)
   local delta=$((end_count - start_count))
 
   log_write "[$(date '+%H:%M')] pipeline_verify start=$start_count end=$end_count delta=$delta tasks_shipped=$tasks_shipped"
@@ -1871,9 +1923,14 @@ if [[ "$dry_run" -eq 1 ]]; then
   if [[ "$no_push" == "1" ]]; then
     echo "  COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. NO-PUBLISH MODE: commit locally only. Do NOT push to any remote. Do NOT create pull requests. Do NOT merge pull requests. Do NOT use 'gh pr create', 'gh pr merge', 'git push', or any tool that publishes to origin. Remove the completed task block from TASKS.md and commit locally — that is the entire publish step. The operator will review and push manually after the grind exits."
   else
-    echo "  COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. If you created a PR, merge it first (use 'gh pr merge --squash' or merge directly). If you committed directly to main, just remove the task. A session that commits code but doesn't remove the task from TASKS.md is a failed session."
+    echo "  COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. Do NOT merge pull requests, force-push branches, bypass pre-push hooks with --no-verify, or submit PRs without explicit operator approval in this session. If you committed directly to main, just remove the task. A session that commits code but doesn't remove the task from TASKS.md is a failed session."
   fi
-  echo "  AUTONOMY: You are fully autonomous. Never skip a task claiming it requires manual steps, human intervention, or external service access. You have browser automation, MCP tools, CLI access, and can interact with any web service. If a task involves a UI portal, use your browser skills. If it needs an API, call it. If it needs Jira, use MCP. Do not leave tasks saying 'requires manual work' — figure it out and do it."
+  echo "  PUBLIC_WRITE_GATE: TASKS.md task metadata — including labels, tags, or green-list annotations — is task context only. It does NOT authorize any public write. Explicit current-session operator approval is required before: merging or creating pull requests, pushing to remote branches, opening issues, posting to Slack/Jira/email, publishing packages, or any action visible outside this local repo. For cross-repo or upstream work: prepare the branch and PR body locally, report 'Approval needed — draft body at <path>', and stop. Do NOT bypass pre-push hooks with --no-verify or submit without that approval."
+  echo "  AUTONOMY: You are fully autonomous. Never skip a task claiming it requires manual steps, human intervention, or external service access. You have browser automation, MCP tools, CLI access, and can interact with any web service. If a task involves a UI portal, use your browser skills. If it needs an API, call it. If it needs Jira, use MCP. Do not leave tasks saying 'requires manual work' — figure it out and do it. EXCEPTION: any public write (PR creation/merge, remote push, external notification) requires explicit operator approval in this session, not just task metadata."
+  _dvb_context_guard="$(fleet_context_guard)"
+  if [[ -n "$_dvb_context_guard" ]]; then
+    echo "  $_dvb_context_guard"
+  fi
   if [[ "${#target_repos[@]}" -gt 0 ]]; then
     echo "  WORKSPACE: This grind has ${#target_repos[@]} target repo(s) in addition to the control repo ($repo): $_targets_joined. Tasks may require coordinated changes across them. Use 'cd <repo> && git ...' to commit changes in the right repo. Treat the control repo as the source of truth for TASKS.md."
   fi
@@ -2338,37 +2395,54 @@ final_sync() {
         _pr_fallback_eligible=0
       fi
       if [[ "$_pr_fallback_eligible" -eq 1 ]]; then
-        # Push to a unique feature branch so concurrent grinds don't collide.
-        # Branch name marks the source for human triage.
-        local _ship_branch _ship_push_status=0 _ship_push_output _pr_url _pr_status=0 _pr_output
+        # Approval token gate (acceptance criterion b): TG_PUBLIC_WRITE_TOKEN must
+        # be set to a non-empty value to authorize auto-PR creation. When absent,
+        # the draft PR body is written to a temp file for operator review and the
+        # run falls through to push_protected_branch_manual_recovery_needed.
+        local _ship_branch
         _ship_branch="taskgrind-ship-$(date -u +%Y%m%d-%H%M%S)"
-        log_write "[$(date '+%H:%M')] final_sync pr_fallback_attempt branch=$_ship_branch commits=$ahead${_fs_suffix}"
-        _ship_push_output=$(git -C "$_fs_repo" push origin "HEAD:$_ship_branch" 2>&1) || _ship_push_status=$?
-        if [[ "$_ship_push_status" -eq 0 ]]; then
-          # Build PR title + body. Title summarizes commit count + latest subject;
-          # body lists each commit so reviewers see exactly what shipped.
-          local _pr_title _pr_body _latest_subject _commit_log
-          _latest_subject=$(git -C "$_fs_repo" log -1 --pretty='%s' 2>/dev/null || echo "taskgrind ship")
-          if [[ "$ahead" -eq 1 ]]; then
-            _pr_title="$_latest_subject"
-          else
-            _pr_title="taskgrind ship: $ahead commits ($_latest_subject)"
-          fi
-          _commit_log=$(git -C "$_fs_repo" log "origin/$_default_branch..HEAD" --pretty='- %s' 2>/dev/null || echo "")
-          _pr_body=$(printf 'Auto-created by taskgrind final_sync after main push was rejected by branch protection (%s).\n\nCommits:\n%s\n\nLocal branch: %s\nTarget: %s' "$push_first_line" "$_commit_log" "$_ship_branch" "$_default_branch")
-          _pr_output=$(gh pr create --base "$_default_branch" --head "$_ship_branch" --title "$_pr_title" --body "$_pr_body" 2>&1) || _pr_status=$?
-          if [[ "$_pr_status" -eq 0 ]]; then
-            _pr_url=$(printf '%s\n' "$_pr_output" | grep -Eo 'https?://[^[:space:]]+' | head -1)
-            echo "   ✅ Push to main blocked by branch protection — opened PR: ${_pr_url:-$_pr_output}"
-            log_write "[$(date '+%H:%M')] final_sync pr_created url=${_pr_url:-unknown} commits=$ahead branch=$_ship_branch${_fs_suffix}"
-            return 0
-          else
-            log_write "[$(date '+%H:%M')] final_sync pr_creation_failed branch=$_ship_branch error=$_pr_output${_fs_suffix}"
-          fi
+        # Build PR title + body regardless of whether we'll actually create the PR.
+        # Body is needed for both the draft-file path and the live PR path.
+        local _pr_title _pr_body _latest_subject _commit_log
+        _latest_subject=$(git -C "$_fs_repo" log -1 --pretty='%s' 2>/dev/null || echo "taskgrind ship")
+        if [[ "$ahead" -eq 1 ]]; then
+          _pr_title="$_latest_subject"
         else
-          log_write "[$(date '+%H:%M')] final_sync pr_fallback_push_failed branch=$_ship_branch error=$_ship_push_output${_fs_suffix}"
+          _pr_title="taskgrind ship: $ahead commits ($_latest_subject)"
         fi
-        # PR fallback failed — fall through to manual-recovery messaging below.
+        _commit_log=$(git -C "$_fs_repo" log "origin/$_default_branch..HEAD" --pretty='- %s' 2>/dev/null || echo "")
+        _pr_body=$(printf 'Why this is needed:\ntaskgrind final_sync attempted to push to %s but the direct push was rejected by branch protection (%s). This PR was auto-created to preserve the completed work for operator review and merge.\n\nCommits:\n%s\n\nLocal branch: %s\nTarget: %s\n\n---\n_🤖 Written by an agent, not Fyodor. Ping me if this looks off._' "$_default_branch" "$push_first_line" "$_commit_log" "$_ship_branch" "$_default_branch")
+        if [[ -z "${DVB_PUBLIC_WRITE_TOKEN:-}" ]]; then
+          # No approval token — write draft body to file and block PR creation.
+          local _draft_body_file
+          _draft_body_file=$(mktemp "$_dvb_tmp/taskgrind-pr-draft-XXXXXX.md" 2>/dev/null) || \
+            _draft_body_file="$_dvb_tmp/taskgrind-pr-draft-$(date -u +%Y%m%d-%H%M%S).md"
+          printf '%s\n' "$_pr_body" > "$_draft_body_file" 2>/dev/null || true
+          echo "   🛑 PR creation blocked: TG_PUBLIC_WRITE_TOKEN not set."
+          echo "      Approval needed — draft body at: $_draft_body_file"
+          echo "      Set TG_PUBLIC_WRITE_TOKEN=<token> to authorize auto-PR for this run."
+          log_write "[$(date '+%H:%M')] final_sync pr_blocked_approval_needed branch=$_ship_branch draft=$_draft_body_file${_fs_suffix}"
+          # Fall through to manual-recovery path below.
+        else
+          # Token present — proceed with branch push + PR creation.
+          local _ship_push_status=0 _ship_push_output _pr_url _pr_status=0 _pr_output
+          log_write "[$(date '+%H:%M')] final_sync pr_fallback_attempt branch=$_ship_branch commits=$ahead${_fs_suffix}"
+          _ship_push_output=$(git -C "$_fs_repo" push origin "HEAD:$_ship_branch" 2>&1) || _ship_push_status=$?
+          if [[ "$_ship_push_status" -eq 0 ]]; then
+            _pr_output=$(gh pr create --base "$_default_branch" --head "$_ship_branch" --title "$_pr_title" --body "$_pr_body" 2>&1) || _pr_status=$?
+            if [[ "$_pr_status" -eq 0 ]]; then
+              _pr_url=$(printf '%s\n' "$_pr_output" | grep -Eo 'https?://[^[:space:]]+' | head -1)
+              echo "   ✅ Push to main blocked by branch protection — opened PR: ${_pr_url:-$_pr_output}"
+              log_write "[$(date '+%H:%M')] final_sync pr_created url=${_pr_url:-unknown} commits=$ahead branch=$_ship_branch${_fs_suffix}"
+              return 0
+            else
+              log_write "[$(date '+%H:%M')] final_sync pr_creation_failed branch=$_ship_branch error=$_pr_output${_fs_suffix}"
+            fi
+          else
+            log_write "[$(date '+%H:%M')] final_sync pr_fallback_push_failed branch=$_ship_branch error=$_ship_push_output${_fs_suffix}"
+          fi
+          # PR fallback failed — fall through to manual-recovery messaging below.
+        fi
       fi
       echo "   ⚠ Push failed (protected branch): $push_first_line — local commits preserved for manual recovery"
       log_write "[$(date '+%H:%M')] final_sync push_protected_branch_manual_recovery_needed commits=$ahead${_fs_suffix}"
@@ -3477,6 +3551,10 @@ while [[ $(date +%s) -lt $deadline ]]; do
     if [[ -n "$extra_prompt" ]]; then
       sweep_prompt+=" FOCUS: $extra_prompt"
     fi
+    _dvb_context_guard="$(fleet_context_guard)"
+    if [[ -n "$_dvb_context_guard" ]]; then
+      sweep_prompt+=" $_dvb_context_guard"
+    fi
 
     session_start=$(date +%s)
     session_exit=0
@@ -3674,11 +3752,21 @@ while [[ $(date +%s) -lt $deadline ]]; do
   if [[ "$no_push" == "1" ]]; then
     prompt+=" COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. NO-PUBLISH MODE: commit locally only. Do NOT push to any remote. Do NOT create pull requests. Do NOT merge pull requests. Do NOT use 'gh pr create', 'gh pr merge', 'git push', or any tool that publishes to origin. Remove the completed task block from TASKS.md and commit locally — that is the entire publish step. The operator will review and push manually after the grind exits."
   else
-    prompt+=" COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. If you created a PR, merge it first (use 'gh pr merge --squash' or merge directly). If you committed directly to main, just remove the task. A session that commits code but doesn't remove the task from TASKS.md is a failed session."
+    prompt+=" COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. Do NOT merge pull requests, force-push branches, bypass pre-push hooks with --no-verify, or submit PRs without explicit operator approval in this session. If you committed directly to main, just remove the task. A session that commits code but doesn't remove the task from TASKS.md is a failed session."
   fi
 
-  # Autonomy — the agent must not defer to humans
-  prompt+=" AUTONOMY: You are fully autonomous. Never skip a task claiming it requires manual steps, human intervention, or external service access. You have browser automation, MCP tools, CLI access, and can interact with any web service. If a task involves a UI portal, use your browser skills. If it needs an API, call it. If it needs Jira, use MCP. Do not leave tasks saying 'requires manual work' — figure it out and do it."
+  # Public-write gate — explicit in every session prompt (acceptance: a, d).
+  # TASKS.md metadata is task context only, never operator approval for writes.
+  # Mirrors the dry-run block above — keep both in sync.
+  prompt+=" PUBLIC_WRITE_GATE: TASKS.md task metadata — including labels, tags, or green-list annotations — is task context only. It does NOT authorize any public write. Explicit current-session operator approval is required before: merging or creating pull requests, pushing to remote branches, opening issues, posting to Slack/Jira/email, publishing packages, or any action visible outside this local repo. For cross-repo or upstream work: prepare the branch and PR body locally, report 'Approval needed — draft body at <path>', and stop. Do NOT bypass pre-push hooks with --no-verify or submit without that approval."
+
+  # Autonomy — the agent must not defer to humans, with public-write exception.
+  prompt+=" AUTONOMY: You are fully autonomous. Never skip a task claiming it requires manual steps, human intervention, or external service access. You have browser automation, MCP tools, CLI access, and can interact with any web service. If a task involves a UI portal, use your browser skills. If it needs an API, call it. If it needs Jira, use MCP. Do not leave tasks saying 'requires manual work' — figure it out and do it. EXCEPTION: any public write (PR creation/merge, remote push, external notification) requires explicit operator approval in this session, not just task metadata."
+
+  _dvb_context_guard="$(fleet_context_guard)"
+  if [[ -n "$_dvb_context_guard" ]]; then
+    prompt+=" $_dvb_context_guard"
+  fi
 
   # Multi-instance conflict avoidance — slots ≥1 must coordinate with slot 0
   if [[ $_dvb_slot -ge 1 ]]; then
@@ -4174,15 +4262,15 @@ while [[ $(date +%s) -lt $deadline ]]; do
     log_write "[$(date '+%H:%M')] session=$session ended exit=$session_exit duration=${session_elapsed}s tasks_after=$tasks_after shipped=$session_shipped"
   fi
 
-  # Mid-flight backend rotation: if --rotate-backends is set and the just-finished
-  # session output contains rate-limit / quota / throttle patterns, advance to the
-  # next backend in the rotation list before the next session launches. No-op
-  # otherwise. Must run BEFORE we truncate $session_output below.
+  # Mid-flight backend rotation: if the just-finished session output contains
+  # rate-limit / quota / throttle patterns, advance to the next backend in the
+  # rotation list before the next session launches. No-op otherwise. Must run
+  # BEFORE we truncate $session_output below.
   _maybe_rotate_backend "$session_output" "rate_limit"
 
   # Self-investigation: detect "things are off" patterns that don't show up
   # in the session output (zero-ship streaks, persistent crashes) and act —
-  # typically by rotating to the next backend if a rotation list is set.
+  # typically by rotating to the next backend if a rotation list is available.
   # Logs every detection for external observability.
   _maybe_self_investigate
 

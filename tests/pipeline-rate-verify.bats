@@ -134,6 +134,124 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
     | grep -q -- '--max-time 5'
 }
 
+@test "_pipeline_count_via_api sends Authorization header from BOSUN_TOKEN" {
+  local harness="$TEST_DIR/auth-harness.sh"
+  local bin_dir="$TEST_DIR/bin"
+  mkdir -p "$bin_dir"
+  cat > "$bin_dir/curl" <<'SCRIPT'
+#!/bin/bash
+printf '%s\n' "$*" > "$TG_CURL_ARGS"
+printf '{"pipelines":[{"id":"p1"},{"id":"p2"}]}'
+SCRIPT
+  chmod +x "$bin_dir/curl"
+
+  cat > "$harness" <<'HARNESS'
+#!/bin/bash
+set -euo pipefail
+HARNESS
+  local helpers_start helpers_end
+  helpers_start=$(grep -n '^_pipeline_baseline_file=' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$(grep -n '^_capture_pipeline_baseline()' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$((helpers_end - 1))
+  sed -n "${helpers_start},${helpers_end}p" "$DVB_GRIND" >> "$harness"
+  echo "_pipeline_count_via_api" >> "$harness"
+
+  run env PATH="$bin_dir:$PATH" BOSUN_TOKEN="test-token" TG_CURL_ARGS="$TEST_DIR/curl.args" bash "$harness"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "2" ]]
+  grep -q -- '-H Authorization: Bearer test-token' "$TEST_DIR/curl.args"
+}
+
+@test "_pipeline_count_via_api sends Authorization header from auth-token file" {
+  local harness="$TEST_DIR/auth-file-harness.sh"
+  local bin_dir="$TEST_DIR/bin"
+  local home_dir="$TEST_DIR/home"
+  mkdir -p "$bin_dir" "$home_dir/.orchestrator"
+  printf 'file-token\n' > "$home_dir/.orchestrator/auth-token"
+  cat > "$bin_dir/curl" <<'SCRIPT'
+#!/bin/bash
+printf '%s\n' "$*" > "$TG_CURL_ARGS"
+printf '{"pipelines":[{"id":"p1"}]}'
+SCRIPT
+  chmod +x "$bin_dir/curl"
+
+  cat > "$harness" <<'HARNESS'
+#!/bin/bash
+set -euo pipefail
+HARNESS
+  local helpers_start helpers_end
+  helpers_start=$(grep -n '^_pipeline_baseline_file=' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$(grep -n '^_capture_pipeline_baseline()' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$((helpers_end - 1))
+  sed -n "${helpers_start},${helpers_end}p" "$DVB_GRIND" >> "$harness"
+  echo "_pipeline_count_via_api" >> "$harness"
+
+  run env PATH="$bin_dir:$PATH" HOME="$home_dir" TG_CURL_ARGS="$TEST_DIR/curl-file.args" bash "$harness"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "1" ]]
+  grep -q -- '-H Authorization: Bearer file-token' "$TEST_DIR/curl-file.args"
+}
+
+@test "_resolve_bosun_api_auth_args only checks auth-token file when HOME is set" {
+  awk '/^_resolve_bosun_api_auth_args\(\) \{/,/^\}/' "$DVB_GRIND" \
+    | grep -q '\[\[ -n "${HOME:-}" && -f "$HOME/.orchestrator/auth-token" \]\]'
+}
+
+@test "_capture_pipeline_baseline survives curl failure with one numeric fallback" {
+  local harness="$TEST_DIR/fallback-harness.sh"
+  local bin_dir="$TEST_DIR/bin"
+  mkdir -p "$bin_dir"
+  cat > "$bin_dir/curl" <<'SCRIPT'
+#!/bin/bash
+exit 22
+SCRIPT
+  chmod +x "$bin_dir/curl"
+
+  cat > "$harness" <<'HARNESS'
+#!/bin/bash
+set -euo pipefail
+_dvb_tmp="$TG_TEST_TMP"
+_lock_hash="fallback"
+log_file="$TG_TEST_TMP/fallback.log"
+log_write() { echo "$1" >> "$log_file"; }
+HARNESS
+  local helpers_start helpers_end
+  helpers_start=$(grep -n '^_pipeline_baseline_file=' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$(grep -n '^slot_lock_file()' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$((helpers_end - 1))
+  sed -n "${helpers_start},${helpers_end}p" "$DVB_GRIND" >> "$harness"
+  echo "_capture_pipeline_baseline" >> "$harness"
+  echo 'cat "$_pipeline_baseline_file"' >> "$harness"
+
+  run env PATH="$bin_dir:$PATH" TG_TEST_TMP="$TEST_DIR" bash "$harness"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"startCount":0'* ]]
+}
+
+@test "_capture_pipeline_baseline tolerates preflight-only before log_write exists" {
+  local harness="$TEST_DIR/no-log-harness.sh"
+  cat > "$harness" <<'HARNESS'
+#!/bin/bash
+set -euo pipefail
+_dvb_tmp="$TG_TEST_TMP"
+_lock_hash="nolog"
+HARNESS
+  local helpers_start helpers_end
+  helpers_start=$(grep -n '^_pipeline_baseline_file=' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$(grep -n '^slot_lock_file()' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$((helpers_end - 1))
+  sed -n "${helpers_start},${helpers_end}p" "$DVB_GRIND" >> "$harness"
+  cat >> "$harness" <<'HARNESS'
+_pipeline_count_via_api() { echo 7; }
+_capture_pipeline_baseline
+cat "$_pipeline_baseline_file"
+HARNESS
+
+  run env TG_TEST_TMP="$TEST_DIR" bash "$harness"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"startCount":7'* ]]
+}
+
 # ── Integration-style: end-to-end with stubbed curl ──────────────────────────
 
 @test "anomaly path: curl returns same count → tasks_shipped → ANOMALY logged" {

@@ -191,6 +191,12 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [[ "$output" != *"Warning"*"Anthropic model"* ]]
 }
 
+@test "codex backend defaults to codex-compatible GPT-5.5 model" {
+  run "$DVB_GRIND" --dry-run --backend codex 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"model:    gpt-5.5"* ]]
+}
+
 @test "resolve_backend_binary function exists" {
   grep -q 'resolve_backend_binary()' "$DVB_GRIND"
 }
@@ -209,15 +215,15 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 # ── --model CLI flag ─────────────────────────────────────────────────
 
 @test "--model flag sets model" {
-  run "$DVB_GRIND" --dry-run --model gpt-5-4 1 "$TEST_REPO"
+  run "$DVB_GRIND" --dry-run --model gpt-5-5 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"model:    gpt-5-4"* ]]
+  [[ "$output" == *"model:    gpt-5-5"* ]]
 }
 
-@test "--model=gpt-5-4 equals syntax works" {
-  run "$DVB_GRIND" --dry-run --model=gpt-5-4 1 "$TEST_REPO"
+@test "--model=gpt-5-5 equals syntax works" {
+  run "$DVB_GRIND" --dry-run --model=gpt-5-5 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"model:    gpt-5-4"* ]]
+  [[ "$output" == *"model:    gpt-5-5"* ]]
 }
 
 @test "--model flag overrides TG_MODEL env" {
@@ -254,15 +260,15 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 
 @test "--model passes through to backend invocation" {
   export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" --model gpt-5-4 1 "$TEST_REPO"
-  grep -q -- '--model gpt-5-4' "$DVB_GRIND_INVOKE_LOG"
+  run "$DVB_GRIND" --model gpt-5-5 1 "$TEST_REPO"
+  grep -q -- '--model gpt-5-5' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--model preserves quoted multi-word values" {
   export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" --model "gpt-5-4 XHigh thinking fast" 1 "$TEST_REPO"
+  run "$DVB_GRIND" --model "gpt-5-5 XHigh thinking fast" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  grep -q -- '--model gpt-5-4 XHigh thinking fast' "$DVB_GRIND_INVOKE_LOG"
+  grep -q -- '--model gpt-5-5 XHigh thinking fast' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--model alias resolves before backend invocation" {
@@ -272,9 +278,9 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "--model works with --backend and --skill" {
-  run "$DVB_GRIND" --dry-run --model gpt-5-4 --backend codex --skill fleet-grind 1 "$TEST_REPO"
+  run "$DVB_GRIND" --dry-run --model gpt-5-5 --backend codex --skill fleet-grind 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"model:    gpt-5-4"* ]]
+  [[ "$output" == *"model:    gpt-5-5"* ]]
   [[ "$output" == *"backend:  codex"* ]]
   [[ "$output" == *"skill:    fleet-grind"* ]]
 }
@@ -300,7 +306,35 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 @test "--help shows --model in usage" {
   run "$DVB_GRIND" --help
   [[ "$output" == *"--model"* ]]
-  [[ "$output" == *'--model "gpt-5.4 XHigh thinking fast"'* ]]
+  [[ "$output" == *'--model "gpt-5.5 XHigh thinking fast"'* ]]
+}
+
+@test "fleet-grind default GPT-5.5 dry-run includes standard context guard" {
+  run "$DVB_GRIND" --dry-run --skill fleet-grind 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CONTEXT_BUDGET: Model profile standard"* ]]
+  [[ "$output" == *"one merge/fill/fix cycle"* ]]
+}
+
+@test "fleet-grind opus dry-run includes large context profile" {
+  run "$DVB_GRIND" --dry-run --skill fleet-grind --model opus 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"model:    claude-opus-4-7-max"* ]]
+  [[ "$output" == *"CONTEXT_BUDGET: Model profile large"* ]]
+}
+
+@test "fleet-grind non-opus 1M model stays on standard context profile" {
+  run "$DVB_GRIND" --dry-run --skill fleet-grind --model custom-1M 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"model:    custom-1M"* ]]
+  [[ "$output" == *"CONTEXT_BUDGET: Model profile standard"* ]]
+  [[ "$output" != *"CONTEXT_BUDGET: Model profile large"* ]]
+}
+
+@test "non-fleet skill dry-run omits fleet context guard" {
+  run "$DVB_GRIND" --dry-run --skill next-task 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"CONTEXT_BUDGET"* ]]
 }
 
 # ── Dynamic prompt file (prompt injection between sessions) ──────────
@@ -413,10 +447,10 @@ EOF
 
 @test "model file overrides startup model" {
   export DVB_DEADLINE_OFFSET=10
-  echo "gpt-5-4" > "$TEST_REPO/.taskgrind-model"
+  echo "gpt-5-5" > "$TEST_REPO/.taskgrind-model"
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  grep -q -- '--model gpt-5-4' "$DVB_GRIND_INVOKE_LOG"
+  grep -q -- '--model gpt-5-5' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "missing model file uses startup model (no error)" {
@@ -476,16 +510,16 @@ SCRIPT
   export DVB_MODEL_COUNT_FILE="$TEST_DIR/model-count"
   echo "0" > "$DVB_MODEL_COUNT_FILE"
   rm -f "$DVB_MODEL_FILE_PATH"
-  run "$DVB_GRIND" --model gpt-5-4 1 "$TEST_REPO"
+  run "$DVB_GRIND" --model gpt-5-5 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   sed -n '2p' "$DVB_GRIND_INVOKE_LOG" | grep -q -- '--model claude-sonnet-4.6'
 }
 
 @test "model file with trailing whitespace is trimmed" {
-  printf "gpt-5-4\n\n\n" > "$TEST_REPO/.taskgrind-model"
+  printf "gpt-5-5\n\n\n" > "$TEST_REPO/.taskgrind-model"
   export DVB_DEADLINE_OFFSET=10
   run "$DVB_GRIND" 1 "$TEST_REPO"
-  grep -q -- '--model gpt-5-4' "$DVB_GRIND_INVOKE_LOG"
+  grep -q -- '--model gpt-5-5' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "model file shown in startup banner when active" {
@@ -506,19 +540,19 @@ SCRIPT
 }
 
 @test "--dry-run shows model from model file" {
-  echo "gpt-5-4" > "$TEST_REPO/.taskgrind-model"
+  echo "gpt-5-5" > "$TEST_REPO/.taskgrind-model"
   run "$DVB_GRIND" --dry-run 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"model:"* ]]
-  [[ "$output" == *"gpt-5-4"* ]]
+  [[ "$output" == *"gpt-5-5"* ]]
 }
 
 @test "model file overrides --model flag" {
   export DVB_DEADLINE_OFFSET=10
-  echo "gpt-5-4" > "$TEST_REPO/.taskgrind-model"
+  echo "gpt-5-5" > "$TEST_REPO/.taskgrind-model"
   run "$DVB_GRIND" --model opus 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  grep -q -- '--model gpt-5-4' "$DVB_GRIND_INVOKE_LOG"
+  grep -q -- '--model gpt-5-5' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "unknown model alias passes through unchanged" {
@@ -834,7 +868,10 @@ SCRIPT
   run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"no_push:  0"* ]]
-  [[ "$output" == *"merge it first"* ]]
+  # Since taskgrind-public-write-approval-gate: no longer tells agents to merge
+  # PRs without approval; gate language replaces the old "merge it first" clause.
+  [[ "$output" != *"merge it first"* ]]
+  [[ "$output" == *"without explicit operator approval"* ]]
   [[ "$output" != *"NO-PUBLISH MODE"* ]]
 }
 
@@ -961,6 +998,88 @@ SCRIPT
   grep -q 'TG_NO_PUSH=1 taskgrind' "$stories"
 
   grep -q '`no_push`' "$resume"
+}
+
+# ── Public-write approval gate (taskgrind-public-write-approval-gate) ────
+#
+# Incident: leeward-notify session opened UX-Infra/plugin-cli#5465 while
+# working from an oncall-hub task. Contributing patterns: "fully autonomous",
+# "never skip manual steps", "if you created a PR, merge it first" —
+# these can overpower the public-write rule when TASKS.md has a green-list
+# annotation. Task metadata is task context only, not operator approval.
+#
+# Acceptance:
+# (a) prompt explicitly says TASKS.md green-lists do not authorize public writes
+# (b) final_sync auto-PR requires TG_PUBLIC_WRITE_TOKEN or blocks with draft body
+# (c) PR body includes "Why this is needed" and canonical Fyodor footer
+# (d) COMPLETION PROTOCOL no longer tells agents to merge/push/bypass without gate
+
+@test "prompt contains PUBLIC_WRITE_GATE section in both no-push branches" {
+  # Gate must appear regardless of --no-push setting.
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PUBLIC_WRITE_GATE"* ]]
+
+  export TG_NO_PUSH=1
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PUBLIC_WRITE_GATE"* ]]
+}
+
+@test "prompt states TASKS.md metadata does not authorize public writes" {
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  # The gate text must explicitly say task metadata is NOT authorization
+  [[ "$output" == *"does NOT authorize any public write"* ]]
+}
+
+@test "standard COMPLETION PROTOCOL no longer tells agents to merge PRs without approval" {
+  # Regression guard: the old prompt said 'merge it first' which told agents
+  # to merge PRs unconditionally. The new protocol must forbid that.
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"merge it first"* ]]
+  # Must require explicit approval instead
+  [[ "$output" == *"without explicit operator approval"* ]]
+}
+
+@test "standard COMPLETION PROTOCOL forbids --no-verify hook bypass" {
+  # Regression guard: the incident included a push with --no-verify.
+  # The session prompt must explicitly forbid this.
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--no-verify"* ]]
+}
+
+@test "structural: PR body template includes Why this is needed section" {
+  # Acceptance criterion (c): PR bodies must explain why the PR is needed.
+  grep -q 'Why this is needed' "$DVB_GRIND"
+}
+
+@test "structural: PR body template includes canonical Fyodor agent footer" {
+  # Acceptance criterion (c): PR bodies must include the canonical footer.
+  grep -q '🤖 Written by an agent, not Fyodor' "$DVB_GRIND"
+}
+
+@test "structural: final_sync checks TG_PUBLIC_WRITE_TOKEN before auto-PR" {
+  # Acceptance criterion (b): cross-repo PR creation requires a fresh token
+  # or the run exits blocked with the draft body path.
+  grep -q 'TG_PUBLIC_WRITE_TOKEN' "$DVB_GRIND"
+  grep -q 'DVB_PUBLIC_WRITE_TOKEN' "$DVB_GRIND"
+  grep -q 'pr_blocked_approval_needed' "$DVB_GRIND"
+}
+
+@test "structural: final_sync writes draft PR body file when token not set" {
+  # When TG_PUBLIC_WRITE_TOKEN is absent, the draft must be saved locally.
+  grep -q 'pr-draft' "$DVB_GRIND"
+}
+
+@test "operator docs name TG_PUBLIC_WRITE_TOKEN alongside PR-fallback gates" {
+  # Doc-drift guard: any rename to the token gate must update docs in lockstep.
+  local readme="$BATS_TEST_DIRNAME/../README.md"
+  local man="$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  grep -q 'TG_PUBLIC_WRITE_TOKEN' "$readme"
+  grep -q 'TG_PUBLIC_WRITE_TOKEN' "$man"
 }
 
 # ── Sweep ceiling and efficiency marker ───────────────────────────────

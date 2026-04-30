@@ -401,7 +401,8 @@ model=opus'
   # The line that resolves requested_model must include `_fp_model` BETWEEN
   # the env var and the default. A regression that drops `_fp_model` would
   # silently make --from-prompt model fields a no-op.
-  grep -qE 'requested_model=.*_cli_model.*DVB_MODEL.*_fp_model.*DVB_DEFAULT_MODEL' "$DVB_GRIND"
+  grep -q '_requested_model_source="${_cli_model:-${DVB_MODEL:-${_fp_model:-}}}"' "$DVB_GRIND"
+  grep -q 'requested_model="$(dvb_default_model_for_backend "$requested_backend")"' "$DVB_GRIND"
 }
 
 @test "structural: backend resolution chain includes prompt fallback layer" {

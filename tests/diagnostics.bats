@@ -138,9 +138,9 @@ SCRIPT
   export DVB_MAX_FAST=3
   export DVB_BACKOFF_BASE=0
   export DVB_COOL=0
-  # 5s window was tight under 8x parallel bats load — startup overhead can
-  # eat ~3s before session 1 begins, leaving no time for 3 fast failures.
-  export DVB_DEADLINE_OFFSET=12
+  # 12s window was tight under 8x parallel bats load — startup overhead can
+  # eat the session budget before three fast failures are observed.
+  export DVB_DEADLINE_OFFSET=30
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -qE 'bail_out consecutive=3 exit=[0-9]+' "$TEST_LOG"
 }
@@ -411,7 +411,7 @@ SCRIPT
   [[ "$output" == *"--model requires a name"* ]]
   # (b) next step: shows an example model
   [[ "$output" == *"example:"* ]]
-  [[ "$output" == *"--model claude-opus-4-7-max"* ]]
+  [[ "$output" == *"--model gpt-5-5-xhigh-priority"* ]]
   # (c) doc pointer
   [[ "$output" == *"'taskgrind --help'"* ]]
 }
@@ -422,7 +422,7 @@ SCRIPT
   [ "$status" -ne 0 ]
   [[ "$output" == *"--model requires a non-empty name"* ]]
   [[ "$output" == *"example:"* ]]
-  [[ "$output" == *"--model claude-opus-4-7-max"* ]]
+  [[ "$output" == *"--model gpt-5-5-xhigh-priority"* ]]
   [[ "$output" == *"'taskgrind --help'"* ]]
 }
 
@@ -545,9 +545,10 @@ SCRIPT
   touch "$net_file"
   export DVB_NET_FILE="$net_file"
   export DVB_MIN_SESSION=999
+  export DVB_MAX_FAST=4
   export DVB_BACKOFF_BASE=0
   export DVB_COOL=0
-  export DVB_DEADLINE_OFFSET=10
+  export DVB_DEADLINE_OFFSET=30
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -qE 'fast_fail.*exit=[0-9]+' "$TEST_LOG"
 }

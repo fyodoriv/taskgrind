@@ -43,7 +43,7 @@ binary, model, and network assumptions for the backend you chose.
 |---------|----------------------------|-----------------------------------|--------------------------------|
 | `devin` | `devin` from `PATH`, or `TG_DEVIN_PATH` if you override it | Validates the requested model by running `devin --model "$TG_MODEL" --help` during preflight | `Backend binary not found (devin)` means the CLI is missing or `TG_DEVIN_PATH` points at the wrong file. `Model rejected by devin before starting` means the model string is wrong for your Devin install. If the startup probe says the binary is a stub or broken after `--version`, reinstall or roll back the Devin CLI before retrying. |
 | `claude-code` | `claude` from `PATH` | Validates the requested model by running `claude --model "$TG_MODEL" --help` during preflight | `Backend binary not found (claude-code)` usually means `@anthropic-ai/claude-code` is not installed globally or `claude` is not on `PATH`. `Model rejected by claude-code before starting` means the selected Claude model is unavailable to that install or account. |
-| `codex` | `codex` from `PATH` | Validates the requested model by running `codex --model "$TG_MODEL" --help` during preflight | `Backend binary not found (codex)` means the Codex CLI is missing from `PATH`. If you keep the default Anthropic-flavored model while using `--backend codex`, taskgrind warns before launch because Codex expects an OpenAI model such as `o3` or `gpt-5.4`. A later `Model rejected by codex before starting` failure means the chosen OpenAI model name is not accepted by your local Codex install. |
+| `codex` | `codex` from `PATH` | Validates the requested model by running `codex --model "$TG_MODEL" --help` during preflight | `Backend binary not found (codex)` means the Codex CLI is missing from `PATH`. If you explicitly choose a Claude model while using `--backend codex`, taskgrind warns before launch because Codex expects an OpenAI model such as `o3` or `gpt-5.5`. A later `Model rejected by codex before starting` failure means the chosen OpenAI model name is not accepted by your local Codex install. |
 
 Practical examples:
 
@@ -87,12 +87,12 @@ Contributor audit shortcut: run `make audit` to reproduce the local repo-audit p
 taskgrind                              # 10h grind (default), current dir
 taskgrind 10                           # 10h grind
 taskgrind ~/apps/myrepo 10             # 10h grind in specific repo
-taskgrind --model claude-opus-4-7-max 8 # use specific model
-taskgrind --model "gpt-5.4 XHigh thinking fast" 8  # quote multi-word model names
+taskgrind --model gpt-5-5-xhigh-priority 8 # use specific model
+taskgrind --model "gpt-5.5 XHigh thinking fast" 8  # quote multi-word model names
 taskgrind --skill pipeline-ops ~/apps/bosun 10  # custom installed skill
 taskgrind --prompt "focus on test coverage" 8  # focus prompt
 taskgrind --backend claude-code 8       # use Claude Code backend
-taskgrind --rotate-backends devin,claude-code,codex 8  # mid-flight rotation: when the active backend's session output contains rate-limit / quota / throttle patterns, the next session launches with the next backend in the list (cycling)
+taskgrind --rotate-backends devin,claude-code,codex 8  # override auto-detected backend rotation
 taskgrind --target-repo ~/apps/frontend --target-repo ~/apps/backend ~/apps/control 8  # workspace mode: control repo holds TASKS.md, agent has read/write access to target repos
 taskgrind --from-prompt "8h on agentbrew with frontend backend, focus on tests, use opus"  # natural-language brief; backend translates to config, then launches
 taskgrind --dry-run 8 ~/apps/myrepo    # print config without running
@@ -169,11 +169,12 @@ Use `**Blocked by**` only when another task or external dependency truly prevent
 ## Features
 
 - **Multi-backend support** — works with Devin, Claude Code, and Codex via `--backend`
-- **Model selection** — `--model claude-opus-4-7-max` or `TG_MODEL=claude-opus-4-7-max` to use any model the backend supports; quote multi-word model names such as `--model "gpt-5.4 XHigh thinking fast"`; short aliases `opus`, `sonnet`, `haiku`, `swe`, `codex`, and `gpt` resolve to the current preferred model IDs
+- **Model selection** — `--model gpt-5-5-xhigh-priority` or `TG_MODEL=gpt-5-5-xhigh-priority` to use any model the backend supports; quote multi-word model names such as `--model "gpt-5.5 XHigh thinking fast"`; short aliases `opus`, `sonnet`, `haiku`, `swe`, `codex`, and `gpt` resolve to the current preferred model IDs
 - **Live model switching** — create/edit `.taskgrind-model` in the repo while running; changes take effect at the next session, including short alias resolution. Delete the file to revert to the startup model. Files larger than 1 KB are ignored with a warning.
+- **Fleet-grind context profiles** — when `--skill fleet-grind` is active, taskgrind injects a `CONTEXT_BUDGET` prompt guard. The GPT-5.5/default standard profile tells the session to keep to one merge/fill/fix cycle plus at most one narrow sweep and to checkpoint before expanding scope; the Opus 4.7 alias gets a large-context profile while still preferring clean session boundaries.
 - **Live prompt injection** — create/edit `.taskgrind-prompt` in the repo while running; changes take effect at the next session. Files larger than 10 KB are ignored with a warning.
 - **Preflight checks** — validates the backend, network, repo, disk, queue, and optional watchdog setup before launch, plus active slot reporting. `network-watchdog` is optional; if missing, taskgrind falls back to `curl` for connectivity checks.
-- **Pipeline-rate cross-check** — for skills that require bosun pipelines (`fleet-grind`, `full-sweep`, `bosun*`, `pipeline-*`, etc.), taskgrind captures a baseline of bosun's completed-pipeline count at preflight and compares to the end-of-session count at cleanup. If the session shipped tasks but bosun saw zero new pipeline completions (the Apr 28-29 incident shape — agent direct-committed code instead of going through pipelines), taskgrind logs `pipeline_verify ANOMALY` and auto-files a TASKS.md investigation entry. Best-effort: silent no-op when bosun is unreachable, when the skill doesn't need bosun, or when no baseline was captured.
+- **Pipeline-rate cross-check** — for skills that require bosun pipelines (`fleet-grind`, `full-sweep`, `bosun*`, `pipeline-*`, etc.), taskgrind captures a baseline of bosun's completed-pipeline count at preflight and compares to the end-of-session count at cleanup. The API probe uses `BOSUN_TOKEN` when set, otherwise `~/.orchestrator/auth-token`, matching Bosun's authenticated `/api/v1/pipelines` routes. If the session shipped tasks but bosun saw zero new pipeline completions (the Apr 28-29 incident shape — agent direct-committed code instead of going through pipelines), taskgrind logs `pipeline_verify ANOMALY` and auto-files a TASKS.md investigation entry. Best-effort: silent no-op when bosun is unreachable, when the skill doesn't need bosun, or when no baseline was captured.
 - **Self-copy protection** — copies itself to `$TMPDIR` before running, survives script edits mid-grind
 - **Slot-based per-repo locking** — `TG_MAX_INSTANCES` allows multiple concurrent grinds on the same repo; slot 0 owns between-session git sync, higher slots get conflict-avoidance prompt guidance
 - **Blocked-queue detection** — when every remaining task has `**Blocked by**:` metadata, taskgrind sets the status phase to `blocked_wait`, pauses the marathon timer for 600 s (capped at the remaining deadline) while an external event (CI, merged PR, another agent) can unblock work, extends the deadline by the wait duration so no time budget is lost, re-checks the queue, and only then exits with the `all_tasks_blocked` phase and terminal reason if nothing changed
@@ -207,8 +208,8 @@ Before deploying, ensure:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TG_BACKEND` | `devin` | AI backend: `devin`, `claude-code`, `codex` |
-| `TG_ROTATE_BACKENDS` | (auto-detected) | Comma-separated list of backends to cycle through when the active backend hits rate-limit / quota / throttle / zero-ship-streak patterns. **Default since 2026-04-29: auto-detected from PATH** — if 2+ of `devin` / `claude` / `codex` are installed, taskgrind enables rotation automatically. Set explicitly to override. Set empty to disable. Same effect as `--rotate-backends`. |
-| `TG_MODEL` | `claude-opus-4-7-max` | AI model (set to an OpenAI model when using `--backend codex`) |
+| `TG_ROTATE_BACKENDS` | (auto-detected) | Comma-separated list of backends to cycle through when the active backend hits rate-limit / quota / throttle / zero-ship-streak patterns. **Default since 2026-04-29: auto-detected from PATH** — if 2+ of `devin` / `claude` / `codex` are installed, taskgrind enables rotation automatically. Set explicitly to override; set a single backend to disable cycling. Same effect as `--rotate-backends`. |
+| `TG_MODEL` | `gpt-5-5-xhigh-priority` (`gpt-5.5` for `--backend codex`) | AI model. Explicit values override the backend-specific default. |
 | `TG_SKILL` | `next-task` | Skill to run each session |
 | `TG_PROMPT` | (none) | Focus prompt for every session |
 | `TG_COOL` | `5` | Seconds between sessions |
@@ -236,7 +237,8 @@ Before deploying, ensure:
 | `TG_STATUS_FILE` | (disabled) | Write machine-readable runtime status JSON to this path |
 | `TG_NOTIFY` | `1` | Desktop notification on completion |
 | `TG_NO_PUSH` | `0` | Set `1` to commit locally only — `final_sync` logs `final_sync would_push commits=N head=<sha>` instead of pushing, and the session prompt forbids `git push` / `gh pr create` / `gh pr merge`. Equivalent to passing `--no-push`; preserved across `--resume`. |
-| `TG_NO_PR_FALLBACK` | `0` | Set `1` to disable the auto-PR fallback that runs when `final_sync` push to the default branch is rejected by branch protection (GH006 / required-status-check). Default 0: when `gh` is on `PATH` and `TG_NO_PUSH` is not set, taskgrind pushes to a unique `taskgrind-ship-<UTC>` branch and runs `gh pr create`, logging `final_sync pr_created url=<url> commits=N branch=...`. With `TG_NO_PR_FALLBACK=1`, taskgrind logs `final_sync push_protected_branch_manual_recovery_needed` and exits with the local commits intact. Equivalent to passing `--no-pr-fallback`. |
+| `TG_NO_PR_FALLBACK` | `0` | Set `1` to disable the auto-PR fallback that runs when `final_sync` push to the default branch is rejected by branch protection (GH006 / required-status-check). Default 0: when `gh` is on `PATH`, `TG_NO_PUSH` is not set, and `TG_PUBLIC_WRITE_TOKEN` is set, taskgrind pushes to a unique `taskgrind-ship-<UTC>` branch and runs `gh pr create`, logging `final_sync pr_created url=<url> commits=N branch=...`. With `TG_NO_PR_FALLBACK=1`, taskgrind logs `final_sync push_protected_branch_manual_recovery_needed` and exits with the local commits intact. Equivalent to passing `--no-pr-fallback`. |
+| `TG_PUBLIC_WRITE_TOKEN` | (unset) | Approval token for `final_sync` auto-PR creation. When set to any non-empty string (e.g. `"session-2026-05-01"`), taskgrind may push a feature branch and open a PR via `gh pr create` when the direct push is blocked by branch protection. **When unset (default)**, auto-PR creation is blocked: taskgrind writes the draft PR body to a temp file and prints `Approval needed — draft body at: <path>`, then falls through to `final_sync push_protected_branch_manual_recovery_needed`. This prevents unapproved public writes from agent sessions. TASKS.md task metadata (labels, tags, green-list annotations) is task context only — it does NOT authorize any public write. Set once per grind run to authorize the specific PR. |
 | `TG_SHUTDOWN_GRACE` | `120` | Seconds to wait for current session on exit |
 | `TG_SESSION_GRACE` | `15` | Seconds to wait after session SIGINT before SIGTERM |
 | `TG_TARGET_REPOS` | (none) | Colon-separated workspace target repo paths. Same effect as repeating `--target-repo PATH`. The control repo (positional arg) holds `TASKS.md` and the slot lock; targets get `fetch` + `rebase` between sessions and a `push` from `final_sync` on slot 0. Persisted across `--resume`. See [Multi-repo workspace](docs/user-stories.md#12-multi-repo-workspace--coordinated-grind-across-linked-repos). |
@@ -343,7 +345,7 @@ Example lifecycle snapshots:
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
-  "model": "claude-opus-4-7-max",
+  "model": "gpt-5-5-xhigh-priority",
   "session": 0,
   "remaining_minutes": 479,
   "current_phase": "preflight",
@@ -367,7 +369,7 @@ Example lifecycle snapshots:
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
-  "model": "claude-opus-4-7-max",
+  "model": "gpt-5-5-xhigh-priority",
   "session": 3,
   "remaining_minutes": 451,
   "current_phase": "running_session",
@@ -390,7 +392,7 @@ Example lifecycle snapshots:
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
-  "model": "claude-opus-4-7-max",
+  "model": "gpt-5-5-xhigh-priority",
   "session": 3,
   "remaining_minutes": 449,
   "current_phase": "waiting_for_network",
@@ -413,7 +415,7 @@ Example lifecycle snapshots:
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
-  "model": "claude-opus-4-7-max",
+  "model": "gpt-5-5-xhigh-priority",
   "session": 7,
   "remaining_minutes": 0,
   "current_phase": "complete",
@@ -505,7 +507,7 @@ taskgrind --preflight
   repo:     /Users/you/apps/myrepo
   backend:  devin
   skill:    next-task
-  model:    claude-opus-4-7-max
+  model:    gpt-5-5-xhigh-priority
   slots:    2/3 active
 ```
 

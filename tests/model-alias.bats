@@ -47,17 +47,16 @@ _source_constants() {
   [[ "$result" == swe-* ]]
 }
 
-@test "dvb_resolve_model_alias: codex resolves to a gpt-*-codex model id" {
+@test "dvb_resolve_model_alias: codex resolves to the Codex GPT-5.5 model id" {
   _source_constants
   result=$(dvb_resolve_model_alias "codex")
-  [[ "$result" == gpt-*-codex ]]
+  [[ "$result" == "gpt-5.5" ]]
 }
 
-@test "dvb_resolve_model_alias: gpt resolves to a gpt-* model id that is not codex" {
+@test "dvb_resolve_model_alias: gpt resolves to GPT-5.5 XHigh Thinking Fast" {
   _source_constants
   result=$(dvb_resolve_model_alias "gpt")
-  [[ "$result" == gpt-* ]]
-  [[ "$result" != *-codex ]]
+  [[ "$result" == "gpt-5-5-xhigh-priority" ]]
 }
 
 @test "dvb_resolve_model_alias: unknown alias passes through unchanged" {
@@ -74,8 +73,8 @@ _source_constants() {
 
 @test "dvb_resolve_model_alias: quoted multi-word value passes through unchanged" {
   _source_constants
-  result=$(dvb_resolve_model_alias "gpt-5.4 XHigh thinking fast")
-  [[ "$result" == "gpt-5.4 XHigh thinking fast" ]]
+  result=$(dvb_resolve_model_alias "gpt-5.5 XHigh thinking fast")
+  [[ "$result" == "gpt-5.5 XHigh thinking fast" ]]
 }
 
 @test "dvb_resolve_model_alias: alias resolution is deterministic across repeated calls" {

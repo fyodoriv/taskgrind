@@ -6,11 +6,22 @@
 # Variables below are sourced by bin/taskgrind.
 # shellcheck disable=SC2034  # used by sourcing scripts
 
-# Default AI model for all backends
-DVB_DEFAULT_MODEL="claude-opus-4-7-max"
+# Default AI model for Devin / Claude-compatible backends
+DVB_DEFAULT_MODEL="gpt-5-5-xhigh-priority"
+DVB_DEFAULT_DEVIN_MODEL="$DVB_DEFAULT_MODEL"
+DVB_DEFAULT_CLAUDE_CODE_MODEL="$DVB_DEFAULT_MODEL"
+DVB_DEFAULT_CODEX_MODEL="gpt-5.5"
 DVB_RESUME_STATE_VERSION="1"
 DVB_RESUME_STATE_BASENAME=".taskgrind-state"
-DVB_MODEL_ALIASES=$'opus=claude-opus-4-7-max\nsonnet=claude-sonnet-4.6\nhaiku=claude-haiku-4.5\nswe=swe-1.6\ncodex=gpt-5.3-codex\ngpt=gpt-5.4'
+DVB_MODEL_ALIASES=$'opus=claude-opus-4-7-max\nsonnet=claude-sonnet-4.6\nhaiku=claude-haiku-4.5\nswe=swe-1.6\ncodex=gpt-5.5\ngpt=gpt-5-5-xhigh-priority'
+
+dvb_default_model_for_backend() {
+  case "$1" in
+    codex) printf '%s' "$DVB_DEFAULT_CODEX_MODEL" ;;
+    claude-code) printf '%s' "$DVB_DEFAULT_CLAUDE_CODE_MODEL" ;;
+    *) printf '%s' "$DVB_DEFAULT_DEVIN_MODEL" ;;
+  esac
+}
 
 dvb_resolve_model_alias() {
   local requested="$1"

@@ -62,7 +62,7 @@ PY
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q '# taskgrind started' "$TEST_LOG"
   grep -q "hours=1" "$TEST_LOG"
-  grep -q "model=claude-opus-4-7-max" "$TEST_LOG"
+  grep -q "model=gpt-5-5-xhigh-priority" "$TEST_LOG"
 }
 
 @test "log file records session start entries" {
@@ -115,7 +115,7 @@ assert data["terminal_reason"] in (None, "deadline_expired"), data["terminal_rea
 assert data["session"] >= 1
 assert data["backend"] == "devin"
 assert data["skill"] == "next-task"
-assert data["model"] == "claude-opus-4-7-max"
+assert data["model"] == "gpt-5-5-xhigh-priority"
 assert data["last_session"]["number"] >= 1
 assert data["last_session"]["result"] == "success"
 assert data["last_session"]["completed_at"]
@@ -284,8 +284,8 @@ PY
   export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"Session 1"* ]]
-  [[ "$output" == *"tasks queued — model=claude-opus-4-7-max"* ]]
-  grep -q 'session=1 .*model=claude-opus-4-7-max' "$TEST_LOG"
+  [[ "$output" == *"tasks queued — model=gpt-5-5-xhigh-priority"* ]]
+  grep -q 'session=1 .*model=gpt-5-5-xhigh-priority' "$TEST_LOG"
 }
 
 @test "log file records session end entries" {
@@ -346,7 +346,7 @@ TASKS
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [[ "$output" == *"taskgrind"* ]]
   [[ "$output" == *"1h"* ]]
-  [[ "$output" == *"claude-opus-4-7-max"* ]]
+  [[ "$output" == *"gpt-5-5-xhigh-priority"* ]]
 }
 
 @test "shows startup banner with repo path" {
@@ -398,9 +398,9 @@ TASKS
 @test "live model log includes resolved model and raw alias" {
   export DVB_DEADLINE_OFFSET=5
   echo "sonnet" > "$TEST_REPO/.taskgrind-model"
-  run "$DVB_GRIND" --model gpt-5-4 1 "$TEST_REPO"
+  run "$DVB_GRIND" --model gpt-5-5-xhigh-priority 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  grep -q 'live_model=claude-sonnet-4.6 (alias=sonnet, startup=gpt-5-4)' "$TEST_LOG"
+  grep -q 'live_model=claude-sonnet-4.6 (alias=sonnet, startup=gpt-5-5-xhigh-priority)' "$TEST_LOG"
 }
 
 # ── DVB_DEADLINE override ────────────────────────────────────────────

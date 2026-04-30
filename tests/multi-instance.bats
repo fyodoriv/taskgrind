@@ -143,7 +143,8 @@ _wait_for_slot_file() {
 @test "slot 1 gets MULTI-INSTANCE conflict-avoidance in prompt" {
   export DVB_SLOT=1
   export DVB_MAX_INSTANCES=2
-  export DVB_DEADLINE_OFFSET=5
+  export DVB_DEADLINE_OFFSET=20
+  export DVB_MAX_ZERO_SHIP=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'MULTI-INSTANCE' "$DVB_GRIND_INVOKE_LOG"

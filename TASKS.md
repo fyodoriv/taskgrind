@@ -553,6 +553,14 @@
 
 ## P3
 
+- [ ] Fix targeted `make test-force TESTS='file file'` cache-key handling so multi-file focused runs do not fail after passing
+  - **ID**: make-test-force-multi-file-cache-key
+  - **Tags**: makefile, tests, developer-experience, cache
+  - **Source**: 2026-04-29 verification of the GPT-5.5 readiness work
+  - **Details**: A focused verification command using `make test-force TESTS='tests/diagnostics.bats tests/from-prompt.bats tests/git-sync.bats tests/multi-instance.bats tests/features.bats tests/pipeline-rate-verify.bats'` printed all selected bats tests as `ok`, then `make` exited 2 because the cache filename derived from the space-separated `TESTS` value was not shell-quoted. The recipe tried to write through a split cache path and `cut` reported `tests_from-prompt.bats: No such file or directory`. Full `make check` uses the default glob and avoids this path, but focused multi-file reruns are the standard tight-loop workflow documented in AGENTS.md.
+  - **Files**: `Makefile`, `tests/makefile-cleanup.bats`
+  - **Acceptance**: `make test-force TESTS='tests/diagnostics.bats tests/from-prompt.bats'` exits 0 when both suites pass; the cache filename is sanitized to a single path component for any space-separated `TESTS` value; `make test TESTS='tests/diagnostics.bats tests/from-prompt.bats'` uses the same cache key and can skip after a prior pass; regression coverage in `tests/makefile-cleanup.bats` exercises the multi-file `TESTS` value; `make check` passes
+
 - [ ] `grind_done sessions=N` should not count sweep-only runs — log `sessions=0 sweeps=1` when no real session ran
   - **ID**: grind-done-sessions-vs-sweeps-counter-fix
   - **Tags**: grind-summary, counter-accuracy, observability, low-impact

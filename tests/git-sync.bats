@@ -388,8 +388,9 @@ EOF
   git -C "$TEST_REPO" add file.txt
   git -C "$TEST_REPO" commit -q --no-verify -m "local conflict"
 
-  export DVB_DEADLINE_OFFSET=8
+  export DVB_DEADLINE_OFFSET=30
   export DVB_SYNC_INTERVAL=0
+  export DVB_MAX_ZERO_SHIP=2
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'rebase_aborted' "$TEST_LOG"
@@ -410,8 +411,9 @@ EOF
   git -C "$TEST_REPO" remote add origin "$bare"
   git -C "$TEST_REPO" push -q origin main 2>/dev/null
 
-  export DVB_DEADLINE_OFFSET=8
+  export DVB_DEADLINE_OFFSET=30
   export DVB_SYNC_INTERVAL=0
+  export DVB_MAX_ZERO_SHIP=2
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'git_sync ok' "$TEST_LOG"
@@ -428,8 +430,9 @@ EOF
   # Point origin at a nonexistent path so fetch fails
   git -C "$TEST_REPO" remote add origin "/nonexistent/bare.git"
 
-  export DVB_DEADLINE_OFFSET=8
+  export DVB_DEADLINE_OFFSET=30
   export DVB_SYNC_INTERVAL=0
+  export DVB_MAX_ZERO_SHIP=2
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'git_sync fetch_failed:' "$TEST_LOG"
@@ -1420,7 +1423,9 @@ SCRIPT
   [[ "$output" == "push_failed" ]]
 }
 
-@test "final_sync: protected-branch push triggers PR fallback when gh is on PATH" {
+@test "final_sync: protected-branch push triggers PR fallback when gh is on PATH and token set" {
+  # Since taskgrind-public-write-approval-gate: TG_PUBLIC_WRITE_TOKEN must be
+  # set to authorize auto-PR creation. This test exercises the approved path.
   local remote_repo="$TEST_DIR/protected-remote.git"
   local grind_repo="$TEST_DIR/protected-grind"
   _setup_protected_branch_repo "$remote_repo" "$grind_repo"
@@ -1444,7 +1449,8 @@ SCRIPT
   export DVB_DEVIN_PATH="$fake_devin"
   export DVB_CAFFEINATED=1
   export DVB_DEADLINE_OFFSET=5
-  PATH="$gh_stub_dir:$PATH" "$DVB_GRIND" 1 "$grind_repo" >/dev/null 2>&1
+  # Approval token is required for auto-PR creation.
+  PATH="$gh_stub_dir:$PATH" TG_PUBLIC_WRITE_TOKEN=test-session "$DVB_GRIND" 1 "$grind_repo" >/dev/null 2>&1
   [ "$?" -eq 0 ]
 
   # The classifier emitted the protected-branch marker.
@@ -1458,6 +1464,47 @@ SCRIPT
   grep -q 'final_sync pr_created url=https://github.example.test/owner/repo/pull/42 commits=1' "$TEST_LOG"
   # The fallback succeeded so no manual-recovery marker should appear.
   ! grep -q 'final_sync push_protected_branch_manual_recovery_needed' "$TEST_LOG"
+}
+
+@test "final_sync: auto-PR is blocked when TG_PUBLIC_WRITE_TOKEN not set" {
+  # Acceptance criterion (b): without the approval token, final_sync must block
+  # PR creation, write a draft body file, and fall through to manual recovery.
+  local remote_repo="$TEST_DIR/protected-remote-notoken.git"
+  local grind_repo="$TEST_DIR/protected-grind-notoken"
+  _setup_protected_branch_repo "$remote_repo" "$grind_repo"
+
+  local gh_stub_dir="$TEST_DIR/gh-stub-bin-notoken"
+  local gh_log="$TEST_DIR/gh-stub-calls-notoken.log"
+  mkdir -p "$gh_stub_dir"
+  cat > "$gh_stub_dir/gh" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$gh_log"
+echo "https://github.example.test/owner/repo/pull/99"
+exit 0
+SCRIPT
+  chmod +x "$gh_stub_dir/gh"
+
+  local fake_devin="$TEST_DIR/fake-devin-notoken"
+  _setup_fake_devin "$fake_devin"
+
+  unset DVB_GRIND_CMD
+  unset TG_PUBLIC_WRITE_TOKEN
+  export DVB_DEVIN_PATH="$fake_devin"
+  export DVB_CAFFEINATED=1
+  export DVB_DEADLINE_OFFSET=5
+  PATH="$gh_stub_dir:$PATH" "$DVB_GRIND" 1 "$grind_repo" >/dev/null 2>&1
+  [ "$?" -eq 0 ]
+
+  # Protected-branch push was detected.
+  grep -q 'final_sync push_protected_branch ' "$TEST_LOG"
+  # Token gate fired — blocked log line must appear.
+  grep -Eq 'final_sync pr_blocked_approval_needed branch=taskgrind-ship-[0-9]{8}-[0-9]{6}' "$TEST_LOG"
+  # Draft body file path must be logged.
+  grep -q 'draft=' "$TEST_LOG"
+  # No PR was created.
+  [ ! -s "$gh_log" ]
+  # Manual recovery marker must appear because PR was blocked.
+  grep -q 'final_sync push_protected_branch_manual_recovery_needed' "$TEST_LOG"
 }
 
 @test "final_sync: --no-pr-fallback skips PR creation and logs manual recovery" {
