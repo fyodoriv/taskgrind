@@ -205,3 +205,52 @@ EOF
     ' "$state_file" > "$tmp" && mv "$tmp" "$state_file"
   done
 }
+
+prepare_tiny_workload() {
+  if ! grep -q '^[[:space:]]*- \[ \]' "$TEST_REPO/TASKS.md" 2>/dev/null; then
+    cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Tiny workload task
+TASKS
+  fi
+
+  local tiny_devin="$TEST_DIR/tiny-devin"
+  cat > "$tiny_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+SCRIPT
+  chmod +x "$tiny_devin"
+  export DVB_GRIND_CMD="$tiny_devin"
+
+  DVB_COOL=0
+  DVB_EMPTY_QUEUE_WAIT=0
+  DVB_BACKOFF_BASE=0
+  DVB_MAX_ZERO_SHIP=1
+  DVB_SYNC_INTERVAL=999
+  TG_COOL=0
+  TG_EMPTY_QUEUE_WAIT=0
+  TG_BACKOFF_BASE=0
+  TG_MAX_ZERO_SHIP=1
+  TG_SYNC_INTERVAL=999
+  DVB_SKIP_SWEEP_ON_EMPTY=1
+  if [ -z "${DVB_DEADLINE:-}" ]; then
+    : "${DVB_DEADLINE_OFFSET:=5}"
+  fi
+  export DVB_COOL DVB_EMPTY_QUEUE_WAIT DVB_BACKOFF_BASE DVB_MAX_ZERO_SHIP
+  export DVB_SYNC_INTERVAL DVB_SKIP_SWEEP_ON_EMPTY DVB_DEADLINE_OFFSET
+  export TG_COOL TG_EMPTY_QUEUE_WAIT TG_BACKOFF_BASE TG_MAX_ZERO_SHIP TG_SYNC_INTERVAL
+}
+
+run_tiny_workload() {
+  prepare_tiny_workload
+  if [ "$#" -eq 0 ]; then
+    run "$DVB_GRIND" 1 "$TEST_REPO"
+  else
+    run "$DVB_GRIND" "$@"
+  fi
+}

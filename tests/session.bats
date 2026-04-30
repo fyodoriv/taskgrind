@@ -46,46 +46,39 @@ TASKS
 # ── Session loop ─────────────────────────────────────────────────────
 
 @test "runs devin with --permission-mode dangerous" {
-  export DVB_DEADLINE_OFFSET=40
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q -- '--permission-mode dangerous' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "runs devin in print mode with -p prompt" {
-  export DVB_DEADLINE_OFFSET=8
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q -- '-p Run the next-task skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "prompt includes session number" {
-  export DVB_DEADLINE_OFFSET=8
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'Session 1' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "prompt includes remaining minutes" {
-  export DVB_DEADLINE_OFFSET=8
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'minutes remaining' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "prompt includes commit-before-timeout guidance" {
-  export DVB_DEADLINE_OFFSET=40
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'Commit before timeout' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "prompt includes completion protocol with merge and remove instructions" {
-  export DVB_DEADLINE_OFFSET=40
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'COMPLETION PROTOCOL' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'PR.*merge' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'remove.*task.*TASKS.md' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "prompt includes autonomy block with automation guidance" {
-  export DVB_DEADLINE_OFFSET=40
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'AUTONOMY:' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'browser automation' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'MCP tools' "$DVB_GRIND_INVOKE_LOG"
@@ -379,9 +372,9 @@ SCRIPT
   **Tags**: audit, logs
 TASKS
 
-  export DVB_DEADLINE_OFFSET=40
+  export DVB_DEADLINE_OFFSET=5
 
-  run "$DVB_GRIND" 1 "$TEST_REPO" --skill standing-audit-gap-loop
+  run_tiny_workload 1 "$TEST_REPO" --skill standing-audit-gap-loop
 
   [ "$status" -eq 0 ]
   [ -f "$DVB_GRIND_INVOKE_LOG" ]
@@ -399,9 +392,9 @@ TASKS
   **Details**: Continuously discover high-value follow-up work for slot 0 to ship.
 TASKS
 
-  export DVB_DEADLINE_OFFSET=40
+  export DVB_DEADLINE_OFFSET=5
 
-  run "$DVB_GRIND" 1 "$TEST_REPO" --skill standing-audit-gap-loop
+  run_tiny_workload 1 "$TEST_REPO" --skill standing-audit-gap-loop
 
   [ "$status" -eq 0 ]
   [ -f "$DVB_GRIND_INVOKE_LOG" ]
@@ -410,40 +403,34 @@ TASKS
 }
 
 @test "--skill flag changes the skill in the prompt" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO" --skill fleet-grind
+  run_tiny_workload 1 "$TEST_REPO" --skill fleet-grind
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--skill flag shows in startup banner" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO" --skill fleet-grind
+  run_tiny_workload 1 "$TEST_REPO" --skill fleet-grind
   [[ "$output" == *"skill=fleet-grind"* ]]
 }
 
 @test "DVB_SKILL env overrides default skill" {
-  export DVB_DEADLINE_OFFSET=5
   export DVB_SKILL=fleet-grind
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--skill flag overrides DVB_SKILL env" {
-  export DVB_DEADLINE_OFFSET=5
   export DVB_SKILL=sweep
-  run "$DVB_GRIND" 1 "$TEST_REPO" --skill fleet-grind
+  run_tiny_workload 1 "$TEST_REPO" --skill fleet-grind
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "default skill is next-task when no --skill or DVB_SKILL" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'Run the next-task skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--skill works with repo path in any order" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 --skill fleet-grind "$TEST_REPO"
+  run_tiny_workload 1 --skill fleet-grind "$TEST_REPO"
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
@@ -473,50 +460,43 @@ TASKS
 # ── --prompt flag ────────────────────────────────────────────────────
 
 @test "--prompt flag adds focus to session prompt" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "focus on test coverage"
+  run_tiny_workload 1 "$TEST_REPO" --prompt "focus on test coverage"
   grep -q 'FOCUS: focus on test coverage' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt= syntax works" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO" --prompt="improve error handling"
+  run_tiny_workload 1 "$TEST_REPO" --prompt="improve error handling"
   grep -q 'FOCUS: improve error handling' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "DVB_PROMPT env sets focus prompt" {
-  export DVB_DEADLINE_OFFSET=5
   export DVB_PROMPT="fix flaky tests"
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'FOCUS: fix flaky tests' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "TG_PROMPT env sets focus prompt" {
-  export DVB_DEADLINE_OFFSET=5
   export TG_PROMPT="cover canonical env vars"
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'FOCUS: cover canonical env vars' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "TG_PROMPT takes precedence over DVB_PROMPT" {
-  export DVB_DEADLINE_OFFSET=5
   export DVB_PROMPT="legacy prompt"
   export TG_PROMPT="canonical prompt"
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'FOCUS: canonical prompt' "$DVB_GRIND_INVOKE_LOG"
   ! grep -q 'FOCUS: legacy prompt' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt flag overrides DVB_PROMPT env" {
-  export DVB_DEADLINE_OFFSET=5
   export DVB_PROMPT="env prompt"
-  run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "flag prompt"
+  run_tiny_workload 1 "$TEST_REPO" --prompt "flag prompt"
   grep -q 'FOCUS: flag prompt' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt shows focus in startup banner" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "test coverage"
+  run_tiny_workload 1 "$TEST_REPO" --prompt "test coverage"
   [[ "$output" == *"Focus: test coverage"* ]]
 }
 
@@ -527,14 +507,12 @@ TASKS
 }
 
 @test "no --prompt omits FOCUS from prompt" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   ! grep -q 'FOCUS:' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt works with --skill and repo in any order" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" --prompt "perf work" --skill fleet-grind "$TEST_REPO" 1
+  run_tiny_workload --prompt "perf work" --skill fleet-grind "$TEST_REPO" 1
   grep -q 'FOCUS: perf work' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -656,8 +634,7 @@ SCRIPT
 
 - [ ] Refactor auth module
 TASKS
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [[ "$output" == *"3 tasks queued"* ]]
 }
 
@@ -911,19 +888,17 @@ TASKS
 ## P0
 - [ ] A real task
 TASKS
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [ "$status" -eq 0 ]
   # Should have launched at least one session
   [ -s "$DVB_GRIND_INVOKE_LOG" ]
-  ! grep -q 'queue_empty' "$TEST_LOG"
+  grep -q 'session=1' "$TEST_LOG"
 }
 
 # ── Prompt hardening ──────────────────────────────────────────────────
 
 @test "prompt includes session timeout budget" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'timeout.*s' "$DVB_GRIND_INVOKE_LOG"
 }
 
@@ -1062,8 +1037,7 @@ TASKS
   **ID**: write-docs
 TASKS
 
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   ! grep -q 'all_tasks_blocked' "$TEST_LOG"
   # Should have launched at least 1 session
   [ -f "$DVB_GRIND_INVOKE_LOG" ]
@@ -1095,8 +1069,7 @@ TASKS
   **ID**: write-docs
 TASKS
 
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   ! grep -q 'all_tasks_blocked' "$TEST_LOG"
   # Should have launched at least 1 session (write-docs is not blocked)
   [ -f "$DVB_GRIND_INVOKE_LOG" ]

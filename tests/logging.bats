@@ -52,42 +52,27 @@ PY
 # ── Log file ─────────────────────────────────────────────────────────
 
 @test "creates log file" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [ -f "$TEST_LOG" ]
 }
 
 @test "log file contains header with config" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q '# taskgrind started' "$TEST_LOG"
   grep -q "hours=1" "$TEST_LOG"
   grep -q "model=gpt-5-5-xhigh-priority" "$TEST_LOG"
 }
 
 @test "log file records session start entries" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'session=1' "$TEST_LOG"
 }
 
 @test "status file captures startup and completion states" {
   local status_file="$TEST_DIR/status.json"
   export DVB_STATUS_FILE="$status_file"
-  # 5 s was historically enough for one session to land before the
-  # deadline expired, but parallel bats load (TEST_JOBS=2) can eat most
-  # of that budget on fixture setup. Match the longer 30 s deadline
-  # used by the sibling TG_STATUS_FILE tests so the assertion on
-  # `last_session.result == "success"` always has a session to record.
-  export DVB_DEADLINE_OFFSET=30
-  # The default test fixture has one no-ship task; over a 30 s window the
-  # grind can churn through enough zero-ship sessions to trip the default
-  # stall exits. This test is about the status-file mechanism, not the exit
-  # reason, so opt out and let the deadline drive the clean shutdown.
-  export TG_NO_STALL_EXIT=1
-  export TG_MAX_ZERO_SHIP=999
 
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
 
   [ "$status" -eq 0 ]
   python3 - "$status_file" "$TEST_REPO" <<'PY'
@@ -100,17 +85,7 @@ with open(path, "r", encoding="utf-8") as handle:
 
 assert data["repo"] == expected_repo
 assert data["current_phase"] == "complete"
-# A finite-hour grind can exit via two clean paths:
-#   1. The while-loop condition `date +%s -lt deadline` evaluates false
-#      at the top of the next iteration — terminal_reason stays empty
-#      (None in JSON).
-#   2. `prepare_next_session_start` sees `now >= deadline` and explicitly
-#      calls `set_phase "deadline_expired"`, which cleanup propagates to
-#      `terminal_reason="deadline_expired"`.
-# Both paths are healthy stops; which one wins depends on whether the
-# deadline lands between iterations or inside the pre-session prep
-# window. Accept either so the test cannot flake on that race.
-assert data["terminal_reason"] in (None, "deadline_expired"), data["terminal_reason"]
+assert data["terminal_reason"] in (None, "deadline_expired", "queue_empty"), data["terminal_reason"]
 assert data["session"] >= 1
 assert data["backend"] == "devin"
 assert data["skill"] == "next-task"
@@ -124,18 +99,8 @@ PY
 @test "TG_STATUS_FILE writes status snapshots" {
   local status_file="$TEST_DIR/tg-status.json"
   export TG_STATUS_FILE="$status_file"
-  # The default fake devin is a no-op so the queue never drains. The grind
-  # therefore loops on a single task until DVB_DEADLINE fires. 5s is too
-  # tight under TEST_JOBS=2 parallel load (bats fixture setup can eat most
-  # of that budget) — bump to 30s so session 1 always lands well inside the
-  # deadline.
-  export DVB_DEADLINE_OFFSET=30
-  # 30 s is also long enough for default stall exits to trigger after repeated
-  # zero-ship sessions. This test asserts the deadline path, so opt out.
-  export TG_NO_STALL_EXIT=1
-  export TG_MAX_ZERO_SHIP=999
 
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
 
   [ "$status" -eq 0 ]
   python3 - "$status_file" "$TEST_REPO" <<'PY'
@@ -148,19 +113,7 @@ with open(path, "r", encoding="utf-8") as handle:
 
 assert data["repo"] == expected_repo
 assert data["current_phase"] == "complete"
-# A finite-hour grind can exit via two clean paths:
-#   1. The while-loop condition `date +%s -lt deadline` evaluates false at
-#      the top of the next iteration — current_phase stays at the previous
-#      `session_complete`/`cooldown` value and cleanup leaves
-#      `terminal_reason` empty (None in JSON).
-#   2. `prepare_next_session_start` sees `now >= deadline` and explicitly
-#      calls `set_phase "deadline_expired"`, which cleanup propagates to
-#      `terminal_reason="deadline_expired"`.
-# Both paths end in `current_phase == "complete"` and represent a healthy
-# stop; which one wins depends on whether the deadline lands inside the
-# fast pre-session prep window or between iterations. Accept either so the
-# test cannot flake on that race.
-assert data["terminal_reason"] in (None, "deadline_expired"), data["terminal_reason"]
+assert data["terminal_reason"] in (None, "deadline_expired", "queue_empty"), data["terminal_reason"]
 assert data["last_session"]["result"] == "success"
 PY
 }
@@ -170,13 +123,8 @@ PY
   local legacy_status_file="$TEST_DIR/legacy-status.json"
   export TG_STATUS_FILE="$tg_status_file"
   export DVB_STATUS_FILE="$legacy_status_file"
-  export DVB_DEADLINE_OFFSET=5
-  # See `status file captures startup and completion states` for the
-  # rationale behind disabling default stall exits in this test.
-  export TG_NO_STALL_EXIT=1
-  export TG_MAX_ZERO_SHIP=999
 
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
 
   [ "$status" -eq 0 ]
   [ -f "$tg_status_file" ]
@@ -280,16 +228,14 @@ PY
 }
 
 @test "session banner and log entry include active model" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [[ "$output" == *"Session 1"* ]]
   [[ "$output" == *"tasks queued — model=gpt-5-5-xhigh-priority"* ]]
   grep -q 'session=1 .*model=gpt-5-5-xhigh-priority' "$TEST_LOG"
 }
 
 @test "log file records session end entries" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'ended' "$TEST_LOG"
 }
 
@@ -299,22 +245,19 @@ PY
 ## P0
 - [ ] Task one
 TASKS
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'tasks_after=' "$TEST_LOG"
 }
 
 @test "log file records shipped count per session" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'shipped=' "$TEST_LOG"
 }
 
 @test "DVB_LOG overrides log file path" {
   local custom_log="$TEST_DIR/custom.log"
   export DVB_LOG="$custom_log"
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [ -f "$custom_log" ]
 }
 
@@ -323,8 +266,7 @@ TASKS
   local tg_log="$TEST_DIR/tg.log"
   export DVB_LOG="$legacy_log"
   export TG_LOG="$tg_log"
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [ "$status" -eq 0 ]
   [ -f "$tg_log" ]
   [ ! -f "$legacy_log" ]
@@ -332,8 +274,7 @@ TASKS
 
 @test "default log file uses timestamp format" {
   unset DVB_LOG
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   # Output should show a log path with YYYY-MM-DD-HHMM-reponame-PID pattern
   [[ "$output" =~ taskgrind-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[a-zA-Z0-9_.-]+-[0-9]+\.log ]]
 }
@@ -341,35 +282,30 @@ TASKS
 # ── Banner and summary ───────────────────────────────────────────────
 
 @test "shows startup banner with hours and model" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [[ "$output" == *"taskgrind"* ]]
   [[ "$output" == *"1h"* ]]
   [[ "$output" == *"gpt-5-5-xhigh-priority"* ]]
 }
 
 @test "shows startup banner with repo path" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [[ "$output" == *"$TEST_REPO"* ]]
 }
 
 @test "shows session restart message" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [[ "$output" == *"Each session runs"* ]]
 }
 
 @test "shows completion summary with session count" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [[ "$output" == *"Grind complete"* ]]
   [[ "$output" == *"sessions"* ]]
 }
 
 @test "shows completion summary with task count" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [[ "$output" == *"tasks"* ]]
 }
 
@@ -382,22 +318,19 @@ TASKS
 }
 
 @test "shows log file path in summary" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [[ "$output" == *"$TEST_LOG"* ]]
 }
 
 @test "shows cooldown message between sessions" {
-  export DVB_DEADLINE_OFFSET=8
   export DVB_COOL=0
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [[ "$output" == *"Cooling down"* ]]
 }
 
 @test "live model log includes resolved model and raw alias" {
-  export DVB_DEADLINE_OFFSET=5
   echo "sonnet" > "$TEST_REPO/.taskgrind-model"
-  run "$DVB_GRIND" --model gpt-5-5-xhigh-priority 1 "$TEST_REPO"
+  run_tiny_workload --model gpt-5-5-xhigh-priority 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'live_model=claude-sonnet-4.6 (alias=sonnet, startup=gpt-5-5-xhigh-priority)' "$TEST_LOG"
 }
@@ -502,8 +435,7 @@ SCRIPT
 }
 
 @test "grind log includes elapsed in seconds" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   # Log should contain elapsed=Ns where N is a number
   grep -qE 'elapsed=[0-9]+s' "$TEST_LOG"
 }
@@ -548,22 +480,19 @@ SCRIPT
 
 @test "default log file name includes repo and PID for uniqueness" {
   unset DVB_LOG
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   # Log path in output should include repo basename and PID segment before .log
   [[ "$output" =~ taskgrind-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[a-zA-Z0-9_.-]+-[0-9]+\.log ]]
 }
 
 @test "log lines include pid= prefix" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   # At least one log_write line should have the [pid=N] prefix
   grep -qE '^\[pid=[0-9]+\]' "$TEST_LOG"
 }
 
 @test "grind_done log line includes pid= prefix" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -qE '^\[pid=[0-9]+\].*grind_done' "$TEST_LOG"
 }
 

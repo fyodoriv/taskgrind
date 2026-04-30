@@ -22,8 +22,7 @@ SCRIPT
 }
 
 @test "exit code shows in terminal session end message" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [[ "$output" == *"exit=0"* ]]
 }
 
@@ -155,8 +154,7 @@ SCRIPT
 }
 
 @test "--skill=fleet-grind equals syntax works" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO" --skill=fleet-grind
+  run_tiny_workload 1 "$TEST_REPO" --skill=fleet-grind
   [ "$status" -eq 0 ]
   grep -q 'Run the fleet-grind skill' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -207,10 +205,9 @@ SCRIPT
 }
 
 @test "TG_MAX_SESSION takes precedence over DVB_MAX_SESSION" {
-  export DVB_DEADLINE_OFFSET=5
   export DVB_MAX_SESSION=9
   export TG_MAX_SESSION=17
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [ "$status" -eq 0 ]
   grep -q 'timeout 17s' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -565,8 +562,7 @@ SCRIPT
 # ── Print mode and session timeout ────────────────────────────────────
 
 @test "uses -p (print mode) not -- (interactive mode)" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   # Must use -p for non-interactive mode (exits after completion)
   grep -q -- '-p ' "$DVB_GRIND_INVOKE_LOG"
   # Must NOT use -- separator (interactive mode waits for user input)
@@ -731,8 +727,7 @@ SCRIPT
 # ── Efficiency summary in grind_done ──────────────────────────────────
 
 @test "grind_done terminal output includes rate and avg session" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [ "$status" -eq 0 ]
   [[ "$output" == *"Rate:"* ]]
   [[ "$output" == *"/h"* ]]
@@ -741,15 +736,13 @@ SCRIPT
 }
 
 @test "grind_done log line includes rate and sessions_zero_ship" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [ "$status" -eq 0 ]
   grep -q 'grind_done.*rate=.*sessions_zero_ship=' "$TEST_LOG"
 }
 
 @test "grind_done log includes avg_session field" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [ "$status" -eq 0 ]
   grep -q 'avg_session=' "$TEST_LOG"
 }
@@ -876,21 +869,19 @@ SCRIPT
 # plus every sweep's `tasks_found`), capped at 100 %.
 
 @test "grind_done log line surfaces tasks_starting and tasks_added" {
-  export DVB_DEADLINE_OFFSET=5
   # Disable the new diminishing-returns default exit so the grind ends
   # via deadline rather than `failed`. The grind_done line is emitted
   # on every clean exit path, so the test only needs the new fields to
   # be present, not any specific completion phase.
   export TG_NO_STALL_EXIT=1
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [ "$status" -eq 0 ]
   grep -qE 'grind_done .* tasks_starting=[0-9]+ tasks_added=[0-9]+' "$TEST_LOG"
 }
 
 @test "ship_rate human summary shows started=N added=N alongside the percent" {
-  export DVB_DEADLINE_OFFSET=5
   export TG_NO_STALL_EXIT=1
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [ "$status" -eq 0 ]
   [[ "$output" == *"Ship rate:"* ]]
   [[ "$output" == *"started="* ]]
@@ -979,17 +970,15 @@ TASKS
 # and that share was invisible from the grind_done summary.
 
 @test "grind_done log line surfaces sweeps and sweep_seconds even when zero" {
-  export DVB_DEADLINE_OFFSET=5
   export TG_NO_STALL_EXIT=1
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [ "$status" -eq 0 ]
   grep -qE 'grind_done .* sweeps=0 sweep_seconds=0' "$TEST_LOG"
 }
 
 @test "human summary reports sweep count and seconds-of-elapsed" {
-  export DVB_DEADLINE_OFFSET=5
   export TG_NO_STALL_EXIT=1
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [ "$status" -eq 0 ]
   [[ "$output" == *"Sweeps: 0"* ]]
   [[ "$output" == *"of "* ]]

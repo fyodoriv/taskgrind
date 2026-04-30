@@ -2,6 +2,17 @@
 
 load test_helper
 
+@test "test cache key handles multi-file TESTS selections" {
+  run grep -nF 'space := $(empty) $(empty)' "$BATS_TEST_DIRNAME/../Makefile"
+  [ "$status" -eq 0 ]
+
+  run grep -nF '$(subst $(space),_,' "$BATS_TEST_DIRNAME/../Makefile"
+  [ "$status" -eq 0 ]
+
+  run grep -nF '> "$(TEST_CACHE)"' "$BATS_TEST_DIRNAME/../Makefile"
+  [ "$status" -eq 0 ]
+}
+
 @test "remove_with_retries retries transient directory-not-empty cleanup failures" {
   local target_dir="$TEST_DIR/stubborn"
   local fake_bin="$TEST_DIR/fake-bin"

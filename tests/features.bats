@@ -9,8 +9,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 # ── Multi-backend support ─────────────────────────────────────────────
 
 @test "default backend is devin" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [[ "$output" == *"backend=devin"* ]]
 }
 
@@ -34,10 +33,9 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "TG_BACKEND takes precedence over DVB_BACKEND during a real run" {
-  export DVB_DEADLINE_OFFSET=5
   export DVB_BACKEND=codex
   export TG_BACKEND=devin
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [ "$status" -eq 0 ]
   [[ "$output" == *"backend=devin"* ]]
   grep -q -- '--permission-mode dangerous' "$DVB_GRIND_INVOKE_LOG"
@@ -64,14 +62,12 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "backend shows in startup banner" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [[ "$output" == *"backend=devin"* ]]
 }
 
 @test "backend shows in log file header" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'backend=devin' "$TEST_LOG"
 }
 
@@ -259,21 +255,18 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "--model passes through to backend invocation" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" --model gpt-5-5 1 "$TEST_REPO"
+  run_tiny_workload --model gpt-5-5 1 "$TEST_REPO"
   grep -q -- '--model gpt-5-5' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--model preserves quoted multi-word values" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" --model "gpt-5-5 XHigh thinking fast" 1 "$TEST_REPO"
+  run_tiny_workload --model "gpt-5-5 XHigh thinking fast" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q -- '--model gpt-5-5 XHigh thinking fast' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--model alias resolves before backend invocation" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" --model opus 1 "$TEST_REPO"
+  run_tiny_workload --model opus 1 "$TEST_REPO"
   grep -q -- '--model claude-opus-4-7-max' "$DVB_GRIND_INVOKE_LOG"
 }
 
@@ -286,14 +279,12 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "--model shows in startup banner" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" --model custom-model 1 "$TEST_REPO"
+  run_tiny_workload --model custom-model 1 "$TEST_REPO"
   [[ "$output" == *"model=custom-model"* ]]
 }
 
 @test "--model shows in log file header" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" --model custom-model 1 "$TEST_REPO"
+  run_tiny_workload --model custom-model 1 "$TEST_REPO"
   grep -q 'model=custom-model' "$TEST_LOG"
 }
 
@@ -340,10 +331,9 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 # ── Dynamic prompt file (prompt injection between sessions) ──────────
 
 @test "reads prompt file between sessions" {
-  export DVB_DEADLINE_OFFSET=10
   _prompt_file="$TEST_REPO/.taskgrind-prompt"
   echo "focus on testing" > "$_prompt_file"
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q 'focus on testing' "$DVB_GRIND_INVOKE_LOG"
 }
 
@@ -358,27 +348,24 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "missing prompt file is fine (no error)" {
-  export DVB_DEADLINE_OFFSET=5
   rm -f "$TEST_REPO/.taskgrind-prompt"
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [ "$status" -eq 0 ]
 }
 
 @test "--prompt and prompt file combine" {
-  export DVB_DEADLINE_OFFSET=10
   _prompt_file="$TEST_REPO/.taskgrind-prompt"
   echo "also do this" > "$_prompt_file"
-  run "$DVB_GRIND" --prompt "do that" 1 "$TEST_REPO"
+  run_tiny_workload --prompt "do that" 1 "$TEST_REPO"
   # Both should appear in the invocation
   grep -q 'do that' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'also do this' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "prompt file shown in startup banner when present" {
-  export DVB_DEADLINE_OFFSET=5
   _prompt_file="$TEST_REPO/.taskgrind-prompt"
   echo "file-based focus" > "$_prompt_file"
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [[ "$output" == *"file-based focus"* ]]
 }
 
@@ -413,8 +400,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 @test "prompt file with trailing whitespace is trimmed" {
   _prompt_file="$TEST_REPO/.taskgrind-prompt"
   printf "clean prompt\n\n\n" > "$_prompt_file"
-  export DVB_DEADLINE_OFFSET=10
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   # The prompt should end with "clean prompt" not trailing whitespace
   grep -q 'clean prompt' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -446,17 +432,15 @@ EOF
 # ── Dynamic model file (live model switching between sessions) ────────
 
 @test "model file overrides startup model" {
-  export DVB_DEADLINE_OFFSET=10
   echo "gpt-5-5" > "$TEST_REPO/.taskgrind-model"
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [ "$status" -eq 0 ]
   grep -q -- '--model gpt-5-5' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "missing model file uses startup model (no error)" {
-  export DVB_DEADLINE_OFFSET=5
   rm -f "$TEST_REPO/.taskgrind-model"
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [ "$status" -eq 0 ]
 }
 
@@ -517,23 +501,20 @@ SCRIPT
 
 @test "model file with trailing whitespace is trimmed" {
   printf "gpt-5-5\n\n\n" > "$TEST_REPO/.taskgrind-model"
-  export DVB_DEADLINE_OFFSET=10
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   grep -q -- '--model gpt-5-5' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "model file shown in startup banner when active" {
-  export DVB_DEADLINE_OFFSET=5
   echo "sonnet" > "$TEST_REPO/.taskgrind-model"
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [[ "$output" == *"Live model:"* ]]
   [[ "$output" == *"claude-sonnet-4.6"* ]]
 }
 
 @test "model file alias is shown in the session banner as the resolved model" {
-  export DVB_DEADLINE_OFFSET=5
   echo "sonnet" > "$TEST_REPO/.taskgrind-model"
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   [[ "$output" == *"Session 1"* ]]
   [[ "$output" == *"tasks queued — model=claude-sonnet-4.6"* ]]
   [[ "$output" != *"tasks queued — model=sonnet"* ]]
@@ -548,16 +529,14 @@ SCRIPT
 }
 
 @test "model file overrides --model flag" {
-  export DVB_DEADLINE_OFFSET=10
   echo "gpt-5-5" > "$TEST_REPO/.taskgrind-model"
-  run "$DVB_GRIND" --model opus 1 "$TEST_REPO"
+  run_tiny_workload --model opus 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q -- '--model gpt-5-5' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "unknown model alias passes through unchanged" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" --model custom-unknown-model 1 "$TEST_REPO"
+  run_tiny_workload --model custom-unknown-model 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q -- '--model custom-unknown-model' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -640,56 +619,47 @@ SCRIPT
 # ── Prompt hardening ───────────────────────────────────────────────────
 
 @test "--prompt adds priority framing to pick matching tasks first" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "focus on test coverage"
+  run_tiny_workload 1 "$TEST_REPO" --prompt "focus on test coverage"
   grep -q 'Pick tasks from TASKS.md that relate to this focus' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt priority framing mentions unrelated tasks fallback" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "taskgrind stability"
+  run_tiny_workload 1 "$TEST_REPO" --prompt "taskgrind stability"
   grep -q 'Only work on unrelated tasks if no matching tasks remain' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "log header includes prompt= when --prompt is set" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "test focus"
+  run_tiny_workload 1 "$TEST_REPO" --prompt "test focus"
   grep -q 'prompt=test focus' "$TEST_LOG"
 }
 
 @test "log header omits prompt= when no --prompt given" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   ! grep -q 'prompt=' "$(head -2 "$TEST_LOG")"
 }
 
 @test "grind_done log includes prompt when --prompt is set" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "ship features"
+  run_tiny_workload 1 "$TEST_REPO" --prompt "ship features"
   grep 'grind_done' "$TEST_LOG" | grep -q 'prompt=ship features'
 }
 
 @test "grind_done log omits prompt when no --prompt given" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO"
+  run_tiny_workload
   ! grep 'grind_done' "$TEST_LOG" | grep -q 'prompt='
 }
 
 @test "--prompt with single quotes passes through safely" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO" --prompt "it's a test"
+  run_tiny_workload 1 "$TEST_REPO" --prompt "it's a test"
   grep -q "FOCUS: it's a test" "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt with dollar sign passes through without expansion" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO" --prompt 'fix $HOME paths'
+  run_tiny_workload 1 "$TEST_REPO" --prompt 'fix $HOME paths'
   grep -q 'FOCUS: fix \$HOME paths' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--prompt with double quotes passes through safely" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" 1 "$TEST_REPO" --prompt 'multi word with "quotes"'
+  run_tiny_workload 1 "$TEST_REPO" --prompt 'multi word with "quotes"'
   grep -q 'FOCUS: multi word with "quotes"' "$DVB_GRIND_INVOKE_LOG"
 }
 

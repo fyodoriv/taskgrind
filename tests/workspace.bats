@@ -397,8 +397,7 @@ SCRIPT
   local t1 t2
   t1=$(_make_target_repo prompt-t1)
   t2=$(_make_target_repo prompt-t2)
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" --target-repo "$t1" --target-repo "$t2" "$TEST_REPO" 1
+  run_tiny_workload --target-repo "$t1" --target-repo "$t2" "$TEST_REPO" 1
   [ "$status" -eq 0 ]
   grep -q 'WORKSPACE: This grind has 2 target repo' "$DVB_GRIND_INVOKE_LOG"
   grep -q "$t1" "$DVB_GRIND_INVOKE_LOG"
@@ -407,8 +406,7 @@ SCRIPT
 
 @test "session prompt does not include WORKSPACE: when no targets" {
   unset TG_TARGET_REPOS DVB_TARGET_REPOS 2>/dev/null || true
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" "$TEST_REPO" 1
+  run_tiny_workload "$TEST_REPO" 1
   [ "$status" -eq 0 ]
   ! grep -q 'WORKSPACE:' "$DVB_GRIND_INVOKE_LOG"
 }

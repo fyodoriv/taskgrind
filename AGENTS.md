@@ -66,6 +66,8 @@ make uninstall  # remove symlink and man page
 - `make test` caches passing results per `TESTS` target and `TEST_JOBS` value, while `make test-force` always reruns the selected suite from scratch.
 - `make test` and `make check` auto-cap `TEST_JOBS` at 2 unless you override it explicitly for diagnostics. The `RUN_BATS` recipe still raises the per-user soft process limit (`ulimit -Su unlimited`) before invoking bats.
 - GitHub Actions pins the full bats suite to `TEST_JOBS=2`, matching the local default so CI and local `make check` exercise the same stable parallelism.
+- Use `run_tiny_workload` from `tests/test_helper.bash` for CLI-shape, banner, prompt, log-header, and status-field tests that only need one representative session. It creates a one-task queue, runs a fake backend that removes that task, disables cooldown/sweep/git-sync waits, and exits after one loop.
+- Keep the full loop for tests whose subject is time or orchestration behavior: timeout watchdogs, signal handling, network outage accounting, git sync/final sync, queue-empty sweeps, multi-session prompt evolution, backend rotation, workspace fan-out, and multi-instance locking.
 
 ## Architecture
 

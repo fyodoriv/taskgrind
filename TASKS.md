@@ -15,7 +15,7 @@
 
 ## P1
 
-- [ ] Cut the no-cache bats suite 5x by scoping CLI-shape tests to a tiny taskgrind workload
+- [ ] Cut the no-cache bats suite 5x by scoping CLI-shape tests to a tiny taskgrind workload (@devin)
   - **ID**: dotfiles-style-scoped-taskgrind-test-workloads
   - **Tags**: tests, perf, bats, dx, dotfiles-precedent
   - **Source**: 2026-04-30 operator request: "We must speed up 5x how tests run in taskgrind. Note how similar optimization was done in dotfiles." Dotfiles commit `3057710` (`perf(test): 3.84x faster suite via doctor --module scoping`) is the precedent: most `doctor.bats` tests did not need the full ~30s, 200+ check doctor; they only needed representative output, so they were scoped to the smallest module and the full suite dropped from 15:44 to 4:06.
@@ -24,6 +24,13 @@
     Do not accept a broad "just increase TEST_JOBS" fix as satisfying this task. Parallelism is already capped for stability and does not remove the repeated work inside each test. The win must come from not running the full workload when the test only needs a representative workload, exactly like the dotfiles doctor scoping change.
   - **Files**: `tests/test_helper.bash` (tiny workload helper and migration guidance); `tests/logging.bats`, `tests/features.bats`, `tests/diagnostics.bats`, `tests/session.bats`, `tests/signals.bats`, `tests/network.bats`, `tests/workspace.bats` (migrate eligible tests); `bin/taskgrind` only if a test-only internal hook is required; `AGENTS.md` (document when to use tiny workload vs full loop)
   - **Acceptance**: baseline is recorded before changes with `/usr/bin/time -p make test-force TEST_JOBS=2` and `/usr/bin/time -p make test-force TEST_JOBS=4`; after the migration, no-cache full-suite wall time is at least 5x faster than the recorded stable baseline on the same machine/configuration; a before/after table lists the top slow files and top slow tests using `bats --timing`; at least 70% of tests that invoke `$DVB_GRIND` only for CLI/log/status shape are converted to tiny workload, dry-run, or direct helper coverage; every remaining full-loop test has an inline reason why it must stay full-loop; no new user-facing flag/env var appears in `--help`, README, or man page; `make check` passes locally and GitHub Actions stays green at the existing stable `TEST_JOBS` cap
+  - **Plan**:
+    - [x] Add a repo-local tiny workload helper that ships one task without sweep, cooldown, or git-sync waits.
+    - [x] Migrate the first wave of mechanical log, banner, backend, model, prompt, and prompt-hardening tests.
+    - [x] Fix the Makefile cache key so multi-file `TESTS='file file'` targeted reruns can finish after tests pass.
+    - [x] Extend the migration to diagnostics, workspace prompt, and remaining eligible session-shape tests.
+    - [x] Verify the migrated suite with a full `make check` pass (`real 1699.67`).
+    - [ ] Record clean before/after no-cache timings from an unmodified baseline and the final migrated suite.
 
 - [ ] Replace fixed sleeps and deadline offsets in live-loop tests with event sentinels so tests stop waiting on real time
   - **ID**: event-driven-live-loop-test-sentinels
@@ -560,14 +567,6 @@
   - **Details**: Several tests assert the clean deadline/completion path for status files and logging. They need the run to end because the deadline expires, not because low-throughput guards fire. Today each test has to remember the exact combination of env vars (`TG_NO_STALL_EXIT=1` plus a high `TG_MAX_ZERO_SHIP`) and comments explaining why. Extract a small helper in `tests/test_helper.bash`, for example `disable_stall_exits_for_deadline_tests`, that sets every stall-exit override needed for deadline-path tests and documents the intent once. Then replace duplicated per-test exports in logging/status tests with the helper.
   - **Files**: `tests/test_helper.bash`, `tests/logging.bats`, any other status/deadline tests that carry the same manual env setup
   - **Acceptance**: deadline-oriented status/logging tests call the helper instead of duplicating stall-exit env vars; the helper disables both diminishing-returns and hard zero-ship bails; comments in individual tests shrink to the scenario-specific deadline assertion; `make test-force TESTS=tests/logging.bats` and `make check` pass
-
-- [ ] Fix targeted `make test-force TESTS='file file'` cache-key handling so multi-file focused runs do not fail after passing
-  - **ID**: make-test-force-multi-file-cache-key
-  - **Tags**: makefile, tests, developer-experience, cache
-  - **Source**: 2026-04-29 verification of the GPT-5.5 readiness work
-  - **Details**: A focused verification command using `make test-force TESTS='tests/diagnostics.bats tests/from-prompt.bats tests/git-sync.bats tests/multi-instance.bats tests/features.bats tests/pipeline-rate-verify.bats'` printed all selected bats tests as `ok`, then `make` exited 2 because the cache filename derived from the space-separated `TESTS` value was not shell-quoted. The recipe tried to write through a split cache path and `cut` reported `tests_from-prompt.bats: No such file or directory`. Full `make check` uses the default glob and avoids this path, but focused multi-file reruns are the standard tight-loop workflow documented in AGENTS.md.
-  - **Files**: `Makefile`, `tests/makefile-cleanup.bats`
-  - **Acceptance**: `make test-force TESTS='tests/diagnostics.bats tests/from-prompt.bats'` exits 0 when both suites pass; the cache filename is sanitized to a single path component for any space-separated `TESTS` value; `make test TESTS='tests/diagnostics.bats tests/from-prompt.bats'` uses the same cache key and can skip after a prior pass; regression coverage in `tests/makefile-cleanup.bats` exercises the multi-file `TESTS` value; `make check` passes
 
 - [ ] `grind_done sessions=N` should not count sweep-only runs — log `sessions=0 sweeps=1` when no real session ran
   - **ID**: grind-done-sessions-vs-sweeps-counter-fix
