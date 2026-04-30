@@ -683,3 +683,28 @@
     **Why P3**: pure developer-experience optimization. Today's `1-3 min` test cycle isn't broken — it's just not as tight as it could be. Operators who land here after the P1 (CI green) and P2 (setup_file fixtures) work get a smaller incremental win.
   - **Files**: every `tests/*.bats` (add the `# bats test_tags=...` line above each `@test`); `Makefile` (new `test-fast` and `test-slow` targets); `README.md` (Development section); `AGENTS.md` (Development section + Local Test Notes); optionally `.github/workflows/check.yml` if the CI matrix split is in scope
   - **Acceptance**: `make test-fast` finishes in ≤30 seconds on a clean Apple Silicon machine (measured, not estimated); `make test-fast` passes 100% (the fast subset is by definition the deterministic one — no flakes); `make test-slow` runs the rest and matches the current `make test` exit status when the suite is otherwise green; the README/AGENTS guidance points devs at `make test-fast` for tight loops; a doc-drift test in `tests/basics.bats` asserts the new Makefile targets are documented in both README and AGENTS so they don't silently disappear; the tag audit passes a sanity check (no test is both `fast` and `slow`; every test has at least one tag)
+
+- [ ] Align Taskgrind agent guide with the shared agent-tool repo baseline
+  - **ID**: align-taskgrind-agent-guide-baseline
+  - **Tags**: agents, agentbrew, docs, governance
+  - **Details**: Cross-repo audit on 2026-04-30 compared `bosun`,
+    `taskgrind`, `dotfiles`, `code-smells`, `agentbrew`, `tasks.md`, and
+    `oncall-*`. Taskgrind has a useful AGENTS.md, but it does not yet carry
+    the same source-of-truth and ownership sections as Bosun/agentbrew. The
+    direct-commit-on-main guidance is also an intentional repo exception that
+    should be made explicit against the global branch/push safety rules.
+  - **Files**:
+    - `AGENTS.md`
+    - `Agentfile.yaml`
+    - `.devin/skills/grind-log-analyze/SKILL.md`
+    - `.devin/skills/standing-audit-gap-loop/SKILL.md`
+    - `TASKS.md`
+  - **Acceptance**:
+    - `AGENTS.md` has the shared baseline sections: purpose, layout,
+      development commands, editing rules, task queue policy, skill/source
+      ownership, Agentfile/agentbrew sync path, and verification gate
+    - The `main`-branch workflow is either replaced with a feature-branch flow
+      or documented as a deliberate local exception with safe push guidance
+    - Repo-local skills are documented as intentionally unique to Taskgrind or
+      moved to a canonical tracked skill source wired through `Agentfile.yaml`
+    - `npx -y @tasks-md/lint TASKS.md` and `make check` pass
