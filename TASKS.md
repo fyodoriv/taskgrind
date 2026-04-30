@@ -576,6 +576,14 @@
 
 ## P3
 
+- [ ] Add automated repo-local skill validation so invalid `.devin/skills/*/SKILL.md` files fail fast in `make audit`
+  - **ID**: validate-repo-local-skill-frontmatter
+  - **Tags**: skills, audit, devex
+  - **Source**: 2026-04-30 addition of `taskgrind-repo-setup` showed the Makefile audit can include repo-local skills in grep/docs-review, but it still does not validate skill names, frontmatter delimiters, or description length.
+  - **Details**: Add a lightweight validation script or Makefile target that scans every `.devin/skills/*/SKILL.md` file and verifies the basic Devin skill contract: directory/name alignment, lowercase hyphenated `name`, non-empty `description`, frontmatter delimiters, and a body with a `## Constraints` section. Keep it dependency-light; a short Python script is fine if shell parsing is brittle.
+  - **Files**: `Makefile`, `.devin/skills/*/SKILL.md`, optional `scripts/validate-skills.py`
+  - **Acceptance**: `make audit` fails on a deliberately malformed temporary skill in a test fixture or scripted self-check, passes on all current repo-local skills, and documents the validation command in `AGENTS.md`
+
 - [ ] Add visible progress for long Bats files so `make check` does not look frozen
   - **ID**: make-check-bats-buffered-progress
   - **Tags**: tests, dx, bats, observability

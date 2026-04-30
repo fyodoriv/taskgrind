@@ -60,7 +60,7 @@ check: lint test
 
 audit:
 	@echo "═══ Audit: TODO:/FIXME: scan ═══"
-	@grep -RInE 'TODO:|FIXME:' bin lib docs README.md CONTRIBUTING.md SECURITY.md AGENTS.md Agentfile.yaml man/taskgrind.1 .devin/skills/standing-audit-gap-loop/SKILL.md .devin/skills/grind-log-analyze/SKILL.md 2>/dev/null || true
+	@grep -RInE 'TODO:|FIXME:' bin lib docs README.md CONTRIBUTING.md SECURITY.md AGENTS.md Agentfile.yaml man/taskgrind.1 .devin/skills/*/SKILL.md 2>/dev/null || true
 	@echo "═══ Audit: shellcheck ═══"
 	@$(MAKE) lint
 	@echo "═══ Audit: TASKS.md spec ═══"
@@ -78,7 +78,7 @@ audit:
 		exit 1; \
 	fi
 	@echo "═══ Audit: docs review queue ═══"
-	@printf '%s\n' README.md CONTRIBUTING.md SECURITY.md AGENTS.md Agentfile.yaml docs/architecture.md docs/resume-state.md docs/user-stories.md man/taskgrind.1 .devin/skills/standing-audit-gap-loop/SKILL.md .devin/skills/grind-log-analyze/SKILL.md
+	@printf '%s\n' README.md CONTRIBUTING.md SECURITY.md AGENTS.md Agentfile.yaml docs/architecture.md docs/resume-state.md docs/user-stories.md man/taskgrind.1 .devin/skills/*/SKILL.md
 
 install:
 	@echo "Installing taskgrind to $(PREFIX)..."

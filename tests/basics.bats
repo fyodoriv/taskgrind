@@ -209,10 +209,11 @@ EOF
   [[ "$output" == *"Agentfile.yaml"* ]]
   [[ "$output" == *".devin/skills/standing-audit-gap-loop/SKILL.md"* ]]
   [[ "$output" == *".devin/skills/grind-log-analyze/SKILL.md"* ]]
+  [[ "$output" == *".devin/skills/taskgrind-repo-setup/SKILL.md"* ]]
 }
 
 @test "make audit TODO/FIXME scan covers the docs review queue files" {
-  run grep -n 'grep -RInE.*TODO:|FIXME:.*SECURITY.md.*AGENTS.md.*Agentfile.yaml.*man/taskgrind.1.*standing-audit-gap-loop/SKILL.md.*grind-log-analyze/SKILL.md' "$BATS_TEST_DIRNAME/../Makefile"
+  run grep -n 'grep -RInE.*TODO:|FIXME:.*SECURITY.md.*AGENTS.md.*Agentfile.yaml.*man/taskgrind.1.*\.devin/skills/\*/SKILL.md' "$BATS_TEST_DIRNAME/../Makefile"
   [ "$status" -eq 0 ]
 
   [[ "$output" != *"tests"* ]]
