@@ -2320,7 +2320,8 @@ if [[ -z "${DVB_GRIND_CMD:-}" && -z "${DVB_CAFFEINATED:-}" ]]; then
   if [[ "$(uname)" == "Darwin" ]]; then
     # shellcheck disable=SC2086  # intentionally unquoted — flags must word-split for caffeinate
     exec caffeinate $DVB_CAFFEINATE_FLAGS "$0" ${_orig_args[@]+"${_orig_args[@]}"}
-  elif command -v systemd-inhibit >/dev/null 2>&1; then
+  elif command -v systemd-inhibit >/dev/null 2>&1 \
+      && systemd-inhibit --what=idle:sleep --who=taskgrind --why="grind probe" true >/dev/null 2>&1; then
     exec systemd-inhibit --what=idle:sleep --who=taskgrind --why="grind in progress" "$0" ${_orig_args[@]+"${_orig_args[@]}"}
   fi
   # No sleep inhibitor available — continue without one
@@ -2427,7 +2428,7 @@ final_sync() {
     echo "   📤 Pushing $ahead local commit(s) to origin..."
   fi
   log_write "[$(date '+%H:%M')] final_sync pushing commits=$ahead${_fs_suffix}"
-  local push_output push_first_line push_status=0 _is_nff=0
+  local push_output push_first_line="" push_status=0 _is_nff=0
   push_output=$(git -C "$_fs_repo" push origin HEAD 2>&1) || push_status=$?
   if [[ "$push_status" -eq 0 ]]; then
     log_write "[$(date '+%H:%M')] final_sync push_ok${_fs_suffix}"

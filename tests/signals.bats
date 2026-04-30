@@ -654,6 +654,7 @@ TASKS
 @test "Linux: systemd-inhibit fallback for caffeinate (structural)" {
   grep -q 'systemd-inhibit' "$DVB_GRIND"
   grep -q 'idle:sleep' "$DVB_GRIND"
+  grep -q 'systemd-inhibit.*grind probe.*true' "$DVB_GRIND"
 }
 
 @test "Linux: flock preferred, perl fallback when flock unavailable (structural)" {
