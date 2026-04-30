@@ -785,7 +785,8 @@ EOF
 
 @test "DVB_GIT_SYNC_TIMEOUT controls git sync timeout" {
   # Structural: the variable is read from env
-  grep -q 'DVB_GIT_SYNC_TIMEOUT:-30' "$DVB_GRIND"
+  grep -Fq 'DVB_DEFAULT_GIT_SYNC_TIMEOUT="30"' "$BATS_TEST_DIRNAME/../lib/constants.sh"
+  grep -Fq 'DVB_GIT_SYNC_TIMEOUT:-$DVB_DEFAULT_GIT_SYNC_TIMEOUT' "$DVB_GRIND"
 }
 
 @test "TG_GIT_SYNC_TIMEOUT takes precedence over DVB_GIT_SYNC_TIMEOUT during a real sync timeout" {

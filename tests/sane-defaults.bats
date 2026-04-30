@@ -21,16 +21,59 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 # ── Default session length ────────────────────────────────────────────
 
 @test "TG_MAX_SESSION default is 5400 (90 min, post 2026-04-29)" {
-  grep -q 'max_session="${DVB_MAX_SESSION:-5400}"' "$DVB_GRIND"
+  grep -Fq 'DVB_DEFAULT_MAX_SESSION="5400"' "$BATS_TEST_DIRNAME/../lib/constants.sh"
+  grep -Fq 'max_session="${DVB_MAX_SESSION:-$DVB_DEFAULT_MAX_SESSION}"' "$DVB_GRIND"
 }
 
 @test "TG_MAX_SESSION still respects DVB_MAX_SESSION env override" {
   # Sanity: override should still work through the resolution chain.
-  grep -q 'DVB_MAX_SESSION:-5400' "$DVB_GRIND"
+  grep -Fq 'DVB_MAX_SESSION:-$DVB_DEFAULT_MAX_SESSION' "$DVB_GRIND"
 }
 
 @test "TG_MAX_SESSION old default (3600) is no longer the fallback" {
   ! grep -q 'max_session="${DVB_MAX_SESSION:-3600}"' "$DVB_GRIND"
+}
+
+@test "audited runtime defaults live in lib/constants.sh with rationale comments" {
+  python3 - "$BATS_TEST_DIRNAME/../lib/constants.sh" <<'PY'
+import pathlib
+import re
+import sys
+
+text = pathlib.Path(sys.argv[1]).read_text()
+expected = {
+    "COOL": "5",
+    "MAX_FAST": "20",
+    "MAX_SESSION": "5400",
+    "SWEEP_MAX": "1800",
+    "MAX_ZERO_SHIP": "6",
+    "SYNC_INTERVAL": "5",
+    "MAX_INSTANCES": "2",
+    "MIN_SESSION": "30",
+    "NET_WAIT": "30",
+    "NET_MAX_WAIT": "3600",
+    "NET_RETRIES": "3",
+    "NET_RETRY_DELAY": "2",
+    "BACKOFF_BASE": "15",
+    "BACKOFF_MAX": "120",
+    "GIT_SYNC_TIMEOUT": "30",
+    "EMPTY_QUEUE_WAIT": "600",
+    "SHUTDOWN_GRACE": "120",
+    "SESSION_GRACE": "15",
+    "SELF_INVESTIGATE_ZERO_SHIP_STREAK": "3",
+}
+for name, value in expected.items():
+    constant = f"DVB_DEFAULT_{name}"
+    assert re.search(rf"^# TG_{name}={re.escape(value)}: .+", text, re.M), f"missing rationale for TG_{name}"
+    assert re.search(rf"^{constant}=\"{re.escape(value)}\"$", text, re.M), f"missing {constant}={value}"
+PY
+}
+
+@test "tuned defaults are documented with benchmark rationale" {
+  doc="$BATS_TEST_DIRNAME/../docs/defaults-rationale.md"
+  [ -f "$doc" ]
+  grep -Fq '| `TG_MAX_ZERO_SHIP` | 50 sessions | 6 sessions |' "$doc"
+  grep -Fq '| `TG_NET_MAX_WAIT` | 14400s | 3600s |' "$doc"
 }
 
 @test "header comment documents the bump rationale" {

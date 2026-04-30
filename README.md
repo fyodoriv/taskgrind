@@ -215,23 +215,24 @@ Before deploying, ensure:
 | `TG_COOL` | `5` | Seconds between sessions |
 | `TG_MAX_SESSION` | `5400` | Max seconds per session (90 min, was 3600 before 2026-04-29). Bumped after bosun PR #1548 enforced "code commits via pipelines only" — sessions are now an orchestrator role (launch + monitor + merge) and pipelines take 20-45 min each, so 90 min lets the agent batch 2-3 pipeline cycles per session. Auto-increases by 1800 s (cap 7200 s) after a session that shipped but hit the timeout; see the "Productive timeout auto-increase" feature. |
 | `TG_SWEEP_MAX` | `1800` | Max seconds for a backlog-discovery sweep session. Independent of `TG_MAX_SESSION` so the productive-timeout escalation cannot lengthen sweeps. Each completed sweep emits `sweep_efficiency tasks=N elapsed=Ns tasks_per_min=N.NN` for trend analysis. |
-| `TG_MIN_SESSION` | `30` | Fast-failure threshold in seconds |
-| `TG_MAX_FAST` | `20` | Max consecutive fast failures before bail |
-| `TG_MAX_ZERO_SHIP` | `50` | Consecutive zero-ship sessions before bail |
-| `TG_BACKOFF_BASE` | `15` | Base seconds for fast-failure backoff |
-| `TG_BACKOFF_MAX` | `120` | Cap for fast-failure backoff in seconds |
-| `TG_NET_WAIT` | `30` | Network polling interval in seconds |
-| `TG_NET_MAX_WAIT` | `14400` | Max time to wait for network recovery (4h) |
-| `TG_NET_RETRIES` | `3` | Network check retry attempts before declaring down |
-| `TG_NET_RETRY_DELAY` | `2` | Seconds between network check retries |
+| `TG_MIN_SESSION` | `30` | Fast-failure threshold in seconds; shorter runs are treated as startup/network failures rather than real work. |
+| `TG_MAX_FAST` | `20` | Max consecutive fast failures before bail; high enough to collect diagnostics while bounding broken backend loops. |
+| `TG_MAX_ZERO_SHIP` | `6` | Consecutive zero-ship sessions before bail; aligned to the 5-session diminishing-returns window plus one confirmation trip. |
+| `TG_SELF_INVESTIGATE_ZERO_SHIP_STREAK` | `3` | Consecutive zero-ship sessions before stall-warning prompts, mid-run self-investigation, and backend rotation; fires before the hard zero-ship bail. |
+| `TG_BACKOFF_BASE` | `15` | Base seconds for fast-failure backoff; slows crash loops after diagnostics start. |
+| `TG_BACKOFF_MAX` | `120` | Cap for fast-failure backoff in seconds; keeps recovery checks at least every 2 minutes. |
+| `TG_NET_WAIT` | `30` | Network polling interval in seconds; responsive for Wi-Fi recovery without log spam. |
+| `TG_NET_MAX_WAIT` | `3600` | Max time to wait for network recovery (1h); longer outages should resume explicitly after connectivity returns. |
+| `TG_NET_RETRIES` | `3` | Network check retry attempts before declaring down; filters transient DNS/HTTP blips. |
+| `TG_NET_RETRY_DELAY` | `2` | Seconds between network check retries; keeps false-negative probes under 10s. |
 | `TG_NET_CHECK_URL` | `https://connectivitycheck.gstatic.com/generate_204` | Override the fallback curl connectivity URL when `network-watchdog` is unavailable |
-| `TG_GIT_SYNC_TIMEOUT` | `30` | Max seconds for between-session git sync |
-| `TG_SYNC_INTERVAL` | `5` | Git sync every N sessions (0=every) |
-| `TG_EMPTY_QUEUE_WAIT` | `600` | Seconds to wait after an empty sweep before giving up |
+| `TG_GIT_SYNC_TIMEOUT` | `30` | Max seconds for between-session git sync; longer hangs need operator recovery. |
+| `TG_SYNC_INTERVAL` | `5` | Git sync every N sessions (0=every); amortizes fetch/rebase overhead while keeping long grinds fresh. |
+| `TG_EMPTY_QUEUE_WAIT` | `600` | Seconds to wait after an empty sweep before giving up; gives external agents time to inject follow-up work. |
 | `TG_EARLY_EXIT_ON_STALL` | `0` | Strict-mode alias for `TG_EXIT_ON_STALL`. Set `1` to exit on the **first** `diminishing_returns` trip with `early_exit_stall`. Kept as a backward-compat name. |
 | `TG_EXIT_ON_STALL` | `0` | Set `1` to exit on the **first** `diminishing_returns` trip (window=5, shipped<2). Same effect as `TG_EARLY_EXIT_ON_STALL=1`. |
 | `TG_NO_STALL_EXIT` | `0` | Set `1` to disable the default auto-exit on consecutive `diminishing_returns` trips; the detector still logs but the grind keeps running. Useful for audit/discovery lanes where low ship rates are expected. |
-| `TG_MAX_INSTANCES` | `2` | Max concurrent instances per repo |
+| `TG_MAX_INSTANCES` | `2` | Max concurrent instances per repo; one sync owner plus one conflict-avoiding worker. |
 | `TG_DEVIN_PATH` | auto | Override devin binary path |
 | `TG_LOG` | auto | Override log file path |
 | `TG_STATUS_FILE` | (disabled) | Write machine-readable runtime status JSON to this path |

@@ -667,8 +667,9 @@ TASKS
 
 # ── Stall detection (zero-ship sessions) ─────────────────────────────
 
-@test "DVB_MAX_ZERO_SHIP defaults to 50" {
-  grep -q 'DVB_MAX_ZERO_SHIP:-50' "$DVB_GRIND"
+@test "DVB_MAX_ZERO_SHIP defaults to 6" {
+  grep -Fq 'DVB_DEFAULT_MAX_ZERO_SHIP="6"' "$BATS_TEST_DIRNAME/../lib/constants.sh"
+  grep -Fq 'DVB_MAX_ZERO_SHIP:-$DVB_DEFAULT_MAX_ZERO_SHIP' "$DVB_GRIND"
 }
 
 @test "5 consecutive zero-ship sessions exits the marathon" {
@@ -1259,7 +1260,8 @@ SCRIPT
 
 @test "timeout watchdog has grace period before SIGTERM escalation" {
   # After SIGINT, wait a grace period then check if still alive
-  grep -q 'DVB_SESSION_GRACE:-15' "$DVB_GRIND"
+  grep -Fq 'DVB_DEFAULT_SESSION_GRACE="15"' "$BATS_TEST_DIRNAME/../lib/constants.sh"
+  grep -Fq 'DVB_SESSION_GRACE:-$DVB_DEFAULT_SESSION_GRACE' "$DVB_GRIND"
   grep -q 'sleep "$_grace"' "$DVB_GRIND"
   grep -q 'still alive after.*grace.*SIGTERM' "$DVB_GRIND"
 }

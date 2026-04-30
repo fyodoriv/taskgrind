@@ -213,55 +213,6 @@
     - `make check` passes with the new tests
     - PR description shows a before/after of `taskgrind --dry-run` output for both a solo personal repo and a shared repo, demonstrating the new banner line
 
-- [ ] Audit and document every default value in `bin/taskgrind` — kill arbitrary numbers, justify the rest
-  - **ID**: audit-arbitrary-default-numbers
-  - **Tags**: cli, defaults, docs, technical-debt
-  - **Source**: `simplify-help-surface-area` audit — many defaults look picked from a hat (`MAX_FAST=20`, `MAX_ZERO_SHIP=50`, `BACKOFF_MAX=120`, `EMPTY_QUEUE_WAIT=600`, `NET_MAX_WAIT=14400`). If `--help` is going to hide these vars and tell users to trust the defaults, the defaults need to actually deserve trust.
-  - **Details**: The script today defaults ~17 numeric tuning vars at the top of `bin/taskgrind`:
-    | Var | Default | Looks arbitrary? |
-    |---|---|---|
-    | `TG_MAX_FAST` | 20 | Yes — why 20? what's the false-positive cost vs benefit? |
-    | `TG_MAX_SESSION` | 3600 | Plausible (1h budget per session) |
-    | `TG_SWEEP_MAX` | 1800 | Plausible (sweep cap = 30min) but 30 min feels long for "find work" |
-    | `TG_MAX_ZERO_SHIP` | 50 | Yes — why 50? |
-    | `TG_SYNC_INTERVAL` | 5 | Yes — every 5 sessions feels arbitrary |
-    | `TG_NET_RETRIES` | 3 | Standard |
-    | `TG_NET_RETRY_DELAY` | 2 | Standard |
-    | `TG_GIT_SYNC_TIMEOUT` | 30 | Plausible |
-    | `TG_SHUTDOWN_GRACE` | 120 | Plausible |
-    | `TG_NET_WAIT` | 30 | Plausible |
-    | `TG_NET_MAX_WAIT` | 14400 | 4 hours seems extreme — why? |
-    | `TG_EMPTY_QUEUE_WAIT` | 600 | Yes — why 10 min? |
-    | `TG_SESSION_GRACE` | 15 | Plausible |
-    | `TG_BACKOFF_BASE` | 15 | Plausible |
-    | `TG_BACKOFF_MAX` | 120 | Plausible |
-    | `TG_COOL` | 5 | Plausible |
-    | default `hours` | 10 | Yes — most users grind shorter |
-
-    **For each default**: either (a) cite a measurement / observation that justified the value (e.g. "MAX_FAST=20: a real backend hung-and-restored cycle takes ~7 fast-failure sessions in field telemetry; 20 leaves headroom for two cycles before declaring real failure"), or (b) change the default to a measurably better number, or (c) flag it as "needs measurement, do not change yet" with the planned measurement approach. Goal: every default value has either a `# default: N — <one-sentence-justification>` comment in `bin/taskgrind` next to its declaration, OR a TASKS.md follow-up to measure.
-    The audit should also look at *interaction* defaults — e.g. `MAX_ZERO_SHIP=50` × `MAX_SESSION=3600` × `BACKOFF_MAX=120` — and check that the worst-case duration is reasonable. If 50 zero-ship sessions can happen back-to-back at 1h each, that's 50h of wasted compute before bail-out, which is way past any operator's intent. Cap the worst case in the audit, even if individual numbers look fine in isolation.
-    Specific changes likely to land based on the audit (treat as predictions, not requirements):
-    - `MAX_ZERO_SHIP=50` → 20 (50 is too forgiving — three full grind days of nothing being shipped before bail)
-    - `EMPTY_QUEUE_WAIT=600` → 60 (10 minutes of pure idle is a long stall; if external task injection is the use case, 1 minute is enough to detect file changes)
-    - default `hours=10` → 8 (matches a typical workday + buffer; 10h was likely chosen because it's a round number)
-    - `NET_MAX_WAIT=14400` → 3600 (4h of waiting for network is rarely the right answer — most operators would prefer the marathon to error out and let them retry)
-    These are *predictions*; the actual numbers should fall out of the audit, not be set in stone here.
-    Counter-arguments: (a) "changing defaults breaks user expectations" — addressed by versioning the change in `man/taskgrind.1` and the `grind_done` log line announcing notable default shifts; (b) "this is yak-shaving on a working system" — addressed by the audit being concrete (every default gets a comment or a follow-up task), not open-ended philosophizing; (c) "tests pin specific values" — `tests/*.bats` have a few tests asserting specific defaults (`tests/basics.bats: DVB_MAX_FAST defaults to 20`, etc.); when defaults change, those tests get updated in the same commit and the new value is justified in the commit message.
-    **What's NOT in scope**: changing the *mechanism* of any default (e.g., switching from per-session backoff to per-failure-class backoff); making defaults dynamic / context-aware; rewriting the diminishing-returns detector; touching env vars that aren't numeric defaults (the strings, paths, and bools have their own design considerations).
-    **Why P2**: this is the substrate for `simplify-help-surface-area`. Hiding 21 env vars from `--help` is only safe if the defaults actually work for everyone — otherwise users have to set the hidden vars to fix things, and we've created a worse trap than the current 33-var wall. Doing this in parallel (or right after) the surface-slim is the right ordering.
-  - **Files**:
-    - `bin/taskgrind` — for each defaulted var, add an inline comment `# default: N — <one-sentence-justification>` in the same block that defines `${DVB_FOO:-N}`; defaults that change get a comment plus the new value; defaults that need measurement get a `# TODO(measure):` with a link to a follow-up task ID
-    - `man/taskgrind.1` ENVIRONMENT section — the justifications belong here too so operators reading the man page understand the trade-offs without spelunking source
-    - `tests/basics.bats` and friends — update any test that asserts a specific default value; new test added: `every numeric default has a justification comment within 3 lines of its declaration` (lints against silent default drift)
-    - `docs/user-stories.md` — if any default change affects an existing user story (e.g. story #N said "after 50 zero-ship sessions taskgrind exits"), update that story
-    - `README.md` — env table headers add a "Default rationale" column where applicable
-  - **Acceptance**:
-    - Every numeric default in `bin/taskgrind` has a one-line `# default: ... — ...` comment within 3 lines of its declaration (verified by a new lint test)
-    - Default values that get changed are justified in the commit message with the measurement or reasoning that drove them
-    - The man page reflects every changed default; CLI parity test still passes
-    - `make check` passes — any test that asserted a specific default value is updated to assert the new one
-    - The PR description has a small table summarizing each default's "old → new (or kept) — why" so reviewers can sanity-check the call
-
 - [ ] Share immutable per-file fixtures via `setup_file()` so the bats suite stops paying full setup cost on every test
   - **ID**: bats-setup-file-shared-fixtures
   - **Tags**: tests, perf, bats, infrastructure
@@ -552,6 +503,14 @@
     - On the `bosun-2026-04-26-2139` re-creation, the new line reads `shipped=29 net_delta=-79 ship_rate=2.8/h tasks_added=102 tasks_starting=44 tasks_after=123` — interpretable at a glance as "29 shipped, but queue grew because 102 concurrent additions"
 
 ## P3
+
+- [ ] Extract a deadline-path test helper that disables all stall exits
+  - **ID**: deadline-status-test-stall-exit-helper
+  - **Tags**: tests, maintainability, defaults, stall-detection
+  - **Source**: 2026-04-30 defaults-audit verification — lowering `TG_MAX_ZERO_SHIP` exposed that status-file tests which opt out of `TG_NO_STALL_EXIT` can still hit the hard zero-ship bail before their deadline.
+  - **Details**: Several tests assert the clean deadline/completion path for status files and logging. They need the run to end because the deadline expires, not because low-throughput guards fire. Today each test has to remember the exact combination of env vars (`TG_NO_STALL_EXIT=1` plus a high `TG_MAX_ZERO_SHIP`) and comments explaining why. Extract a small helper in `tests/test_helper.bash`, for example `disable_stall_exits_for_deadline_tests`, that sets every stall-exit override needed for deadline-path tests and documents the intent once. Then replace duplicated per-test exports in logging/status tests with the helper.
+  - **Files**: `tests/test_helper.bash`, `tests/logging.bats`, any other status/deadline tests that carry the same manual env setup
+  - **Acceptance**: deadline-oriented status/logging tests call the helper instead of duplicating stall-exit env vars; the helper disables both diminishing-returns and hard zero-ship bails; comments in individual tests shrink to the scenario-specific deadline assertion; `make test-force TESTS=tests/logging.bats` and `make check` pass
 
 - [ ] Fix targeted `make test-force TESTS='file file'` cache-key handling so multi-file focused runs do not fail after passing
   - **ID**: make-test-force-multi-file-cache-key

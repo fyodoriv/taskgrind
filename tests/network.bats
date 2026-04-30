@@ -277,7 +277,8 @@ SCRIPT
 
 @test "backoff formula defaults cap to 120s" {
   # Structural: verify the default max is 120
-  grep -q 'DVB_BACKOFF_MAX:-120' "$DVB_GRIND"
+  grep -Fq 'DVB_DEFAULT_BACKOFF_MAX="120"' "$BATS_TEST_DIRNAME/../lib/constants.sh"
+  grep -Fq 'DVB_BACKOFF_MAX:-$DVB_DEFAULT_BACKOFF_MAX' "$DVB_GRIND"
 }
 
 @test "backoff sleep extends deadline like network wait does" {
@@ -413,7 +414,8 @@ SCRIPT
 
 @test "network check retries before declaring down" {
   # Structural: retry loop in check_network
-  grep -q 'DVB_NET_RETRIES:-3' "$DVB_GRIND"
+  grep -Fq 'DVB_DEFAULT_NET_RETRIES="3"' "$BATS_TEST_DIRNAME/../lib/constants.sh"
+  grep -Fq 'DVB_NET_RETRIES:-$DVB_DEFAULT_NET_RETRIES' "$DVB_GRIND"
   grep -q '_check_network_once && return 0' "$DVB_GRIND"
 }
 
