@@ -99,6 +99,10 @@ PY
   grep -q '^_check_bosun_health()' "$DVB_GRIND"
 }
 
+@test "_ensure_bosun_grind_session helper exists" {
+  grep -q '^_ensure_bosun_grind_session()' "$DVB_GRIND"
+}
+
 @test "_check_bosun_health probes /api/v1/ready (no auth required)" {
   grep -q '/api/v1/ready' "$DVB_GRIND"
 }
@@ -140,6 +144,19 @@ assert 'preflight_pass "Bosun server check skipped' in window or \
 PY
 }
 
+@test "preflight ensures a grind session for bosun-dependent skills" {
+  python3 - "$DVB_GRIND" <<'PY'
+import pathlib
+import sys
+
+text = pathlib.Path(sys.argv[1]).read_text()
+i_check = text.find('9. Bosun server reachable')
+window = text[i_check:i_check + 1400]
+assert '_ensure_bosun_grind_session' in window, "grind-session ensure missing from bosun preflight"
+assert 'Bosun grind session active' in window, "preflight should report active grind session"
+PY
+}
+
 # ── Integration: bats run with --preflight should not fail in test mode ─────
 
 @test "preflight runs cleanly when skill is fleet-grind in test mode" {
@@ -148,6 +165,27 @@ PY
   run "$DVB_GRIND" --preflight --skill fleet-grind "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Bosun server check skipped"* ]]
+  [[ "$output" == *"Bosun grind session active"* ]]
+}
+
+@test "fleet-grind child sessions inherit BOSUN_GRIND_SESSION_ID in test mode" {
+  create_fake_devin "$TEST_DIR/fake-devin-env" <<'SCRIPT'
+#!/bin/bash
+env | grep '^BOSUN_GRIND_SESSION_ID=' >> "$TG_ENV_LOG"
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+exit 0
+SCRIPT
+
+  export DVB_GRIND_CMD="$TEST_DIR/fake-devin-env"
+  export TG_ENV_LOG="$TEST_DIR/env.log"
+  export DVB_DEADLINE_OFFSET=5
+  export DVB_MIN_SESSION=0
+  export DVB_MAX_ZERO_SHIP=1
+
+  run "$DVB_GRIND" --skill fleet-grind "$TEST_REPO" 1
+
+  [ -f "$TG_ENV_LOG" ]
+  grep -q '^BOSUN_GRIND_SESSION_ID=taskgrind-test-' "$TG_ENV_LOG"
 }
 
 @test "preflight runs cleanly with non-bosun skill (no bosun check at all)" {

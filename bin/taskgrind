@@ -214,6 +214,7 @@ for _tg_var in BACKEND BACKOFF_BASE BACKOFF_MAX COOL DEVIN_PATH \
     export "DVB_${_tg_var}"="${!_tg_ref}"
   fi
 done
+
 unset _tg_var _tg_ref
 
 # Save original args before parsing — caffeinate re-exec needs them intact
@@ -1409,10 +1410,86 @@ _check_bosun_health() {
 #     queries current count, computes delta. Flags when tasks_shipped > 0
 #     AND pipeline_delta == 0 (the Apr 28-29 shape).
 #
-# Both functions are best-effort — if curl fails, jq is missing, or bosun
-# is unreachable mid-session, they no-op cleanly. The check is an
-# observability + after-the-fact alert, not a hard gate.
+# If the session ships tasks while Bosun reports zero pipeline delta, the
+# verification files a diagnostic task and marks the grind failed. Curl/jq
+# failures still degrade to count=0 so the suspicious shape hard-stops instead
+# of becoming an advisory-only warning.
 _pipeline_baseline_file=""
+_pipeline_verify_failed=0
+_bosun_grind_error=""
+
+_resolve_bosun_cli() {
+  if [[ -n "${BOSUN_BIN:-}" && -x "$BOSUN_BIN" ]]; then
+    echo "$BOSUN_BIN"
+    return 0
+  fi
+  if command -v bosun >/dev/null 2>&1; then
+    command -v bosun
+    return 0
+  fi
+  if [[ -x "$repo/bin/bosun" ]]; then
+    echo "$repo/bin/bosun"
+    return 0
+  fi
+  if [[ -n "${HOME:-}" && -x "$HOME/apps/bosun/bin/bosun" ]]; then
+    echo "$HOME/apps/bosun/bin/bosun"
+    return 0
+  fi
+  return 1
+}
+
+_source_bosun_grind_env() {
+  local env_file="$1"
+  [[ -f "$env_file" ]] || return 1
+  # shellcheck disable=SC1090
+  . "$env_file"
+  [[ -n "${BOSUN_GRIND_SESSION_ID:-}" ]] || return 1
+  export BOSUN_GRIND_SESSION_ID
+  export BOSUN_GRIND_PROJECT_ID="${BOSUN_GRIND_PROJECT_ID:-$repo}"
+  export BOSUN_API_BASE="${BOSUN_API_BASE:-http://localhost:9746}"
+  export BOSUN_URL="${BOSUN_URL:-$BOSUN_API_BASE}"
+}
+
+_ensure_bosun_grind_session() {
+  _bosun_grind_error=""
+  if ! _skill_needs_bosun 2>/dev/null; then
+    return 0
+  fi
+  if [[ -n "${BOSUN_GRIND_SESSION_ID:-}" ]]; then
+    export BOSUN_GRIND_SESSION_ID
+    export BOSUN_GRIND_PROJECT_ID="${BOSUN_GRIND_PROJECT_ID:-$repo}"
+    export BOSUN_API_BASE="${BOSUN_API_BASE:-http://localhost:9746}"
+    export BOSUN_URL="${BOSUN_URL:-$BOSUN_API_BASE}"
+    return 0
+  fi
+  if [[ -n "${DVB_GRIND_CMD:-}" && -z "${DVB_REGISTER_REAL_BOSUN_GRIND:-}" ]]; then
+    export BOSUN_GRIND_SESSION_ID="taskgrind-test-${_lock_hash:-test}-$$"
+    export BOSUN_GRIND_PROJECT_ID="$repo"
+    export BOSUN_API_BASE="${BOSUN_API_BASE:-http://localhost:9746}"
+    export BOSUN_URL="${BOSUN_URL:-$BOSUN_API_BASE}"
+    return 0
+  fi
+
+  local bosun_bin session_id env_file register_output
+  if ! bosun_bin=$(_resolve_bosun_cli); then
+    _bosun_grind_error="Bosun-dependent skill '$skill' needs BOSUN_GRIND_SESSION_ID. Install/locate the bosun CLI or run: bosun grind register --project \"$repo\" --skill \"$skill\" --backend \"$backend\" --duration \"$hours\" && source ~/.orchestrator/grind-session-<id>.env"
+    return 1
+  fi
+  if ! register_output=$("$bosun_bin" grind register --project "$repo" --skill "$skill" --backend "$backend" --duration "$hours" 2>&1); then
+    _bosun_grind_error="Failed to register Bosun grind session with '$bosun_bin grind register': $register_output"
+    return 1
+  fi
+  session_id=$(printf '%s\n' "$register_output" | tail -1 | tr -d '[:space:]')
+  if [[ -z "$session_id" ]]; then
+    _bosun_grind_error="Bosun grind register returned no session ID. Run manually: bosun grind register --project \"$repo\" --skill \"$skill\" --backend \"$backend\" --duration \"$hours\""
+    return 1
+  fi
+  env_file="$HOME/.orchestrator/grind-session-${session_id}.env"
+  if ! _source_bosun_grind_env "$env_file"; then
+    _bosun_grind_error="Bosun grind session registered as '$session_id' but env file was not sourceable: $env_file. Run: source \"$env_file\""
+    return 1
+  fi
+}
 
 _bosun_api_auth_args=()
 _resolve_bosun_api_auth_args() {
@@ -1480,6 +1557,7 @@ _verify_pipeline_completion_rate() {
 
   # Anomaly: shipped tasks but zero new pipelines. Apr 28-29 incident shape.
   if [[ "$tasks_shipped" -gt 0 && "$delta" -eq 0 ]]; then
+    _pipeline_verify_failed=1
     log_write "[$(date '+%H:%M')] pipeline_verify ANOMALY tasks_shipped=$tasks_shipped pipeline_delta=0 skill=$skill"
     echo "" >&2
     echo "⚠ Pipeline-rate anomaly: ${tasks_shipped} task(s) shipped this session" >&2
@@ -1490,7 +1568,9 @@ _verify_pipeline_completion_rate() {
     echo "    - Bosun pipelines: ${BOSUN_API_BASE:-http://localhost:9746}/api/v1/pipelines" >&2
     echo "    - Session log: $log_file" >&2
     _record_pipeline_anomaly_task "$tasks_shipped" "$start_count" "$end_count"
+    return 1
   fi
+  return 0
 }
 
 # Append a TASKS.md entry describing the anomaly so it gets investigated in
@@ -1675,14 +1755,24 @@ preflight_check() {
     dvb_spinner_start "Checking bosun server..."
     if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
       dvb_spinner_stop; preflight_pass "Bosun server check skipped (test mode)"
+      if _ensure_bosun_grind_session; then
+        preflight_pass "Bosun grind session active (${BOSUN_GRIND_SESSION_ID})"
+      else
+        preflight_fail "$_bosun_grind_error"
+      fi
     elif _check_bosun_health; then
       dvb_spinner_stop
       preflight_pass "Bosun server ready (${BOSUN_API_BASE:-http://localhost:9746})"
-      # Capture pipeline-completion baseline so cleanup can verify the
-      # session's shipped count against bosun's pipeline-completion delta
-      # (catches the Apr 28-29 incident shape: shipped tasks but zero
-      # pipelines completed → agent bypassed pipelines).
-      _capture_pipeline_baseline
+      if _ensure_bosun_grind_session; then
+        preflight_pass "Bosun grind session active (${BOSUN_GRIND_SESSION_ID})"
+        # Capture pipeline-completion baseline so cleanup can verify the
+        # session's shipped count against bosun's pipeline-completion delta
+        # (catches the Apr 28-29 incident shape: shipped tasks but zero
+        # pipelines completed → agent bypassed pipelines).
+        _capture_pipeline_baseline
+      else
+        preflight_fail "$_bosun_grind_error"
+      fi
     else
       dvb_spinner_stop
       if [[ "$_bosun_health_status" == "unreachable" ]]; then
@@ -2699,10 +2789,15 @@ graceful_shutdown() {
 }
 
 handle_exit_trap() {
+  exit_status=$?
   if [[ ${_dvb_skip_exit_final_sync:-0} -eq 0 ]]; then
     final_sync_all
   fi
   cleanup
+  if [[ "$exit_status" -eq 0 && "${_pipeline_verify_failed:-0}" -eq 1 ]]; then
+    exit 1
+  fi
+  exit "$exit_status"
 }
 
 # Clean up on exit — always shows duration, even on Ctrl+C
@@ -2773,9 +2868,14 @@ cleanup() {
   fi
   echo "$_done_line" >> "$log_file" 2>/dev/null || true
   # Pipeline-rate cross-check: did this session ship tasks without bosun
-  # seeing any pipeline completions? Best-effort — silent no-op when bosun
-  # is unreachable or no baseline was captured.
-  _verify_pipeline_completion_rate
+  # seeing any pipeline completions? A bypass-shaped result marks the grind
+  # failed after filing its diagnostic task.
+  if ! _verify_pipeline_completion_rate; then
+    current_phase="failed"
+    terminal_reason="pipeline_verify_failed"
+    write_status_file
+    echo "  ✗ Pipeline-rate verification failed — Bosun-dependent work shipped without a pipeline delta." >&2
+  fi
   # Desktop notification — on by default, DVB_NOTIFY=0 to disable.
   # macOS: osascript, Linux: notify-send.
   # Skip in test mode (`DVB_GRIND_CMD` set): each bats invocation reaches

@@ -40,19 +40,19 @@ test:
 	_test_deps="$(TEST_SHARED_DEPS) $$*"; \
 	_hash=$$(printf '%s\n' "$(TESTS)" "$(TEST_JOBS)"; cat $$_test_deps 2>/dev/null | shasum | cut -d' ' -f1); \
 	_hash=$$(printf '%s' "$$_hash" | shasum | cut -d' ' -f1); \
-	if [ -f $(TEST_CACHE) ] && [ "$$(cat $(TEST_CACHE) 2>/dev/null)" = "$$_hash" ]; then \
+	if [ -f "$(TEST_CACHE)" ] && [ "$$(cat "$(TEST_CACHE)" 2>/dev/null)" = "$$_hash" ]; then \
 		echo "═══ Tests (cached) ═══"; \
 		echo "✓ No changes since last pass — skipping (use 'make test-force' to override)"; \
 	else \
 		echo "═══ Tests ($(TESTS)) ═══"; \
-		$(RUN_BATS) && echo "$$_hash" > $(TEST_CACHE); \
+		$(RUN_BATS) && echo "$$_hash" > "$(TEST_CACHE)"; \
 	fi
 
 test-force:
 	@echo "═══ Tests ($(TESTS)) ═══"
 	@$(RUN_BATS)
 	@set -- $(TESTS); \
-	{ printf '%s\n' "$(TESTS)" "$(TEST_JOBS)"; cat $(TEST_SHARED_DEPS) $$* 2>/dev/null | shasum | cut -d' ' -f1; } | shasum | cut -d' ' -f1 > $(TEST_CACHE)
+	{ printf '%s\n' "$(TESTS)" "$(TEST_JOBS)"; cat $(TEST_SHARED_DEPS) $$* 2>/dev/null | shasum | cut -d' ' -f1; } | shasum | cut -d' ' -f1 > "$(TEST_CACHE)"
 
 check: lint test
 
