@@ -552,6 +552,14 @@
 
 ## P3
 
+- [ ] Add visible progress for long Bats files so `make check` does not look frozen
+  - **ID**: make-check-bats-buffered-progress
+  - **Tags**: tests, dx, bats, observability
+  - **Source**: 2026-04-30 pipeline-hardening verification: `make check` continued executing child Bats processes, but the log timestamp and visible output stayed on the same ordered file output for several minutes because `bats --jobs` plus `parallel --keep-order` buffered progress until earlier files completed.
+  - **Details**: Preserve stable ordered test output, but add an operator-visible heartbeat or progress line for long-running files. The goal is not to speed up the suite; it is to prevent agents and humans from misdiagnosing a healthy but quiet Bats run as hung and killing or restarting verification. Prefer a Makefile/test-runner-level solution over sprinkling debug output through individual tests. Avoid introducing noisy per-test output in the success path unless it is gated behind a verbose flag.
+  - **Files**: `Makefile`, `tests/test_helper.bash`, `AGENTS.md` if the workflow guidance changes
+  - **Acceptance**: during a full `make check`, a long-running Bats file emits at least one progress/heartbeat line every 60 seconds without breaking TAP parsing or the existing cached-test behavior; the normal success output remains readable and ordered; `make test-force TESTS='tests/features.bats tests/git-sync.bats' TEST_JOBS=2` demonstrates the progress behavior; `make check` passes
+
 - [ ] Prevent accidental semver-named root artifacts from polluting repo status
   - **ID**: prevent-semver-root-artifacts
   - **Tags**: developer-experience, repo-hygiene, tooling

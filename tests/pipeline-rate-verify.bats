@@ -12,7 +12,7 @@
 #   - Baseline-file format matches the expected JSON shape
 #   - Verification skips cleanly when skill doesn't need bosun
 #   - Verification skips cleanly when no baseline exists
-#   - Anomaly detection fires when tasks_shipped > 0 AND delta == 0
+#   - Anomaly detection hard-stops when tasks_shipped > 0 AND delta == 0
 #   - Anomaly task gets written to TASKS.md with marker
 #   - Marker prevents duplicate task entries (idempotency)
 
@@ -36,6 +36,10 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 
 @test "_record_pipeline_anomaly_task helper defined" {
   grep -q '^_record_pipeline_anomaly_task()' "$DVB_GRIND"
+}
+
+@test "_ensure_bosun_grind_session helper defined" {
+  grep -q '^_ensure_bosun_grind_session()' "$DVB_GRIND"
 }
 
 # ── Wiring tests ─────────────────────────────────────────────────────────────
@@ -96,6 +100,18 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 @test "_verify_pipeline_completion_rate emits ANOMALY log line" {
   awk '/^_verify_pipeline_completion_rate\(\) \{/,/^\}/' "$DVB_GRIND" \
     | grep -q 'pipeline_verify ANOMALY'
+}
+
+@test "_verify_pipeline_completion_rate hard-stops on anomaly" {
+  awk '/^_verify_pipeline_completion_rate\(\) \{/,/^\}/' "$DVB_GRIND" \
+    | grep -q 'return 1'
+}
+
+@test "EXIT trap exits nonzero when pipeline verification failed" {
+  awk '/^handle_exit_trap\(\) \{/,/^}/' "$DVB_GRIND" \
+    | grep -q '_pipeline_verify_failed'
+  awk '/^handle_exit_trap\(\) \{/,/^}/' "$DVB_GRIND" \
+    | grep -q 'exit 1'
 }
 
 # ── TASKS.md anomaly task test ───────────────────────────────────────────────
@@ -298,13 +314,14 @@ HARNESS
 
   # Run with fixed counts: API returns 5 at baseline, 5 at end → delta=0 →
   # combined with tasks_shipped=2, should log ANOMALY.
-  TG_TEST_TMP="$TEST_DIR" \
+  run env \
+    TG_TEST_TMP="$TEST_DIR" \
     TG_TEST_REPO="$TEST_DIR" \
     TG_TASKS_SHIPPED=2 \
     TG_API_COUNT=5 \
-    bash "$harness" 2>&1 || true
+    bash "$harness"
 
-  cat "$TEST_DIR/test.log"
+  [ "$status" -eq 1 ]
   grep -q 'pipeline_verify ANOMALY' "$TEST_DIR/test.log"
   grep -q 'tasks_shipped=2' "$TEST_DIR/test.log"
   grep -q 'pipeline_delta=0' "$TEST_DIR/test.log"

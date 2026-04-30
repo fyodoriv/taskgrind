@@ -562,7 +562,11 @@ SCRIPT
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ -f "$TEST_LOG" ]
   local perms
-  perms=$(stat -f '%Lp' "$TEST_LOG" 2>/dev/null || stat -c '%a' "$TEST_LOG" 2>/dev/null)
+  if [[ "$(uname)" == "Darwin" ]]; then
+    perms=$(stat -f '%Lp' "$TEST_LOG")
+  else
+    perms=$(stat -c '%a' "$TEST_LOG")
+  fi
   [ "$perms" = "600" ]
 }
 

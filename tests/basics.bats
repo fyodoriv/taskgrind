@@ -690,6 +690,19 @@ PY
   [ "$status" -eq 0 ]
 }
 
+@test "Makefile quotes test cache paths for multi-file TESTS targets" {
+  local makefile="$BATS_TEST_DIRNAME/../Makefile"
+
+  run grep -nF '[ -f "$(TEST_CACHE)" ]' "$makefile"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'cat "$(TEST_CACHE)"' "$makefile"
+  [ "$status" -eq 0 ]
+
+  run grep -nF '> "$(TEST_CACHE)"' "$makefile"
+  [ "$status" -eq 0 ]
+}
+
 @test "man page synopsis includes --resume" {
   awk '
     /^\.SH SYNOPSIS$/ { in_synopsis=1; next }
