@@ -15,6 +15,14 @@
 
 ## P1
 
+- [ ] Send Bosun grind-session heartbeats during long Taskgrind child sessions and mark sessions done on exit
+  - **ID**: bosun-grind-session-heartbeats-and-done
+  - **Tags**: bosun, fleet-grind, lifecycle, heartbeats, reliability
+  - **Source**: 2026-04-30 fleet-grind canary. Taskgrind registered Bosun grind session `c9989603-de4e-4b64-b9fd-af872e5d7c36` at 17:57 and launched a 7-minute child Devin session. Bosun marked the grind session `disconnected` at 18:02 while the controller was still running, because `lastHeartbeatAt` never advanced after registration. When Taskgrind exited normally at 18:05, the session still ended as `disconnected`, not `completed`.
+  - **Details**: Registration alone is not enough for multi-minute controller sessions. Add a lightweight heartbeat loop for Bosun-dependent skills (`fleet-grind`, `pipeline-ops`, `bosun`, etc.) that posts to `bosun grind heartbeat --session "$BOSUN_GRIND_SESSION_ID"` or the equivalent API while a child session is running, and stop the loop during cleanup. Also call `bosun grind done --session "$BOSUN_GRIND_SESSION_ID" --reason completed` on normal Taskgrind exit, and `--reason aborted` on signal/error exits. Keep the behavior idempotent and only manage sessions this process created; if the caller provided an existing `BOSUN_GRIND_SESSION_ID`, heartbeat it while active but do not mark it done unless Taskgrind created it.
+  - **Files**: `bin/taskgrind`, `tests/preflight.bats`, `tests/session.bats`, `tests/signals.bats`, `tests/sane-defaults.bats`
+  - **Acceptance**: during a fake long-running fleet-grind child session, Taskgrind posts at least two heartbeats before the session exits; Bosun `lastHeartbeatAt` advances while the child is running; a normal one-session grind ends with the grind session status `completed`, not `disconnected`; a signal-aborted grind ends with `aborted`; caller-provided sessions are heartbeated but not deregistered by Taskgrind; heartbeat failures are logged as warnings and do not crash the grind unless registration itself failed; `make check` passes
+
 - [ ] Cut the no-cache bats suite 5x by scoping CLI-shape tests to a tiny taskgrind workload (@devin)
   - **ID**: dotfiles-style-scoped-taskgrind-test-workloads
   - **Tags**: tests, perf, bats, dx, dotfiles-precedent
@@ -146,6 +154,22 @@
     - `make check` passes
 
 ## P2
+
+- [ ] Deregister Bosun grind sessions created by `taskgrind --preflight`
+  - **ID**: preflight-deregisters-bosun-grind-session
+  - **Tags**: bosun, preflight, slots, cleanup, regression
+  - **Source**: 2026-04-30 Bosun pipeline-only canary. Running `taskgrind --preflight --skill fleet-grind /Users/fivanishche/apps/bosun` passed and registered Bosun grind session `62dc95e0-d855-40fe-8743-aa3472cccd20`, but the process exited without deregistering it. The follow-up canary then registered `c9989603-de4e-4b64-b9fd-af872e5d7c36` in slot 1 because slot 0 was still occupied by the stale preflight session.
+  - **Details**: `--preflight` should verify that Bosun session registration works without consuming a long-lived grind slot. Today `_ensure_bosun_grind_session` creates a real session during preflight, but the preflight-only exit path does not call `bosun grind done` / the deregistration API. Fix the lifecycle so sessions created only for preflight are always completed on successful or failed preflight exit. Do not deregister a session the operator explicitly exported before invoking preflight; only clean up the session that this process created.
+  - **Files**: `bin/taskgrind`, `tests/preflight.bats`, `tests/pipeline-rate-verify.bats`
+  - **Acceptance**: `taskgrind --preflight --skill fleet-grind <repo>` still prints `Bosun grind session active (<id>)`; immediately after exit, `bosun grind status` or `GET /api/v1/grind-sessions?projectId=<repo>` shows that session as `completed`, not `active`; if `BOSUN_GRIND_SESSION_ID` was already set by the caller, preflight reuses it and does not deregister it; failed preflight paths also deregister any session created by that same preflight process; regression tests cover success, failure, and caller-provided-session cases; `make check` passes
+
+- [ ] Make preflight distinguish git operation safety from a dirty working tree
+  - **ID**: preflight-distinguishes-dirty-working-tree
+  - **Tags**: preflight, git, diagnostics, operator-trust
+  - **Source**: 2026-04-30 Bosun canary. `taskgrind --preflight --skill fleet-grind /Users/fivanishche/apps/bosun` printed `✓ Git state clean` while `git status --short` still showed modified tracked files: `.idea/modules.xml` and `.idea/vcs.xml`.
+  - **Details**: The current preflight check only detects dangerous git states such as in-progress rebase, in-progress merge, and detached `HEAD`; it does not inspect `git status --porcelain`. The phrase `Git state clean` is therefore misleading: operators read it as "no dirty files," but Taskgrind means "not mid-operation." Rename the existing pass message to something like `Git operation state safe`, and add a separate dirty-tree check that warns when tracked or untracked changes exist. The warning should not block by default because long-lived repos often have local Integrated Development Environment metadata, but it must make the risk visible before Taskgrind's between-session sync can stash/pop local work.
+  - **Files**: `bin/taskgrind`, `tests/preflight.bats`, `tests/git-sync.bats`, `README.md`, `man/taskgrind.1`
+  - **Acceptance**: a clean repo reports `Git operation state safe` and no dirty-tree warning; a repo with modified tracked files reports a warning that includes the dirty file count and a tip to run `git status --short`; a repo with untracked files reports the same warning; rebase/merge/detached `HEAD` behavior remains fail/warn as today; workspace target preflight uses the same wording and dirty-tree warning per target; docs no longer imply that preflight's git check means the working tree has no local changes; `make check` passes
 
 - [ ] Port dotfiles' affected-test runner pattern so `make test` stops running the full suite for docs/test-only edits
   - **ID**: affected-bats-runner-for-taskgrind
