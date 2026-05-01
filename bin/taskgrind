@@ -1464,6 +1464,90 @@ _check_bosun_health() {
   return 1
 }
 
+# Verify the target repo enforces Bosun's Iron Rule 7 pre-commit gate.
+#
+# Bosun-dependent skills (fleet-grind, pipeline-ops, …) rely on the target
+# repo's hooks/pre-commit to block direct non-markdown commits while a
+# fleet-grind session is active. Two failure shapes silently disable that:
+#   1. core.hooksPath = /dev/null in the target repo's local config — Git
+#      skips hooks entirely. This is the May 2026 readiness-inspection shape:
+#      a stray test command leaked /dev/null into the bosun checkout's
+#      .git/config and `git hook run pre-commit` reported "cannot find a hook
+#      named pre-commit" even though hooks/pre-commit existed.
+#   2. core.hooksPath points at a sibling dir (e.g. ~/apps/dotfiles/git-hooks)
+#      that does not carry Iron Rule 7 logic — hooks fire but the rule does not.
+# Both shapes leave taskgrind's end-of-session anomaly detection as the only
+# layer of defence; that's a reactive gate, not a preventive one. Detect at
+# preflight and fail with an actionable fix message.
+#
+# Conditional: only enforced when the target repo SHIPS Iron Rule 7 (i.e.
+# hooks/pre-commit exists with a BOSUN_GRIND_SESSION_ID marker). Other repos
+# may legitimately not carry the hook.
+_bosun_hook_enforcement_status=""
+_bosun_hook_enforcement_detail=""
+_check_bosun_pipeline_only_enforcement() {
+  local target="${1:-$repo}"
+  _bosun_hook_enforcement_status=""
+  _bosun_hook_enforcement_detail=""
+
+  if ! git -C "$target" rev-parse --git-dir >/dev/null 2>&1; then
+    _bosun_hook_enforcement_status="not-applicable"
+    return 0
+  fi
+
+  local bosun_hook="$target/hooks/pre-commit"
+  if [[ ! -f "$bosun_hook" ]] || ! grep -q 'BOSUN_GRIND_SESSION_ID' "$bosun_hook" 2>/dev/null; then
+    _bosun_hook_enforcement_status="not-applicable"
+    return 0
+  fi
+
+  local effective
+  effective=$(git -C "$target" config --get core.hooksPath 2>/dev/null || true)
+  local fix_hint="Run: git -C \"$target\" config core.hooksPath hooks  (or run bosun's bin/doctor --fix from the bosun repo)."
+
+  if [[ "$effective" == "/dev/null" ]]; then
+    _bosun_hook_enforcement_status="disabled"
+    _bosun_hook_enforcement_detail="core.hooksPath in $target resolves to /dev/null — Iron Rule 7 will not fire. ${fix_hint}"
+    return 1
+  fi
+
+  local hook_run_output
+  hook_run_output=$(cd "$target" && git hook run pre-commit 2>&1) || true
+  if printf '%s' "$hook_run_output" | grep -q 'cannot find a hook named pre-commit'; then
+    _bosun_hook_enforcement_status="missing"
+    _bosun_hook_enforcement_detail="git hook run pre-commit in $target reports the hook is missing — Iron Rule 7 will not fire. ${fix_hint}"
+    return 1
+  fi
+
+  local resolved_hook
+  if [[ -n "$effective" ]]; then
+    if [[ "$effective" = /* ]]; then
+      resolved_hook="$effective/pre-commit"
+    else
+      resolved_hook="$target/$effective/pre-commit"
+    fi
+  else
+    resolved_hook="$target/.git/hooks/pre-commit"
+  fi
+  if [[ ! -f "$resolved_hook" ]]; then
+    _bosun_hook_enforcement_status="missing"
+    _bosun_hook_enforcement_detail="effective pre-commit at $resolved_hook does not exist — Iron Rule 7 will not fire. ${fix_hint}"
+    return 1
+  fi
+  # Direct match: the effective hook is Bosun's hook (carries the marker).
+  # Indirect match: the effective hook is the simple-git-hooks stub that
+  # delegates to ./hooks/pre-commit (which we've already verified carries
+  # the marker via the bosun_hook check above).
+  if grep -q 'BOSUN_GRIND_SESSION_ID' "$resolved_hook" 2>/dev/null \
+      || grep -q 'hooks/pre-commit' "$resolved_hook" 2>/dev/null; then
+    _bosun_hook_enforcement_status="active"
+    return 0
+  fi
+  _bosun_hook_enforcement_status="bypassed"
+  _bosun_hook_enforcement_detail="effective pre-commit at $resolved_hook does not invoke Bosun's hooks/pre-commit — Iron Rule 7 will not fire. ${fix_hint}"
+  return 1
+}
+
 # Pipeline-rate cross-check (companion to bosun PR #1554/1555).
 #
 # The Apr 28-29 incident shape: agent direct-committed code in fleet-grind
@@ -1987,6 +2071,18 @@ preflight_check() {
       else
         preflight_warn "Bosun server not ready (${_bosun_health_status}): ${_bosun_health_detail}. Sessions may pile up if pipelines can't launch."
       fi
+    fi
+
+    # 11. Iron Rule 7 pre-commit enforcement — guards against the May 2026
+    # readiness-inspection shape where the target repo's core.hooksPath was
+    # /dev/null (or pointed at a sibling dir) and silently disabled the
+    # pipeline-only commit gate.
+    if _check_bosun_pipeline_only_enforcement "$repo"; then
+      if [[ "$_bosun_hook_enforcement_status" == "active" ]]; then
+        preflight_pass "Iron Rule 7 pre-commit hook active in $repo"
+      fi
+    else
+      preflight_fail "Iron Rule 7 pre-commit hook NOT enforced: ${_bosun_hook_enforcement_detail}"
     fi
   fi
 
