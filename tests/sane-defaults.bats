@@ -92,7 +92,7 @@ PY
 }
 
 @test "_skill_needs_bosun recognizes pipeline-* skills via wildcard" {
-  grep -q '\*pipeline\*' "$DVB_GRIND"
+  grep -q 'pipeline-\*' "$DVB_GRIND"
 }
 
 @test "_check_bosun_health helper exists" {

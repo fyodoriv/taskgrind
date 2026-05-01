@@ -521,3 +521,15 @@ HARNESS
   grep -q 'direct.js' "$TEST_DIR/direct-bypass.log"
   ! grep -q 'pipeline_verify ANOMALY tasks_shipped=1 pipeline_delta=0' "$TEST_DIR/direct-bypass.log"
 }
+
+# ── Auth failure detection tests ─────────────────────────────────────────────────
+
+@test "_pipeline_count_via_api has auth failure detection code" {
+  # Verify that the auth failure detection logic exists in the function
+  # This is a structural test to ensure the robustness enhancement is present
+
+  # Check that the function contains auth failure detection logic
+  awk '/^_pipeline_count_via_api\(\) \{/,/^\}/' "$DVB_GRIND" | grep -q 'AUTH_FAILURE'
+  awk '/^_pipeline_count_via_api\(\) \{/,/^\}/' "$DVB_GRIND" | grep -q 'Authentication\|Unauthorized\|401'
+  awk '/^_pipeline_count_via_api\(\) \{/,/^\}/' "$DVB_GRIND" | grep -q 'curl_exit_code'
+}

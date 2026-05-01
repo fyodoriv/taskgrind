@@ -499,3 +499,34 @@ SCRIPT
   grep -q -- '--version' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'session=1 ended' "$TEST_LOG"
 }
+
+# ── Skill pattern validation tests ──────────────────────────────────────────────
+
+@test "_skill_needs_bosun should not match user skills with 'pipeline' in name" {
+  # Skills like 'user-ci-pipeline-helper' should not require Bosun validation
+  # Only actual Bosun-orchestrated skills should match the pattern
+
+  # Test that user skills containing "pipeline" don't match
+  DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
+  source <(grep -A 15 '^_skill_needs_bosun()' "$DVB_GRIND")
+
+  # These should NOT need bosun (return 1)
+  skill="user-pipeline-helper"; run _skill_needs_bosun
+  [ "$status" -eq 1 ]
+
+  skill="ci-pipeline-debug"; run _skill_needs_bosun
+  [ "$status" -eq 1 ]
+
+  skill="my-deployment-pipeline"; run _skill_needs_bosun
+  [ "$status" -eq 1 ]
+
+  # These should need bosun (return 0)
+  skill="fleet-grind"; run _skill_needs_bosun
+  [ "$status" -eq 0 ]
+
+  skill="pipeline-ops"; run _skill_needs_bosun
+  [ "$status" -eq 0 ]
+
+  skill="bosun"; run _skill_needs_bosun
+  [ "$status" -eq 0 ]
+}
