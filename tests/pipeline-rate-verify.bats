@@ -65,16 +65,16 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   # The format is documented and the verification function depends on
   # parsing 'startCount':<digits> via grep. If someone changes the format
   # to YAML, msgpack, or a different shape, this test catches it.
-  grep -A 8 '^_capture_pipeline_baseline()' "$DVB_GRIND" \
+  awk '/^_capture_pipeline_baseline\(\) \{/,/^\}/' "$DVB_GRIND" \
     | grep -q '"startCount":%d'
-  grep -A 8 '^_capture_pipeline_baseline()' "$DVB_GRIND" \
+  awk '/^_capture_pipeline_baseline\(\) \{/,/^\}/' "$DVB_GRIND" \
     | grep -q '"startTime":%d'
 }
 
 @test "_capture_pipeline_baseline scopes file by lock_hash" {
   # File scoped per lock_hash so concurrent grinds in different repos don't
   # clobber each other's baseline.
-  grep -A 8 '^_capture_pipeline_baseline()' "$DVB_GRIND" \
+  awk '/^_capture_pipeline_baseline\(\) \{/,/^\}/' "$DVB_GRIND" \
     | grep -q 'taskgrind-baseline-\${_lock_hash}'
 }
 
@@ -532,4 +532,369 @@ HARNESS
   awk '/^_pipeline_count_via_api\(\) \{/,/^\}/' "$DVB_GRIND" | grep -q 'AUTH_FAILURE'
   awk '/^_pipeline_count_via_api\(\) \{/,/^\}/' "$DVB_GRIND" | grep -q 'Authentication\|Unauthorized\|401'
   awk '/^_pipeline_count_via_api\(\) \{/,/^\}/' "$DVB_GRIND" | grep -q 'curl_exit_code'
+}
+
+# ── Session-scoped pipeline verification ─────────────────────────────────────
+#
+# The Apr 28-29 fix hard-stops on direct non-markdown commits without Bosun
+# provenance, but the count half of the verifier was still global: any
+# unrelated completed or waiting-for-merge pipeline could make `delta>0`
+# even when the current Taskgrind session shipped more tasks than its own
+# Bosun grind session produced. These tests scope the primary delta check
+# to BOSUN_GRIND_SESSION_ID via the Bosun ?grindSessionId= query filter, so
+# the verifier answers "did THIS session create/advance pipelines?" and
+# only logs the global delta for debugging.
+
+@test "_pipeline_count_via_api appends grindSessionId query param when session ID arg provided" {
+  local harness="$TEST_DIR/scoped-url-harness.sh"
+  local bin_dir="$TEST_DIR/bin"
+  mkdir -p "$bin_dir"
+  cat > "$bin_dir/curl" <<'SCRIPT'
+#!/bin/bash
+printf '%s\n' "$*" > "$TG_CURL_ARGS"
+printf '{"pipelines":[{"id":"p1","status":"COMPLETED"}]}'
+SCRIPT
+  chmod +x "$bin_dir/curl"
+
+  cat > "$harness" <<'HARNESS'
+#!/bin/bash
+set -euo pipefail
+HARNESS
+  local helpers_start helpers_end
+  helpers_start=$(grep -n '^_pipeline_baseline_file=' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$(grep -n '^_capture_pipeline_baseline()' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$((helpers_end - 1))
+  sed -n "${helpers_start},${helpers_end}p" "$DVB_GRIND" >> "$harness"
+  echo '_pipeline_count_via_api "abc-123-session"' >> "$harness"
+
+  run env PATH="$bin_dir:$PATH" TG_CURL_ARGS="$TEST_DIR/curl.args" bash "$harness"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "1" ]]
+  grep -q 'grindSessionId=abc-123-session' "$TEST_DIR/curl.args"
+  grep -q '/api/v1/pipelines?' "$TEST_DIR/curl.args"
+  grep -q 'status=COMPLETED,WAITING_FOR_MERGE' "$TEST_DIR/curl.args"
+}
+
+@test "_pipeline_count_via_api omits grindSessionId query param when no session ID arg" {
+  local harness="$TEST_DIR/global-url-harness.sh"
+  local bin_dir="$TEST_DIR/bin"
+  mkdir -p "$bin_dir"
+  cat > "$bin_dir/curl" <<'SCRIPT'
+#!/bin/bash
+printf '%s\n' "$*" > "$TG_CURL_ARGS"
+printf '{"pipelines":[{"id":"p1","status":"COMPLETED"}]}'
+SCRIPT
+  chmod +x "$bin_dir/curl"
+
+  cat > "$harness" <<'HARNESS'
+#!/bin/bash
+set -euo pipefail
+HARNESS
+  local helpers_start helpers_end
+  helpers_start=$(grep -n '^_pipeline_baseline_file=' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$(grep -n '^_capture_pipeline_baseline()' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$((helpers_end - 1))
+  sed -n "${helpers_start},${helpers_end}p" "$DVB_GRIND" >> "$harness"
+  echo '_pipeline_count_via_api' >> "$harness"
+
+  run env PATH="$bin_dir:$PATH" TG_CURL_ARGS="$TEST_DIR/curl.args" bash "$harness"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "1" ]]
+  ! grep -q 'grindSessionId' "$TEST_DIR/curl.args"
+  grep -q '/api/v1/pipelines?status=COMPLETED' "$TEST_DIR/curl.args"
+}
+
+@test "_capture_pipeline_baseline records both scoped and global counts when BOSUN_GRIND_SESSION_ID is set" {
+  local harness="$TEST_DIR/scoped-baseline-harness.sh"
+  cat > "$harness" <<'HARNESS'
+#!/bin/bash
+set -euo pipefail
+_dvb_tmp="$TG_TEST_TMP"
+_lock_hash="scoped-baseline"
+HARNESS
+  local helpers_start helpers_end
+  helpers_start=$(grep -n '^_pipeline_baseline_file=' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$(grep -n '^slot_lock_file()' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$((helpers_end - 1))
+  sed -n "${helpers_start},${helpers_end}p" "$DVB_GRIND" >> "$harness"
+  cat >> "$harness" <<'HARNESS'
+_pipeline_count_via_api() {
+  local session_id="${1:-}"
+  if [[ -n "$session_id" ]]; then
+    echo 3
+  else
+    echo 17
+  fi
+}
+_capture_pipeline_baseline
+cat "$_pipeline_baseline_file"
+HARNESS
+
+  run env TG_TEST_TMP="$TEST_DIR" BOSUN_GRIND_SESSION_ID="session-xyz" bash "$harness"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"startCount":3'* ]]
+  [[ "$output" == *'"globalStartCount":17'* ]]
+  [[ "$output" == *'"sessionId":"session-xyz"'* ]]
+}
+
+@test "_capture_pipeline_baseline records global only when BOSUN_GRIND_SESSION_ID is empty" {
+  local harness="$TEST_DIR/global-baseline-harness.sh"
+  cat > "$harness" <<'HARNESS'
+#!/bin/bash
+set -euo pipefail
+_dvb_tmp="$TG_TEST_TMP"
+_lock_hash="global-baseline"
+HARNESS
+  local helpers_start helpers_end
+  helpers_start=$(grep -n '^_pipeline_baseline_file=' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$(grep -n '^slot_lock_file()' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$((helpers_end - 1))
+  sed -n "${helpers_start},${helpers_end}p" "$DVB_GRIND" >> "$harness"
+  cat >> "$harness" <<'HARNESS'
+_pipeline_count_via_api() {
+  local session_id="${1:-}"
+  if [[ -n "$session_id" ]]; then
+    echo 999
+  else
+    echo 4
+  fi
+}
+unset BOSUN_GRIND_SESSION_ID
+_capture_pipeline_baseline
+cat "$_pipeline_baseline_file"
+HARNESS
+
+  run env TG_TEST_TMP="$TEST_DIR" bash "$harness"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"startCount":4'* ]]
+  [[ "$output" == *'"globalStartCount":4'* ]]
+  [[ "$output" == *'"sessionId":""'* ]]
+}
+
+@test "session-scoped: unrelated completed pipeline does not satisfy verifier when tasks shipped" {
+  # An unrelated pipeline finishing during a Taskgrind session must not
+  # mask a session-local bypass. Even though global delta is 1 (one fleet
+  # pipeline finished), the SCOPED delta is 0 (this session produced
+  # zero) → ANOMALY when tasks_shipped > 0.
+  local harness="$TEST_DIR/unrelated-bypass-harness.sh"
+  cat > "$harness" <<'HARNESS'
+#!/bin/bash
+set -uo pipefail
+_dvb_tmp="$TG_TEST_TMP"
+_lock_hash="unrelated-bypass"
+start_epoch=$(date +%s)
+session=1
+skill="fleet-grind"
+repo="$TG_TEST_REPO"
+log_file="$TG_TEST_TMP/unrelated.log"
+tasks_shipped=2
+log_write() { echo "$1" >> "$log_file"; }
+_skill_needs_bosun() { return 0; }
+HARNESS
+  local helpers_start helpers_end
+  helpers_start=$(grep -n '^_pipeline_baseline_file=' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$(grep -n '^slot_lock_file()' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$((helpers_end - 1))
+  sed -n "${helpers_start},${helpers_end}p" "$DVB_GRIND" >> "$harness"
+  cat >> "$harness" <<'HARNESS'
+_pipeline_count_via_api() {
+  local session_id="${1:-}"
+  local kind="global"
+  [[ -n "$session_id" ]] && kind="scoped"
+  local counter_file="$_dvb_tmp/_pcv_${kind}"
+  local n
+  if [[ -f "$counter_file" ]]; then n=$(<"$counter_file"); else n=0; fi
+  n=$((n + 1))
+  echo "$n" > "$counter_file"
+  if [[ "$kind" == "scoped" ]]; then
+    # Scoped: zero pipelines for THIS grind session at any time
+    echo 0
+  else
+    # Global: one unrelated pipeline finished mid-session (5 → 6)
+    if [[ "$n" -eq 1 ]]; then echo 5; else echo 6; fi
+  fi
+}
+_capture_pipeline_baseline
+_verify_pipeline_completion_rate
+HARNESS
+
+  run env TG_TEST_TMP="$TEST_DIR" TG_TEST_REPO="$TEST_DIR" \
+    BOSUN_GRIND_SESSION_ID="session-current" bash "$harness"
+  [ "$status" -eq 1 ]
+  grep -q 'pipeline_verify ANOMALY' "$TEST_DIR/unrelated.log"
+  grep -q 'pipeline_delta=0' "$TEST_DIR/unrelated.log"
+  grep -q 'scope=session=session-current' "$TEST_DIR/unrelated.log"
+  # The global side moved 1 — must be visible in the log for debugging
+  grep -q 'global_delta=1' "$TEST_DIR/unrelated.log"
+}
+
+@test "session-scoped: current-session waiting-for-merge pipeline satisfies verifier" {
+  # One pipeline tagged with our grind session moved to WAITING_FOR_MERGE
+  # during the run. Scoped delta = 1 → verifier passes even though we
+  # shipped a task (the "ship" went through the pipeline as expected).
+  local harness="$TEST_DIR/scoped-pass-harness.sh"
+  cat > "$harness" <<'HARNESS'
+#!/bin/bash
+set -uo pipefail
+_dvb_tmp="$TG_TEST_TMP"
+_lock_hash="scoped-pass"
+start_epoch=$(date +%s)
+session=1
+skill="fleet-grind"
+repo="$TG_TEST_REPO"
+log_file="$TG_TEST_TMP/scoped-pass.log"
+tasks_shipped=1
+log_write() { echo "$1" >> "$log_file"; }
+_skill_needs_bosun() { return 0; }
+HARNESS
+  local helpers_start helpers_end
+  helpers_start=$(grep -n '^_pipeline_baseline_file=' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$(grep -n '^slot_lock_file()' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$((helpers_end - 1))
+  sed -n "${helpers_start},${helpers_end}p" "$DVB_GRIND" >> "$harness"
+  cat >> "$harness" <<'HARNESS'
+_pipeline_count_via_api() {
+  local session_id="${1:-}"
+  local kind="global"
+  [[ -n "$session_id" ]] && kind="scoped"
+  local counter_file="$_dvb_tmp/_pcv_${kind}"
+  local n
+  if [[ -f "$counter_file" ]]; then n=$(<"$counter_file"); else n=0; fi
+  n=$((n + 1))
+  echo "$n" > "$counter_file"
+  if [[ "$kind" == "scoped" ]]; then
+    # Scoped: 0 at baseline, 1 at verify (one current-session pipeline went WFM)
+    if [[ "$n" -eq 1 ]]; then echo 0; else echo 1; fi
+  else
+    # Global: same delta — that one pipeline counts globally too
+    if [[ "$n" -eq 1 ]]; then echo 5; else echo 6; fi
+  fi
+}
+_capture_pipeline_baseline
+_verify_pipeline_completion_rate
+HARNESS
+
+  run env TG_TEST_TMP="$TEST_DIR" TG_TEST_REPO="$TEST_DIR" \
+    BOSUN_GRIND_SESSION_ID="session-current" bash "$harness"
+  [ "$status" -eq 0 ]
+  ! grep -q 'pipeline_verify ANOMALY' "$TEST_DIR/scoped-pass.log"
+  grep -q 'scope=session=session-current' "$TEST_DIR/scoped-pass.log"
+  grep -q 'delta=1' "$TEST_DIR/scoped-pass.log"
+}
+
+@test "session-scoped: verifier logs both scoped and global counts for debugging" {
+  # The verifier must surface global_delta as a debug-only field, never
+  # using it as the pass condition. This test asserts the log line shape.
+  local harness="$TEST_DIR/log-shape-harness.sh"
+  cat > "$harness" <<'HARNESS'
+#!/bin/bash
+set -uo pipefail
+_dvb_tmp="$TG_TEST_TMP"
+_lock_hash="log-shape"
+start_epoch=$(date +%s)
+session=1
+skill="fleet-grind"
+repo="$TG_TEST_REPO"
+log_file="$TG_TEST_TMP/log-shape.log"
+tasks_shipped=0
+log_write() { echo "$1" >> "$log_file"; }
+_skill_needs_bosun() { return 0; }
+HARNESS
+  local helpers_start helpers_end
+  helpers_start=$(grep -n '^_pipeline_baseline_file=' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$(grep -n '^slot_lock_file()' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$((helpers_end - 1))
+  sed -n "${helpers_start},${helpers_end}p" "$DVB_GRIND" >> "$harness"
+  cat >> "$harness" <<'HARNESS'
+_pipeline_count_via_api() {
+  local session_id="${1:-}"
+  local kind="global"
+  [[ -n "$session_id" ]] && kind="scoped"
+  local counter_file="$_dvb_tmp/_pcv_${kind}"
+  local n
+  if [[ -f "$counter_file" ]]; then n=$(<"$counter_file"); else n=0; fi
+  n=$((n + 1))
+  echo "$n" > "$counter_file"
+  if [[ "$kind" == "scoped" ]]; then
+    if [[ "$n" -eq 1 ]]; then echo 2; else echo 4; fi
+  else
+    if [[ "$n" -eq 1 ]]; then echo 7; else echo 11; fi
+  fi
+}
+_capture_pipeline_baseline
+_verify_pipeline_completion_rate
+HARNESS
+
+  run env TG_TEST_TMP="$TEST_DIR" TG_TEST_REPO="$TEST_DIR" \
+    BOSUN_GRIND_SESSION_ID="session-debug" bash "$harness"
+  [ "$status" -eq 0 ]
+  grep -q 'scope=session=session-debug' "$TEST_DIR/log-shape.log"
+  grep -q 'start=2' "$TEST_DIR/log-shape.log"
+  grep -q 'end=4' "$TEST_DIR/log-shape.log"
+  grep -q 'delta=2' "$TEST_DIR/log-shape.log"
+  grep -q 'global_start=7' "$TEST_DIR/log-shape.log"
+  grep -q 'global_end=11' "$TEST_DIR/log-shape.log"
+  grep -q 'global_delta=4' "$TEST_DIR/log-shape.log"
+}
+
+@test "session-scoped: direct non-markdown commit fails even when scoped pipelines exist" {
+  # The provenance scanner is the defense-in-depth backstop. Even when
+  # the scoped delta says "yes, pipelines completed for this session",
+  # a direct code commit without Bosun attribution must still fail.
+  local repo="$TEST_DIR/repo"
+  mkdir -p "$repo"
+  git -C "$repo" init --quiet
+  git -C "$repo" config user.name "Taskgrind Test"
+  git -C "$repo" config user.email "taskgrind@example.com"
+  printf '# Tasks\n\n## P0\n' > "$repo/TASKS.md"
+  git -C "$repo" add TASKS.md
+  git -C "$repo" commit --quiet -m "chore: initial"
+
+  local harness="$TEST_DIR/scoped-bypass-harness.sh"
+  cat > "$harness" <<'HARNESS'
+#!/bin/bash
+set -uo pipefail
+_dvb_tmp="$TG_TEST_TMP"
+_lock_hash="scoped-bypass"
+start_epoch=$(date +%s)
+session=1
+skill="fleet-grind"
+repo="$TG_TEST_REPO"
+log_file="$TG_TEST_TMP/scoped-bypass.log"
+tasks_shipped=1
+log_write() { echo "$1" >> "$log_file"; }
+_skill_needs_bosun() { return 0; }
+HARNESS
+  local helpers_start helpers_end
+  helpers_start=$(grep -n '^_pipeline_baseline_file=' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$(grep -n '^slot_lock_file()' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$((helpers_end - 1))
+  sed -n "${helpers_start},${helpers_end}p" "$DVB_GRIND" >> "$harness"
+  cat >> "$harness" <<'HARNESS'
+_pipeline_count_via_api() {
+  local session_id="${1:-}"
+  local kind="global"
+  [[ -n "$session_id" ]] && kind="scoped"
+  local counter_file="$_dvb_tmp/_pcv_${kind}"
+  local n
+  if [[ -f "$counter_file" ]]; then n=$(<"$counter_file"); else n=0; fi
+  n=$((n + 1))
+  echo "$n" > "$counter_file"
+  # Scoped: pipelines DID complete for this session — delta is 1
+  # Global: same — fleet delta is also 1
+  if [[ "$n" -eq 1 ]]; then echo 5; else echo 6; fi
+}
+_capture_pipeline_baseline
+future=$((start_epoch + 2))
+printf 'console.log("direct");\n' > "$repo/direct.js"
+git -C "$repo" add direct.js
+GIT_AUTHOR_DATE="@$future" GIT_COMMITTER_DATE="@$future" git -C "$repo" commit --quiet -m "fix: direct code"
+_verify_pipeline_completion_rate
+HARNESS
+
+  run env TG_TEST_TMP="$TEST_DIR" TG_TEST_REPO="$repo" \
+    BOSUN_GRIND_SESSION_ID="session-current" bash "$harness"
+  [ "$status" -eq 1 ]
+  grep -q 'pipeline_verify DIRECT_CODE_BYPASS' "$TEST_DIR/scoped-bypass.log"
+  grep -q 'direct.js' "$TEST_DIR/scoped-bypass.log"
 }

@@ -1662,13 +1662,25 @@ _resolve_bosun_api_auth_args() {
 }
 
 _pipeline_count_via_api() {
+  # Optional first arg: BOSUN_GRIND_SESSION_ID. When provided, the request
+  # is scoped to pipelines tagged with that grind session via the Bosun
+  # `?grindSessionId=` query filter. Without it, the count is fleet-wide
+  # (used for debug context only — the verifier's primary signal is the
+  # session-scoped delta so unrelated fleet pipelines cannot mask a
+  # session-local bypass).
+  local session_id="${1:-}"
   local base="${BOSUN_API_BASE:-http://localhost:9746}"
   base="${base%/}"
-  local body count
+  local body count url
   _resolve_bosun_api_auth_args
+  if [[ -n "$session_id" ]]; then
+    url="${base}/api/v1/pipelines?grindSessionId=${session_id}&status=COMPLETED,WAITING_FOR_MERGE&limit=500"
+  else
+    url="${base}/api/v1/pipelines?status=COMPLETED,WAITING_FOR_MERGE&limit=500"
+  fi
   local curl_stderr curl_exit_code
   curl_stderr=$(mktemp)
-  body=$(curl -sf --max-time 5 ${_bosun_api_auth_args[@]+"${_bosun_api_auth_args[@]}"} "${base}/api/v1/pipelines?status=COMPLETED,WAITING_FOR_MERGE&limit=500" 2>"$curl_stderr")
+  body=$(curl -sf --max-time 5 ${_bosun_api_auth_args[@]+"${_bosun_api_auth_args[@]}"} "$url" 2>"$curl_stderr")
   curl_exit_code=$?
   if [[ $curl_exit_code -ne 0 ]]; then
     # Check for auth-specific failures
@@ -1692,18 +1704,40 @@ _pipeline_count_via_api() {
 }
 
 _capture_pipeline_baseline() {
-  local count
-  count=$(_pipeline_count_via_api 2>/dev/null)
+  # Captures two counts so cleanup-time verification can compare:
+  #   - scoped (BOSUN_GRIND_SESSION_ID-filtered) — primary signal: "did
+  #     THIS Taskgrind grind session create/advance pipelines?"
+  #   - global (fleet-wide) — debug-only context so operators can see
+  #     whether other fleet activity moved while we were running.
+  # When BOSUN_GRIND_SESSION_ID is unset (legacy / supervisor-style
+  # runs), both counts collapse to the global value, preserving the
+  # pre-session-scoped behavior.
+  local session_id global_count scoped_count
+  session_id="${BOSUN_GRIND_SESSION_ID:-}"
+  global_count=$(_pipeline_count_via_api 2>/dev/null)
+  if [[ -n "$session_id" ]]; then
+    scoped_count=$(_pipeline_count_via_api "$session_id" 2>/dev/null)
+  else
+    scoped_count="$global_count"
+  fi
   _pipeline_baseline_file="$_dvb_tmp/taskgrind-baseline-${_lock_hash}.json"
   _pipeline_baseline_refs_file="${_pipeline_baseline_file%.json}.refs"
-  printf '{"startCount":%d,"startTime":%d,"pid":%d}\n' "$count" "$(date +%s)" "$$" > "$_pipeline_baseline_file"
+  # `startCount` carries the primary (scoped) value so existing parsers that
+  # extract `"startCount":N` keep reading the right delta. The fleet-wide
+  # count is exposed alongside for debugging.
+  printf '{"startCount":%d,"globalStartCount":%d,"sessionId":"%s","startTime":%d,"pid":%d}\n' \
+    "$scoped_count" "$global_count" "$session_id" "$(date +%s)" "$$" > "$_pipeline_baseline_file"
   if [[ -n "${repo:-}" ]] && git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
     git -C "$repo" for-each-ref --format='%(objectname)' refs/heads > "$_pipeline_baseline_refs_file" 2>/dev/null || : > "$_pipeline_baseline_refs_file"
   else
     : > "$_pipeline_baseline_refs_file"
   fi
   if type log_write >/dev/null 2>&1; then
-    log_write "[$(date '+%H:%M')] pipeline_baseline count=$count file=$_pipeline_baseline_file"
+    if [[ -n "$session_id" ]]; then
+      log_write "[$(date '+%H:%M')] pipeline_baseline scope=session=${session_id} count=$scoped_count global=$global_count file=$_pipeline_baseline_file"
+    else
+      log_write "[$(date '+%H:%M')] pipeline_baseline scope=global count=$scoped_count file=$_pipeline_baseline_file"
+    fi
   fi
 }
 
@@ -1795,18 +1829,41 @@ _verify_pipeline_completion_rate() {
   local start_count
   start_count=$(grep -o '"startCount":[0-9]*' "$_pipeline_baseline_file" 2>/dev/null | head -1 | sed 's/.*://')
   [[ -z "$start_count" ]] && start_count=0
+  local global_start_count
+  global_start_count=$(grep -o '"globalStartCount":[0-9]*' "$_pipeline_baseline_file" 2>/dev/null | head -1 | sed 's/.*://')
+  [[ -z "$global_start_count" ]] && global_start_count="$start_count"
+  # Recover the recorded session ID. Use a sed pattern keyed to the
+  # `"sessionId":"..."` field so we don't pick up other quoted strings.
+  local session_id
+  session_id=$(grep -o '"sessionId":"[^"]*"' "$_pipeline_baseline_file" 2>/dev/null | head -1 | sed 's/.*"sessionId":"\([^"]*\)".*/\1/')
   local start_time
   start_time=$(grep -o '"startTime":[0-9]*' "$_pipeline_baseline_file" 2>/dev/null | head -1 | sed 's/.*://')
   [[ -z "$start_time" ]] && start_time="${start_epoch:-0}"
 
-  local end_count
-  end_count=$(_pipeline_count_via_api 2>/dev/null)
+  # Query global first so the baseline-vs-end ordering matches
+  # _capture_pipeline_baseline (global, then optional scoped). Tests rely
+  # on this order to feed deterministic counter sequences.
+  local end_count global_end_count
+  global_end_count=$(_pipeline_count_via_api 2>/dev/null)
+  if [[ -n "$session_id" ]]; then
+    end_count=$(_pipeline_count_via_api "$session_id" 2>/dev/null)
+  else
+    end_count="$global_end_count"
+  fi
   local delta=$((end_count - start_count))
+  local global_delta=$((global_end_count - global_start_count))
   local bypass_commits bypass_count
   bypass_commits=$(_pipeline_bypass_commits_since_baseline "$start_time")
   bypass_count=$(printf '%s\n' "$bypass_commits" | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')
 
-  log_write "[$(date '+%H:%M')] pipeline_verify start=$start_count end=$end_count delta=$delta tasks_shipped=$tasks_shipped direct_code_bypasses=$bypass_count"
+  local scope="global"
+  [[ -n "$session_id" ]] && scope="session=${session_id}"
+
+  # The primary delta (start/end/delta) is session-scoped when a session
+  # was registered; the global_* fields are debug context. Operators can
+  # see at a glance whether the session moved (start→end) and whether the
+  # surrounding fleet moved (global_start→global_end), then compare.
+  log_write "[$(date '+%H:%M')] pipeline_verify scope=$scope start=$start_count end=$end_count delta=$delta global_start=$global_start_count global_end=$global_end_count global_delta=$global_delta tasks_shipped=$tasks_shipped direct_code_bypasses=$bypass_count"
 
   if [[ "$bypass_count" -gt 0 ]]; then
     _pipeline_verify_failed=1
@@ -1824,17 +1881,29 @@ _verify_pipeline_completion_rate() {
     return 1
   fi
 
-  # Anomaly: shipped tasks but zero new pipelines. Apr 28-29 incident shape.
+  # Anomaly: shipped tasks but zero new pipelines for THIS grind session.
+  # Note: $delta is the session-scoped delta. Global movement is logged for
+  # debugging but is NOT the pass condition — an unrelated fleet pipeline
+  # finishing during our run must not mask a session-local bypass.
   if [[ "$tasks_shipped" -gt 0 && "$delta" -eq 0 ]]; then
     _pipeline_verify_failed=1
-    log_write "[$(date '+%H:%M')] pipeline_verify ANOMALY tasks_shipped=$tasks_shipped pipeline_delta=0 skill=$skill"
+    log_write "[$(date '+%H:%M')] pipeline_verify ANOMALY tasks_shipped=$tasks_shipped pipeline_delta=0 scope=$scope global_delta=$global_delta skill=$skill"
     echo "" >&2
     echo "⚠ Pipeline-rate anomaly: ${tasks_shipped} task(s) shipped this session" >&2
-    echo "  but bosun saw zero new pipeline completions (start=$start_count, end=$end_count)." >&2
+    if [[ -n "$session_id" ]]; then
+      echo "  but bosun saw zero new pipeline completions for grind session ${session_id}" >&2
+      echo "  (scoped start=$start_count, end=$end_count; global delta=$global_delta — for context only)." >&2
+    else
+      echo "  but bosun saw zero new pipeline completions (start=$start_count, end=$end_count)." >&2
+    fi
     echo "  This is the Apr 28-29 incident shape — agent shipped code without" >&2
     echo "  going through bosun pipelines. Inspect:" >&2
     echo "    - Recent commits: git -C \"$repo\" log --since=\"$(date -r "$start_epoch" '+%Y-%m-%d %H:%M' 2>/dev/null || echo recently)\" --oneline" >&2
-    echo "    - Bosun pipelines: ${BOSUN_API_BASE:-http://localhost:9746}/api/v1/pipelines" >&2
+    if [[ -n "$session_id" ]]; then
+      echo "    - Bosun pipelines for session: ${BOSUN_API_BASE:-http://localhost:9746}/api/v1/pipelines?grindSessionId=${session_id}" >&2
+    else
+      echo "    - Bosun pipelines: ${BOSUN_API_BASE:-http://localhost:9746}/api/v1/pipelines" >&2
+    fi
     echo "    - Session log: $log_file" >&2
     _record_pipeline_anomaly_task "$tasks_shipped" "$start_count" "$end_count" "zero_pipeline_delta" ""
     return 1
