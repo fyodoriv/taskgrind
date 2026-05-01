@@ -145,6 +145,39 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
     | grep -q "command -v jq"
 }
 
+@test "_pipeline_count_via_api counts completed and waiting-for-merge pipelines only" {
+  local harness="$TEST_DIR/count-status-harness.sh"
+  local bin_dir="$TEST_DIR/bin"
+  mkdir -p "$bin_dir"
+  cat > "$bin_dir/curl" <<'SCRIPT'
+#!/bin/bash
+cat <<'JSON'
+{"pipelines":[
+  {"id":"p1","status":"COMPLETED"},
+  {"id":"p2","status":"WAITING_FOR_MERGE"},
+  {"id":"p3","status":"FAILED"},
+  {"id":"p4","status":"EXECUTING"}
+]}
+JSON
+SCRIPT
+  chmod +x "$bin_dir/curl"
+
+  cat > "$harness" <<'HARNESS'
+#!/bin/bash
+set -euo pipefail
+HARNESS
+  local helpers_start helpers_end
+  helpers_start=$(grep -n '^_pipeline_baseline_file=' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$(grep -n '^_capture_pipeline_baseline()' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$((helpers_end - 1))
+  sed -n "${helpers_start},${helpers_end}p" "$DVB_GRIND" >> "$harness"
+  echo "_pipeline_count_via_api" >> "$harness"
+
+  run env PATH="$bin_dir:$PATH" /bin/bash "$harness"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "2" ]]
+}
+
 @test "_pipeline_count_via_api uses --max-time 5 (test-friendly timeout)" {
   awk '/^_pipeline_count_via_api\(\) \{/,/^\}/' "$DVB_GRIND" \
     | grep -q -- '--max-time 5'
@@ -157,7 +190,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   cat > "$bin_dir/curl" <<'SCRIPT'
 #!/bin/bash
 printf '%s\n' "$*" > "$TG_CURL_ARGS"
-printf '{"pipelines":[{"id":"p1"},{"id":"p2"}]}'
+printf '{"pipelines":[{"id":"p1","status":"COMPLETED"},{"id":"p2","status":"WAITING_FOR_MERGE"}]}'
 SCRIPT
   chmod +x "$bin_dir/curl"
 
@@ -187,7 +220,7 @@ HARNESS
   cat > "$bin_dir/curl" <<'SCRIPT'
 #!/bin/bash
 printf '%s\n' "$*" > "$TG_CURL_ARGS"
-printf '{"pipelines":[{"id":"p1"}]}'
+printf '{"pipelines":[{"id":"p1","status":"COMPLETED"}]}'
 SCRIPT
   chmod +x "$bin_dir/curl"
 
@@ -423,4 +456,68 @@ HARNESS
   ! grep -q 'pipeline_verify ANOMALY' "$TEST_DIR/test3.log"
   # But we should still log the delta normally:
   grep -q 'delta=3' "$TEST_DIR/test3.log"
+}
+
+@test "direct non-markdown commit without Bosun provenance fails even when pipeline delta exists" {
+  local repo="$TEST_DIR/repo"
+  mkdir -p "$repo"
+  git -C "$repo" init --quiet
+  git -C "$repo" config user.name "Taskgrind Test"
+  git -C "$repo" config user.email "taskgrind@example.com"
+  printf '# Tasks\n\n## P0\n' > "$repo/TASKS.md"
+  git -C "$repo" add TASKS.md
+  git -C "$repo" commit --quiet -m "chore: initial"
+
+  local harness="$TEST_DIR/direct-bypass-harness.sh"
+  cat > "$harness" <<'HARNESS'
+#!/bin/bash
+set -uo pipefail
+_dvb_tmp="$TG_TEST_TMP"
+_lock_hash="direct-bypass"
+start_epoch=$(date +%s)
+session=1
+skill="fleet-grind"
+repo="$TG_TEST_REPO"
+log_file="$TG_TEST_TMP/direct-bypass.log"
+tasks_shipped=1
+log_write() { echo "$1" >> "$log_file"; }
+_skill_needs_bosun() { return 0; }
+HARNESS
+
+  local helpers_start helpers_end
+  helpers_start=$(grep -n '^_pipeline_baseline_file=' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$(grep -n '^slot_lock_file()' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  helpers_end=$((helpers_end - 1))
+  sed -n "${helpers_start},${helpers_end}p" "$DVB_GRIND" >> "$harness"
+
+  cat >> "$harness" <<'HARNESS'
+_pipeline_count_via_api() {
+  local counter_file="$_dvb_tmp/_pipeline_count_calls"
+  local n
+  if [[ -f "$counter_file" ]]; then
+    n=$(<"$counter_file")
+  else
+    n=0
+  fi
+  n=$((n + 1))
+  echo "$n" > "$counter_file"
+  if [[ "$n" -eq 1 ]]; then
+    echo 5
+  else
+    echo 6
+  fi
+}
+_capture_pipeline_baseline
+future=$((start_epoch + 2))
+printf 'console.log("direct");\n' > "$repo/direct.js"
+git -C "$repo" add direct.js
+GIT_AUTHOR_DATE="@$future" GIT_COMMITTER_DATE="@$future" git -C "$repo" commit --quiet -m "fix: direct code"
+_verify_pipeline_completion_rate
+HARNESS
+
+  run env TG_TEST_TMP="$TEST_DIR" TG_TEST_REPO="$repo" bash "$harness"
+  [ "$status" -eq 1 ]
+  grep -q 'pipeline_verify DIRECT_CODE_BYPASS' "$TEST_DIR/direct-bypass.log"
+  grep -q 'direct.js' "$TEST_DIR/direct-bypass.log"
+  ! grep -q 'pipeline_verify ANOMALY tasks_shipped=1 pipeline_delta=0' "$TEST_DIR/direct-bypass.log"
 }

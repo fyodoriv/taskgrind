@@ -6,6 +6,13 @@ load test_helper
 
 DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 
+_install_fake_skill() {
+  local skill_name="$1"
+  local root="${2:-$TEST_HOME/.agents/skills}"
+  mkdir -p "$root/$skill_name"
+  printf '# %s\n' "$skill_name" > "$root/$skill_name/SKILL.md"
+}
+
 _install_fake_backend_binary() {
   local binary_name="$1"
   local script_path="$TEST_DIR/$binary_name"
@@ -32,6 +39,7 @@ exit 0
 SCRIPT
   chmod +x "$script_path"
   export PATH="$TEST_DIR:$PATH"
+  _install_fake_skill "next-task"
 }
 
 _install_fake_df() {
@@ -49,10 +57,22 @@ SCRIPT
   export PATH="$TEST_DIR:$PATH"
 }
 
+_install_fake_network_watchdog() {
+  local script_path="$TEST_DIR/network-watchdog"
+
+  cat > "$script_path" <<'SCRIPT'
+#!/bin/bash
+exit 0
+SCRIPT
+  chmod +x "$script_path"
+  export PATH="$TEST_DIR:$PATH"
+}
+
 # ── Preflight health checks ───────────────────────────────────────────
 
 @test "--preflight runs health checks and exits 0 on healthy repo" {
   _preflight_git_init
+  _install_fake_skill "next-task"
   # Drop the fake DVB_GRIND_CMD and install a fake 'devin' on PATH so the
   # real binary-resolution + model-validation paths run, but against a
   # deterministic fixture instead of the operator's installed devin CLI
@@ -76,6 +96,47 @@ SCRIPT
   [[ "$output" == *"repo:"* ]]
   [[ "$output" == *"skill:    fleet-grind"* ]]
   [[ "$output" == *"model:"* ]]
+}
+
+@test "--preflight fails when selected backend cannot see fleet-grind skill" {
+  _preflight_git_init
+  unset DVB_GRIND_CMD
+  _install_fake_backend_binary "devin"
+  _install_fake_network_watchdog
+
+  run "$DVB_GRIND" --preflight --skill fleet-grind "$TEST_REPO"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Requested skill 'fleet-grind' is not visible to backend 'devin'"* ]]
+  [[ "$output" == *"$TEST_HOME/.config/devin/skills/fleet-grind/SKILL.md"* ]]
+  [[ "$output" == *"Preflight FAILED"* ]]
+  [[ "$output" != *"Bosun server unreachable"* ]]
+}
+
+@test "--preflight accepts repo-local devin skill when skill validation is enabled in test mode" {
+  _preflight_git_init
+  mkdir -p "$TEST_REPO/.devin/skills/fleet-grind"
+  printf '# fleet-grind\n' > "$TEST_REPO/.devin/skills/fleet-grind/SKILL.md"
+  export DVB_VALIDATE_SKILL=1
+
+  run "$DVB_GRIND" --preflight --skill fleet-grind "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Skill visible to devin: fleet-grind ($TEST_REPO/.devin/skills/fleet-grind/SKILL.md)"* ]]
+}
+
+@test "--preflight checks skill visibility against the selected backend" {
+  _preflight_git_init
+  mkdir -p "$TEST_HOME/.config/devin/skills/fleet-grind"
+  printf '# fleet-grind\n' > "$TEST_HOME/.config/devin/skills/fleet-grind/SKILL.md"
+  export DVB_VALIDATE_SKILL=1
+
+  run "$DVB_GRIND" --preflight --backend codex --skill fleet-grind "$TEST_REPO"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Requested skill 'fleet-grind' is not visible to backend 'codex'"* ]]
+  [[ "$output" == *"$TEST_HOME/.codex/skills/fleet-grind/SKILL.md"* ]]
+  [[ "$output" != *"$TEST_HOME/.config/devin/skills/fleet-grind/SKILL.md"* ]]
 }
 
 @test "--preflight shows prompt if provided" {
@@ -232,13 +293,14 @@ EOF
   grep -q 'preflight_failed' "$DVB_GRIND"
 }
 
-@test "preflight has all 9 checks" {
-  # Structural: verify all 9 check categories exist. Check #9 (bosun-health)
+@test "preflight has all 10 checks" {
+  # Structural: verify all 10 check categories exist. Check #10 (bosun-health)
   # was added 2026-04-29 — only fires for skills that need bosun pipelines
   # (fleet-grind, pipeline-ops, …), but the source code path is always
   # present so structural grep passes.
   grep -q 'Backend binary' "$DVB_GRIND"
   grep -q 'Model accepted by' "$DVB_GRIND"
+  grep -q 'Skill visible to' "$DVB_GRIND"
   grep -q 'Network connectivity' "$DVB_GRIND"
   grep -q 'Git state clean' "$DVB_GRIND"
   grep -q 'Git remote reachable' "$DVB_GRIND"
@@ -274,6 +336,7 @@ SCRIPT
   chmod +x "$fake_bin/curl"
 
   _preflight_git_init
+  _install_fake_skill "next-task"
   unset DVB_GRIND_CMD
   export PATH="$fake_bin:/usr/bin:/bin:/usr/sbin:/sbin"
   export TG_NET_CHECK_URL="https://example.invalid/healthz"

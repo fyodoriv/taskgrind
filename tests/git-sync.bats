@@ -1376,6 +1376,8 @@ SCRIPT
 # without trying to spawn a real backend during the test.
 _setup_fake_devin() {
   local fake="$1"
+  mkdir -p "$TEST_HOME/.config/devin/skills/next-task"
+  printf '# next-task\n' > "$TEST_HOME/.config/devin/skills/next-task/SKILL.md"
   cat > "$fake" <<'SCRIPT'
 #!/bin/bash
 for arg in "$@"; do

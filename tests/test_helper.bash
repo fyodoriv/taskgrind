@@ -28,6 +28,8 @@ taskgrind_test_setup() {
   TEST_LOG="$TEST_DIR/grind.log"
 
   mkdir -p "$TEST_HOME" "$TEST_DOTFILES/lib" "$TEST_REPO"
+  mkdir -p "$TEST_HOME/.agents/skills/next-task"
+  printf '# next-task\n' > "$TEST_HOME/.agents/skills/next-task/SKILL.md"
   # Copy shared libraries so the self-copied script can source them.
   # Use APFS clonefile (`cp -c`) when available — on macOS each clone is O(1)
   # and shares blocks until modified, turning a 5ms cp into <1ms across 800

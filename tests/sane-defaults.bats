@@ -112,16 +112,16 @@ PY
   grep -q 'BOSUN_API_BASE:-http://localhost:9746' "$DVB_GRIND"
 }
 
-@test "preflight_check has a bosun-health check (#9)" {
-  grep -q '9. Bosun server reachable' "$DVB_GRIND"
+@test "preflight_check has a bosun-health check (#10)" {
+  grep -q '10. Bosun server reachable' "$DVB_GRIND"
 }
 
 @test "preflight bosun check is conditional on _skill_needs_bosun" {
   python3 - "$DVB_GRIND" <<'PY'
 import sys, pathlib
 text = pathlib.Path(sys.argv[1]).read_text()
-i_check_intro = text.find('9. Bosun server reachable')
-assert i_check_intro != -1, "preflight #9 marker missing"
+i_check_intro = text.find('10. Bosun server reachable')
+assert i_check_intro != -1, "preflight #10 marker missing"
 # The next 200 chars should contain a `_skill_needs_bosun` guard.
 window = text[i_check_intro:i_check_intro + 600]
 assert '_skill_needs_bosun' in window, \
@@ -135,7 +135,7 @@ PY
   python3 - "$DVB_GRIND" <<'PY'
 import sys, pathlib
 text = pathlib.Path(sys.argv[1]).read_text()
-i_check = text.find('9. Bosun server reachable')
+i_check = text.find('10. Bosun server reachable')
 window = text[i_check:i_check + 800]
 assert 'DVB_GRIND_CMD' in window, "test-mode skip missing"
 assert 'preflight_pass "Bosun server check skipped' in window or \
@@ -150,7 +150,7 @@ import pathlib
 import sys
 
 text = pathlib.Path(sys.argv[1]).read_text()
-i_check = text.find('9. Bosun server reachable')
+i_check = text.find('10. Bosun server reachable')
 window = text[i_check:i_check + 1400]
 assert '_ensure_bosun_grind_session' in window, "grind-session ensure missing from bosun preflight"
 assert 'Bosun grind session active' in window, "preflight should report active grind session"

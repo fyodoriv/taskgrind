@@ -1362,6 +1362,77 @@ _skill_needs_bosun() {
   esac
 }
 
+_skill_search_paths=()
+_skill_validation_path=""
+_skill_validation_error=""
+
+_add_skill_search_path() {
+  local path="$1"
+  local existing
+  [[ -n "$path" ]] || return 0
+  for existing in ${_skill_search_paths[@]+"${_skill_search_paths[@]}"}; do
+    [[ "$existing" == "$path" ]] && return 0
+  done
+  _skill_search_paths+=("$path")
+}
+
+_build_skill_search_paths() {
+  local channel_dir
+  _skill_search_paths=()
+  case "$backend" in
+    devin)
+      _add_skill_search_path "$repo/.agents/skills"
+      _add_skill_search_path "$repo/.devin/skills"
+      _add_skill_search_path "$repo/.windsurf/skills"
+      if [[ -n "${HOME:-}" ]]; then
+        _add_skill_search_path "$HOME/.agents/skills"
+        _add_skill_search_path "$HOME/.config/devin/skills"
+        _add_skill_search_path "$HOME/.codeium/windsurf/skills"
+        _add_skill_search_path "$HOME/.codeium/windsurf-next/skills"
+        _add_skill_search_path "$HOME/.codeium/windsurf-insiders/skills"
+        for channel_dir in "$HOME"/.codeium/*/skills; do
+          [[ -d "$channel_dir" ]] && _add_skill_search_path "$channel_dir"
+        done
+      fi
+      ;;
+    claude-code)
+      _add_skill_search_path "$repo/.agents/skills"
+      _add_skill_search_path "$repo/.claude/skills"
+      if [[ -n "${HOME:-}" ]]; then
+        _add_skill_search_path "$HOME/.agents/skills"
+        _add_skill_search_path "$HOME/.claude/skills"
+      fi
+      ;;
+    codex)
+      _add_skill_search_path "$repo/.agents/skills"
+      _add_skill_search_path "$repo/.codex/skills"
+      if [[ -n "${HOME:-}" ]]; then
+        _add_skill_search_path "$HOME/.agents/skills"
+        _add_skill_search_path "$HOME/.codex/skills"
+      fi
+      ;;
+  esac
+}
+
+_validate_skill_available() {
+  local root checked
+  _skill_validation_path=""
+  _skill_validation_error=""
+  _build_skill_search_paths
+  for root in ${_skill_search_paths[@]+"${_skill_search_paths[@]}"}; do
+    if [[ -f "$root/$skill/SKILL.md" ]]; then
+      _skill_validation_path="$root/$skill/SKILL.md"
+      return 0
+    fi
+  done
+  checked=""
+  for root in ${_skill_search_paths[@]+"${_skill_search_paths[@]}"}; do
+    checked="${checked}${checked:+, }$root/$skill/SKILL.md"
+  done
+  _skill_validation_error="Requested skill '$skill' is not visible to backend '$backend'. Install or sync it before starting (for example: agentbrew sync), or add $skill/SKILL.md under a backend skill root. Checked: $checked"
+  return 1
+}
+
 # Probe `${BOSUN_API_BASE}/api/v1/ready` (no auth required for readiness).
 # Sets `_bosun_health_status` to one of: ready | not-ready | unreachable.
 # Sets `_bosun_health_detail` to a human-readable explanation for warnings.
@@ -1415,6 +1486,7 @@ _check_bosun_health() {
 # failures still degrade to count=0 so the suspicious shape hard-stops instead
 # of becoming an advisory-only warning.
 _pipeline_baseline_file=""
+_pipeline_baseline_refs_file=""
 _pipeline_verify_failed=0
 _bosun_grind_error=""
 
@@ -1510,14 +1582,14 @@ _pipeline_count_via_api() {
   base="${base%/}"
   local body count
   _resolve_bosun_api_auth_args
-  if ! body=$(curl -sf --max-time 5 "${_bosun_api_auth_args[@]}" "${base}/api/v1/pipelines?limit=500" 2>/dev/null); then
+  if ! body=$(curl -sf --max-time 5 ${_bosun_api_auth_args[@]+"${_bosun_api_auth_args[@]}"} "${base}/api/v1/pipelines?status=COMPLETED,WAITING_FOR_MERGE&limit=500" 2>/dev/null); then
     echo 0
     return 0
   fi
   if command -v jq >/dev/null 2>&1; then
-    count=$(echo "$body" | jq -r '(.pipelines // .) | length' 2>/dev/null) || count=0
+    count=$(echo "$body" | jq -r '(.pipelines // .) | map(select(.status == "COMPLETED" or .status == "WAITING_FOR_MERGE")) | length' 2>/dev/null) || count=0
   else
-    count=$(echo "$body" | grep -o '"id":' | wc -l | tr -d ' ') || count=0
+    count=$(echo "$body" | grep -Eo '"status"[[:space:]]*:[[:space:]]*"(COMPLETED|WAITING_FOR_MERGE)"' | wc -l | tr -d ' ') || count=0
   fi
   case "$count" in
     ""|*[!0-9]*) echo 0 ;;
@@ -1529,10 +1601,78 @@ _capture_pipeline_baseline() {
   local count
   count=$(_pipeline_count_via_api 2>/dev/null)
   _pipeline_baseline_file="$_dvb_tmp/taskgrind-baseline-${_lock_hash}.json"
+  _pipeline_baseline_refs_file="${_pipeline_baseline_file%.json}.refs"
   printf '{"startCount":%d,"startTime":%d,"pid":%d}\n' "$count" "$(date +%s)" "$$" > "$_pipeline_baseline_file"
+  if [[ -n "${repo:-}" ]] && git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
+    git -C "$repo" for-each-ref --format='%(objectname)' refs/heads > "$_pipeline_baseline_refs_file" 2>/dev/null || : > "$_pipeline_baseline_refs_file"
+  else
+    : > "$_pipeline_baseline_refs_file"
+  fi
   if type log_write >/dev/null 2>&1; then
     log_write "[$(date '+%H:%M')] pipeline_baseline count=$count file=$_pipeline_baseline_file"
   fi
+}
+
+_pipeline_new_commits_since_baseline() {
+  local start_time="$1"
+  [[ -n "${repo:-}" ]] || return 0
+  git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || return 0
+
+  local refs_file="${_pipeline_baseline_refs_file:-${_pipeline_baseline_file%.json}.refs}"
+  local not_args=()
+  local ref
+  if [[ -f "$refs_file" ]]; then
+    while IFS= read -r ref; do
+      [[ -n "$ref" ]] && not_args+=("$ref")
+    done < "$refs_file"
+  fi
+
+  if [[ ${#not_args[@]} -gt 0 ]]; then
+    git -C "$repo" rev-list --branches --since="@$start_time" --not "${not_args[@]}" 2>/dev/null || true
+  else
+    git -C "$repo" rev-list --branches --since="@$start_time" 2>/dev/null || true
+  fi
+}
+
+_pipeline_commit_touches_non_markdown() {
+  local commit="$1"
+  local file
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      *.md) : ;;
+      *) return 0 ;;
+    esac
+  done < <(git -C "$repo" diff-tree --root --no-commit-id --name-only -r "$commit" 2>/dev/null)
+  return 1
+}
+
+_pipeline_commit_has_bosun_provenance() {
+  local commit="$1"
+  git -C "$repo" log -1 --format=%B "$commit" 2>/dev/null \
+    | grep -qE '^(Generated by Bosun pipeline-|Co-Authored-By: Bosun <bosun-pipelines@cognition\.ai>)'
+}
+
+_pipeline_bypass_commits_since_baseline() {
+  local start_time="$1"
+  local commit short subject first_code_file
+  while IFS= read -r commit; do
+    [[ -z "$commit" ]] && continue
+    if _pipeline_commit_touches_non_markdown "$commit" && ! _pipeline_commit_has_bosun_provenance "$commit"; then
+      short=$(git -C "$repo" rev-parse --short "$commit" 2>/dev/null || echo "$commit")
+      subject=$(git -C "$repo" log -1 --format=%s "$commit" 2>/dev/null || echo "(subject unavailable)")
+      first_code_file=$(
+        git -C "$repo" diff-tree --root --no-commit-id --name-only -r "$commit" 2>/dev/null \
+          | while IFS= read -r file; do
+              [[ -z "$file" ]] && continue
+              [[ "$file" == *.md ]] && continue
+              echo "$file"
+              break
+            done
+      )
+      printf '%s file=%s subject=%s\n' "$short" "${first_code_file:-unknown}" "$subject"
+    fi
+  done < <(_pipeline_new_commits_since_baseline "$start_time")
 }
 
 _verify_pipeline_completion_rate() {
@@ -1548,12 +1688,34 @@ _verify_pipeline_completion_rate() {
   local start_count
   start_count=$(grep -o '"startCount":[0-9]*' "$_pipeline_baseline_file" 2>/dev/null | head -1 | sed 's/.*://')
   [[ -z "$start_count" ]] && start_count=0
+  local start_time
+  start_time=$(grep -o '"startTime":[0-9]*' "$_pipeline_baseline_file" 2>/dev/null | head -1 | sed 's/.*://')
+  [[ -z "$start_time" ]] && start_time="${start_epoch:-0}"
 
   local end_count
   end_count=$(_pipeline_count_via_api 2>/dev/null)
   local delta=$((end_count - start_count))
+  local bypass_commits bypass_count
+  bypass_commits=$(_pipeline_bypass_commits_since_baseline "$start_time")
+  bypass_count=$(printf '%s\n' "$bypass_commits" | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')
 
-  log_write "[$(date '+%H:%M')] pipeline_verify start=$start_count end=$end_count delta=$delta tasks_shipped=$tasks_shipped"
+  log_write "[$(date '+%H:%M')] pipeline_verify start=$start_count end=$end_count delta=$delta tasks_shipped=$tasks_shipped direct_code_bypasses=$bypass_count"
+
+  if [[ "$bypass_count" -gt 0 ]]; then
+    _pipeline_verify_failed=1
+    log_write "[$(date '+%H:%M')] pipeline_verify DIRECT_CODE_BYPASS count=$bypass_count skill=$skill"
+    printf '%s\n' "$bypass_commits" | sed "s/^/[pid=$$] [$(date '+%H:%M')] pipeline_verify DIRECT_CODE_BYPASS commit=/" >> "$log_file" 2>/dev/null || true
+    echo "" >&2
+    echo "⚠ Pipeline provenance anomaly: ${bypass_count} direct code commit(s)" >&2
+    echo "  touched non-markdown files without Bosun pipeline attribution." >&2
+    echo "  This is the Apr 28-29 incident shape — code shipped outside" >&2
+    echo "  the bosun pipeline path. Inspect:" >&2
+    echo "    - Direct commits:" >&2
+    printf '%s\n' "$bypass_commits" | sed 's/^/      /' >&2
+    echo "    - Session log: $log_file" >&2
+    _record_pipeline_anomaly_task "$tasks_shipped" "$start_count" "$end_count" "direct_code_bypass" "$bypass_commits"
+    return 1
+  fi
 
   # Anomaly: shipped tasks but zero new pipelines. Apr 28-29 incident shape.
   if [[ "$tasks_shipped" -gt 0 && "$delta" -eq 0 ]]; then
@@ -1567,7 +1729,7 @@ _verify_pipeline_completion_rate() {
     echo "    - Recent commits: git -C \"$repo\" log --since=\"$(date -r "$start_epoch" '+%Y-%m-%d %H:%M' 2>/dev/null || echo recently)\" --oneline" >&2
     echo "    - Bosun pipelines: ${BOSUN_API_BASE:-http://localhost:9746}/api/v1/pipelines" >&2
     echo "    - Session log: $log_file" >&2
-    _record_pipeline_anomaly_task "$tasks_shipped" "$start_count" "$end_count"
+    _record_pipeline_anomaly_task "$tasks_shipped" "$start_count" "$end_count" "zero_pipeline_delta" ""
     return 1
   fi
   return 0
@@ -1578,6 +1740,8 @@ _verify_pipeline_completion_rate() {
 # don't double-file if cleanup runs twice (e.g. graceful + EXIT trap).
 _record_pipeline_anomaly_task() {
   local shipped=$1 start=$2 end=$3
+  local reason="${4:-pipeline_verify_failed}"
+  local details="${5:-}"
   local tasks_file="${repo}/TASKS.md"
   [[ -w "$tasks_file" ]] || return 0
   local marker_id
@@ -1592,12 +1756,12 @@ _record_pipeline_anomaly_task() {
 - [ ] Investigate pipeline-bypass anomaly from taskgrind session (auto-filed)
   - **ID**: $marker_id
   - **Tags**: anomaly, taskgrind, bosun-pipelines, auto-filed
-  - **Details**: Taskgrind session ($skill skill, $session sessions) shipped
-    $shipped task(s) but bosun saw zero new pipeline completions
-    (start=$start, end=$end). The Apr 28-29 incident shape: agent
-    direct-committed code bypassing pipelines. Inspect the session log
-    and the recent commits to find which task(s) shipped without going
-    through bosun's pipeline machinery, then either:
+  - **Details**: Taskgrind session ($skill skill, $session sessions) triggered
+    pipeline verification failure reason=$reason after shipping $shipped
+    task(s). Bosun completed/waiting-for-merge pipeline count moved start=$start end=$end.
+    The Apr 28-29 incident shape: agent direct-committed code bypassing
+    pipelines. Inspect the session log and the recent commits to find which
+    task(s) shipped without going through bosun's pipeline machinery, then either:
       (a) confirm they were legitimate non-pipeline ships (e.g. doc-only
           updates, TASKS.md curation), and document what makes them
           legitimate so this rule can be tightened.
@@ -1613,6 +1777,12 @@ _record_pipeline_anomaly_task() {
     - If a real bypass is found, file follow-up tasks against bosun's
       pre-commit / pre-push enforcement gates.
 EOF
+  if [[ -n "$details" ]]; then
+    {
+      echo "  - **Direct commits**:"
+      printf '%s\n' "$details" | sed 's/^/    - /'
+    } >> "$tasks_file"
+  fi
 }
 
 slot_lock_file() {
@@ -1670,7 +1840,21 @@ preflight_check() {
     preflight_pass "Model validation skipped in test mode"
   fi
 
-  # 3. Network connectivity — required for API calls
+  local skill_available=1
+
+  # 3. Requested skill visible — fail before sessions silently ignore a missing skill
+  if [[ -z "${DVB_GRIND_CMD:-}" || -n "${DVB_VALIDATE_SKILL:-}" ]]; then
+    if _validate_skill_available; then
+      preflight_pass "Skill visible to $backend: $skill ($_skill_validation_path)"
+    else
+      preflight_fail "$_skill_validation_error"
+      skill_available=0
+    fi
+  else
+    preflight_pass "Skill visibility skipped in test mode"
+  fi
+
+  # 4. Network connectivity — required for API calls
   dvb_spinner_start "Checking network..."
   if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
     # Test mode — use sentinel file
@@ -1687,7 +1871,7 @@ preflight_check() {
     dvb_spinner_stop; preflight_fail "Network unreachable"
   fi
 
-  # 4. Git state clean — not mid-rebase, not detached HEAD, not mid-merge
+  # 5. Git state clean — not mid-rebase, not detached HEAD, not mid-merge
   local git_dir
   git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)" || git_dir=""
   if [[ -z "$git_dir" ]]; then
@@ -1711,7 +1895,7 @@ preflight_check() {
     fi
   fi
 
-  # 5. Git remote reachable — required for between-session sync
+  # 6. Git remote reachable — required for between-session sync
   if [[ -n "$git_dir" ]] && [[ -n "$(git -C "$repo" remote 2>/dev/null)" ]]; then
     dvb_spinner_start "Checking git remote..."
     _preflight_check_remote_reachable "$repo" "Git remote unreachable (may affect between-session sync)"
@@ -1719,7 +1903,7 @@ preflight_check() {
     preflight_warn "No git remote configured"
   fi
 
-  # 6. Disk space — at least 1GB free on the repo partition
+  # 7. Disk space — at least 1GB free on the repo partition
   local free_kb
   free_kb=$(df -Pk "$repo" | awk 'NR==2 { print $4 }' 2>/dev/null) || free_kb=0
   free_kb="${free_kb:-0}"
@@ -1731,7 +1915,7 @@ preflight_check() {
     preflight_fail "Disk space critical: $(( free_kb / 1024 ))MB free"
   fi
 
-  # 7. TASKS.md exists — signal for work discovery
+  # 8. TASKS.md exists — signal for work discovery
   if [[ -f "$repo/TASKS.md" ]]; then
     local task_count
     task_count=$(grep -c '^[[:space:]]*- \[ \]' "$repo/TASKS.md" 2>/dev/null) || true
@@ -1740,18 +1924,18 @@ preflight_check() {
     preflight_warn "TASKS.md not found — empty queue sweep will find work"
   fi
 
-  # 8. network-watchdog available — network resilience during marathon
+  # 9. network-watchdog available — network resilience during marathon
   if command -v network-watchdog >/dev/null 2>&1; then
     preflight_pass "network-watchdog available"
   else
     preflight_warn "network-watchdog not found — using curl fallback for network checks"
   fi
 
-  # 9. Bosun server reachable — when the skill drives bosun pipelines, the
+  # 10. Bosun server reachable — when the skill drives bosun pipelines, the
   # agent cannot do useful work without bosun. Skip otherwise. In test mode
   # the user's local bosun isn't typically running; use a warning rather
   # than a fail to keep the bats suite portable.
-  if _skill_needs_bosun; then
+  if [[ "$skill_available" -eq 1 ]] && _skill_needs_bosun; then
     dvb_spinner_start "Checking bosun server..."
     if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
       dvb_spinner_stop; preflight_pass "Bosun server check skipped (test mode)"
@@ -2371,6 +2555,10 @@ final_sync() {
   local _fs_label="${2:-}"
   local _fs_suffix=""
   [[ -n "$_fs_label" ]] && _fs_suffix=" $_fs_label"
+  if ! type detect_default_branch >/dev/null 2>&1; then
+    log_write "[$(date '+%H:%M')] final_sync skipped — helpers_not_loaded${_fs_suffix}"
+    return 0
+  fi
   if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
     return 0  # Test mode — skip real git operations
   fi

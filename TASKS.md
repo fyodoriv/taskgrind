@@ -155,6 +155,14 @@
 
 ## P2
 
+- [ ] Tie pipeline verification to Bosun grind-session pipelines instead of the global completed count
+  - **ID**: taskgrind-pipeline-verify-session-scoped
+  - **Tags**: bosun, fleet-grind, verification, false-positive, api
+  - **Source**: 2026-04-30 pipeline-bypass investigation. The immediate fix hard-stops on direct non-markdown commits without Bosun provenance, but the count half of the verifier is still global: any unrelated completed or waiting-for-merge pipeline can make `delta>0` even when the current Taskgrind session shipped more tasks than its own Bosun grind session produced.
+  - **Details**: Use `BOSUN_GRIND_SESSION_ID` / pipeline metadata to count only pipelines associated with the Taskgrind-created grind session. If the Bosun API does not expose that relationship, add a narrow Bosun-side endpoint or query parameter rather than continuing to infer from global `/api/v1/pipelines` counts. Keep the direct-commit provenance scanner as a defense-in-depth backstop, but make the primary completion-rate check answer "did this Taskgrind session create/advance pipelines?" instead of "did any pipeline in the fleet finish?"
+  - **Files**: `bin/taskgrind`, `tests/pipeline-rate-verify.bats`, Bosun API/client files if a session-scoped pipelines endpoint is missing, `README.md`, `man/taskgrind.1`
+  - **Acceptance**: a test fixture with one unrelated completed pipeline and zero current-session pipelines still fails verification when tasks shipped; a fixture with one current-session waiting-for-merge pipeline increments the scoped count; the verifier logs both scoped and global counts for debugging without using the global delta as the pass condition; direct non-markdown commits without Bosun provenance still fail even when scoped pipelines exist; docs explain the session-scoped behavior; `make check` passes
+
 - [ ] Deregister Bosun grind sessions created by `taskgrind --preflight`
   - **ID**: preflight-deregisters-bosun-grind-session
   - **Tags**: bosun, preflight, slots, cleanup, regression
