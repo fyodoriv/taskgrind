@@ -2317,6 +2317,7 @@ SCRIPT
   run "$DVB_GRIND" --skill fleet-grind 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'grind done --session .* --reason completed' "$invocations"
+  grep -q 'bosun_heartbeat_stopped' "$DVB_LOG"
   # And NOT --reason aborted on a clean exit
   ! grep -q -- '--reason aborted' "$invocations"
 }

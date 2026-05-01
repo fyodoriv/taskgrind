@@ -1678,9 +1678,14 @@ _bosun_heartbeat_loop_body() {
   local bosun_bin="$1"
   # Don't inherit traps from the parent — the loop should exit cleanly
   # on SIGTERM without re-running graceful_shutdown.
-  trap 'exit 0' TERM INT
+  local sleep_pid=""
+  trap '[[ -n "${sleep_pid:-}" ]] && kill "$sleep_pid" 2>/dev/null || true; exit 0' TERM INT
   local hb_out hb_status
-  while sleep "$_bosun_heartbeat_interval"; do
+  while :; do
+    sleep "$_bosun_heartbeat_interval" &
+    sleep_pid=$!
+    wait "$sleep_pid" || exit 0
+    sleep_pid=""
     hb_out=$(
       "$bosun_bin" grind heartbeat \
         --session "$BOSUN_GRIND_SESSION_ID" \
