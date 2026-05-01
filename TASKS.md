@@ -5,13 +5,41 @@
 
 ## P0
 
-- [ ] Make Claude Code a first-class runtime backend with Devin parity
-  - **ID**: claude-code-first-class-backend-parity
-  - **Tags**: backend, claude-code, parity, runtime, cli, tests
-  - **Source**: 2026-04-30 operator request: Taskgrind should run with Claude Code, not just Devin, and it should behave exactly the same: same session lifecycle, same error handling, same backend switching, same recovery semantics.
-  - **Details**: Treat this as parity-hardening, not a docs-only task. Audit every Devin-only path and make `--backend claude-code`, `TG_BACKEND=claude-code`, backend auto-detection, `TG_ROTATE_BACKENDS`, `--rotate-backends`, and self-investigation rotation run through the same lifecycle as Devin. Claude Code must share the same preflight gates, startup sanity probe behavior, model override handling, prompt construction, timeout watchdog, fast-failure accounting, log/status fields, git sync/final-sync behavior, resume compatibility checks, and operator-facing diagnostics. Backend-specific invocation flags are fine, but they must be isolated behind the backend abstraction so the rest of the marathon loop does not special-case Devin.
-  - **Files**: `bin/taskgrind`, `lib/constants.sh`, `tests/features.bats`, `tests/preflight.bats`, `tests/session.bats`, `tests/diagnostics.bats`, `tests/test_helper.bash`, `README.md`, `man/taskgrind.1`, `docs/user-stories.md`
-  - **Acceptance**: `taskgrind --dry-run --backend claude-code <repo>` and `TG_BACKEND=claude-code taskgrind --dry-run <repo>` show the same config surface as Devin except for backend name and backend-specific flags; a stubbed Claude Code backend can run at least one full session through the normal marathon loop and produces the same `session_start`, `session_end`, fast-failure, timeout, status-file, and final-sync behavior already tested for Devin; preflight failures for missing/non-executable Claude Code, rejected models, silent stubs, and startup probe failures use the same actionable error style as Devin; rotation between `devin,claude-code` works in both directions without losing counters, prompt overlays, task state, or git-sync/final-sync behavior; resume rejects incompatible backend changes and accepts matching Claude Code resumes; all backend-specific behavior is covered by regression tests rather than only structural greps; docs show Claude Code as a fully supported backend, not experimental; `make check` passes locally and the GitHub Actions `check` workflow is green after the change lands
+- [ ] Lock Claude Code backend lifecycle parity with behavioral tests
+  - **ID**: claude-code-backend-lifecycle-parity-tests
+  - **Parent**: claude-code-first-class-backend-parity
+  - **Tags**: backend, claude-code, parity, runtime, tests
+  - **Source**: Decomposition of `claude-code-first-class-backend-parity` so the broad parity request can ship in verifiable slices.
+  - **Details**: Add regression coverage that runs `--backend claude-code` through the normal Taskgrind lifecycle with a stub backend instead of relying only on structural greps. Cover dry-run/env selection, one full session, log/status fields, startup probe markers, fast-failure accounting, and matching/mismatched resume state.
+  - **Files**: `tests/features.bats`, `tests/session.bats`, `tests/diagnostics.bats`, `tests/resume.bats`, `tests/test_helper.bash`, `bin/taskgrind`
+  - **Acceptance**: a fake Claude Code backend completes one normal workload and records `session_start`, `session_end`, `backend=claude-code`, status-file backend/phase fields, and Claude-specific invocation flags; fast-failure and startup probe tests assert `backend=claude-code` in diagnostics; resume accepts saved Claude Code state and rejects incompatible backend overrides; targeted bats tests pass and `make check` passes before completion
+
+- [ ] Harden Claude Code preflight and operator diagnostics to match Devin
+  - **ID**: claude-code-preflight-diagnostics-parity
+  - **Parent**: claude-code-first-class-backend-parity
+  - **Tags**: backend, claude-code, preflight, diagnostics, tests
+  - **Source**: Decomposition of `claude-code-first-class-backend-parity`.
+  - **Details**: Audit Claude Code binary resolution, model validation, missing/non-executable binary messages, silent-stub startup probe handling, and install guidance so every failure style is as actionable as Devin's. Keep backend-specific invocation details isolated behind the backend abstraction.
+  - **Files**: `bin/taskgrind`, `lib/constants.sh`, `tests/preflight.bats`, `tests/diagnostics.bats`, `README.md`, `man/taskgrind.1`
+  - **Acceptance**: missing `claude`, non-executable paths, rejected models, and silent stubs fail before the session loop with clear `claude-code`-specific guidance; docs list Claude Code as a supported backend with install/preflight recovery steps; no Devin-only wording leaks into Claude Code diagnostics; `make check` passes
+
+- [ ] Exercise Claude Code backend rotation and self-investigation parity
+  - **ID**: claude-code-rotation-self-investigation-parity
+  - **Parent**: claude-code-first-class-backend-parity
+  - **Tags**: backend, claude-code, rotation, self-investigation, tests
+  - **Source**: Decomposition of `claude-code-first-class-backend-parity`.
+  - **Details**: Add end-to-end regression tests for `TG_ROTATE_BACKENDS` / `--rotate-backends` covering rotation into and out of Claude Code on rate-limit and zero-ship self-investigation triggers. Verify rotation preserves counters, prompt overlays, task state, status/log fields, and final-sync behavior.
+  - **Files**: `bin/taskgrind`, `tests/features.bats`, `tests/session.bats`, `tests/diagnostics.bats`, `tests/test_helper.bash`
+  - **Acceptance**: `devin,claude-code` and `claude-code,devin` rotations both launch the expected next backend after a trigger; self-investigation rotation records stable log markers without losing task counters or prompt context; missing next-backend binaries skip safely and keep the current backend; `make check` passes
+
+- [ ] Finish Claude Code parity documentation and full-suite verification
+  - **ID**: claude-code-parity-docs-and-verification
+  - **Parent**: claude-code-first-class-backend-parity
+  - **Tags**: backend, claude-code, docs, verification
+  - **Source**: Decomposition of `claude-code-first-class-backend-parity`.
+  - **Details**: After the runtime, diagnostics, and rotation slices land, audit README, man page, and user stories so Claude Code is presented as a fully supported backend rather than experimental. Run the full verification gate and remove any stale wording or tests that still imply Devin-only semantics.
+  - **Files**: `README.md`, `man/taskgrind.1`, `docs/user-stories.md`, `tests/basics.bats`, `tests/user-stories-docs.bats`, `bin/taskgrind`
+  - **Acceptance**: docs show `--backend claude-code`, `TG_BACKEND=claude-code`, rotation, preflight, resume, and troubleshooting examples as first-class supported paths; docs avoid Devin-only lifecycle wording where it applies to all backends; all targeted doc parity tests and `make check` pass
 
 ## P1
 
