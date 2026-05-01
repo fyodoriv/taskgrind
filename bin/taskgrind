@@ -133,6 +133,11 @@
 #                         flags and other TG_ env vars take precedence; the
 #                         translation only fills in slots the user did not set.
 #                         Same effect as passing `--from-prompt "<text>"`.
+#        TG_BOSUN_HEARTBEAT_INTERVAL — seconds between `bosun grind heartbeat`
+#                         posts during a Bosun-dependent grind (default: 60;
+#                         well under bosun's 5-min disconnect timeout). Lower
+#                         in tests to observe the loop; raise on bandwidth-
+#                         constrained networks.
 #
 #        DVB_ prefix is supported as a backward-compatible alias for all TG_ vars.
 #
@@ -1573,6 +1578,19 @@ _pipeline_baseline_file=""
 _pipeline_baseline_refs_file=""
 _pipeline_verify_failed=0
 _bosun_grind_error=""
+# Lifecycle state for the Bosun grind session. _bosun_grind_owned=1 means
+# THIS Taskgrind process called `bosun grind register` and is therefore
+# responsible for posting heartbeats AND for `bosun grind done` on exit.
+# Caller-provided sessions (BOSUN_GRIND_SESSION_ID already exported by the
+# operator before invoking taskgrind) are heartbeated while we run, but
+# we never deregister them — the caller owns the slot.
+_bosun_grind_owned=0
+_bosun_heartbeat_pid=0
+_bosun_heartbeat_interval="${TG_BOSUN_HEARTBEAT_INTERVAL:-${DVB_BOSUN_HEARTBEAT_INTERVAL:-60}}"
+_bosun_grind_done_called=0
+# Default reason is "completed" — the signal handlers and the EXIT trap
+# downgrade this to "aborted" before cleanup() reads it.
+_bosun_grind_done_reason="completed"
 
 _resolve_bosun_cli() {
   if [[ -n "${BOSUN_BIN:-}" && -x "$BOSUN_BIN" ]]; then
@@ -1644,6 +1662,108 @@ _ensure_bosun_grind_session() {
   if ! _source_bosun_grind_env "$env_file"; then
     _bosun_grind_error="Bosun grind session registered as '$session_id' but env file was not sourceable: $env_file. Run: source \"$env_file\""
     return 1
+  fi
+  # We registered the session, so we own its lifecycle: heartbeats while
+  # we run + `bosun grind done` on exit. The caller-provided and test-stub
+  # branches above leave _bosun_grind_owned at its default 0 so the
+  # operator's slot is heartbeated but not deregistered.
+  _bosun_grind_owned=1
+}
+
+# Body of the background heartbeat loop, spun off as its own function so
+# `local` is legal under bash 3.2 (the runtime constraint guarded by
+# tests/bash-compat.bats — `local` outside a function is a syntax error
+# in older bash).
+_bosun_heartbeat_loop_body() {
+  local bosun_bin="$1"
+  # Don't inherit traps from the parent — the loop should exit cleanly
+  # on SIGTERM without re-running graceful_shutdown.
+  trap 'exit 0' TERM INT
+  local hb_out hb_status
+  while sleep "$_bosun_heartbeat_interval"; do
+    hb_out=$(
+      "$bosun_bin" grind heartbeat \
+        --session "$BOSUN_GRIND_SESSION_ID" \
+        --cycle "${session:-1}" \
+        --persona "taskgrind-driver" \
+        --ships "${tasks_shipped:-0}" \
+        2>&1
+    ) && hb_status=0 || hb_status=$?
+    if [[ "$hb_status" -eq 0 ]]; then
+      log_write "[$(date '+%H:%M')] bosun_heartbeat session=${BOSUN_GRIND_SESSION_ID} cycle=${session:-1} ships=${tasks_shipped:-0}"
+    else
+      log_write "[$(date '+%H:%M')] bosun_heartbeat_failed session=${BOSUN_GRIND_SESSION_ID} status=$hb_status detail=$(printf '%s' "$hb_out" | head -1)"
+    fi
+  done
+}
+
+# Background heartbeat loop — keeps Bosun's `lastHeartbeatAt` advancing
+# while a Taskgrind controller session is running. Without this, Bosun
+# marks long-running grind sessions `disconnected` after its
+# heartbeat-timeout (default 5 minutes), which made the 2026-04-30 canary
+# end with status `disconnected` even though the controller was healthy.
+#
+# The loop fires regardless of who owns the session — caller-provided
+# sessions also need their heartbeat pushed forward while we drive them.
+# Only `_finalize_bosun_grind_session` checks `_bosun_grind_owned` to
+# decide whether to deregister.
+_start_bosun_heartbeat_loop() {
+  [[ -n "${BOSUN_GRIND_SESSION_ID:-}" ]] || return 0
+  # Test mode default: skip real heartbeats. Set DVB_BOSUN_HEARTBEAT_TEST=1
+  # to opt-in for tests that exercise the loop end-to-end.
+  if [[ -n "${DVB_GRIND_CMD:-}" && -z "${DVB_BOSUN_HEARTBEAT_TEST:-}" ]]; then
+    return 0
+  fi
+  local bosun_bin
+  if ! bosun_bin=$(_resolve_bosun_cli); then
+    log_write "[$(date '+%H:%M')] bosun_heartbeat skipped reason=no_cli session=${BOSUN_GRIND_SESSION_ID}"
+    return 0
+  fi
+  # The loop is intentionally simple: sleep, post, repeat. Each post is a
+  # best-effort no-throw — heartbeat failures (e.g. transient bosun
+  # restart, network blip) are logged as warnings and the loop keeps
+  # running. Exit happens via SIGTERM from _stop_bosun_heartbeat_loop.
+  _bosun_heartbeat_loop_body "$bosun_bin" &
+  _bosun_heartbeat_pid=$!
+  log_write "[$(date '+%H:%M')] bosun_heartbeat_started pid=$_bosun_heartbeat_pid interval=${_bosun_heartbeat_interval}s session=${BOSUN_GRIND_SESSION_ID}"
+}
+
+_stop_bosun_heartbeat_loop() {
+  if [[ ${_bosun_heartbeat_pid:-0} -gt 0 ]] && kill -0 "$_bosun_heartbeat_pid" 2>/dev/null; then
+    kill "$_bosun_heartbeat_pid" 2>/dev/null || true
+    wait "$_bosun_heartbeat_pid" 2>/dev/null || true
+    log_write "[$(date '+%H:%M')] bosun_heartbeat_stopped pid=$_bosun_heartbeat_pid"
+  fi
+  _bosun_heartbeat_pid=0
+}
+
+# Mark the Bosun grind session done (idempotent). Reason is "completed"
+# on a normal grind exit and "aborted" on signal/error exit. Only the
+# session WE registered gets deregistered — caller-provided sessions
+# stay active so the operator's outer wrapper can keep using them.
+_finalize_bosun_grind_session() {
+  local reason="${1:-${_bosun_grind_done_reason:-completed}}"
+  [[ "${_bosun_grind_done_called:-0}" -eq 1 ]] && return 0
+  _bosun_grind_done_called=1
+  [[ "${_bosun_grind_owned:-0}" -eq 1 ]] || return 0
+  [[ -n "${BOSUN_GRIND_SESSION_ID:-}" ]] || return 0
+  if [[ -n "${DVB_GRIND_CMD:-}" && -z "${DVB_BOSUN_HEARTBEAT_TEST:-}" ]]; then
+    return 0
+  fi
+  local bosun_bin
+  if ! bosun_bin=$(_resolve_bosun_cli); then
+    log_write "[$(date '+%H:%M')] bosun_grind_done_skipped reason=no_cli session=${BOSUN_GRIND_SESSION_ID}"
+    return 0
+  fi
+  local _done_out _done_status
+  # shellcheck disable=SC1010 # `done` here is the `bosun grind` subcommand,
+  # not a shell keyword — bosun's commander.js CLI accepts it as a literal.
+  _done_out=$("$bosun_bin" grind "done" --session "$BOSUN_GRIND_SESSION_ID" --reason "$reason" 2>&1) \
+    && _done_status=0 || _done_status=$?
+  if [[ "$_done_status" -eq 0 ]]; then
+    log_write "[$(date '+%H:%M')] bosun_grind_done session=${BOSUN_GRIND_SESSION_ID} reason=$reason"
+  else
+    log_write "[$(date '+%H:%M')] bosun_grind_done_failed session=${BOSUN_GRIND_SESSION_ID} reason=$reason status=$_done_status detail=$(printf '%s' "$_done_out" | head -1)"
   fi
 }
 
@@ -2117,6 +2237,9 @@ preflight_check() {
       dvb_spinner_stop; preflight_pass "Bosun server check skipped (test mode)"
       if _ensure_bosun_grind_session; then
         preflight_pass "Bosun grind session active (${BOSUN_GRIND_SESSION_ID})"
+        # Heartbeats are normally a no-op in test mode; tests that need
+        # to observe the loop set DVB_BOSUN_HEARTBEAT_TEST=1 to opt in.
+        _start_bosun_heartbeat_loop
       else
         preflight_fail "$_bosun_grind_error"
       fi
@@ -2130,6 +2253,11 @@ preflight_check() {
         # (catches the Apr 28-29 incident shape: shipped tasks but zero
         # pipelines completed → agent bypassed pipelines).
         _capture_pipeline_baseline
+        # Keep Bosun's lastHeartbeatAt advancing while the controller
+        # runs — without this, Bosun's monitor marks long-running grind
+        # sessions `disconnected` after ~5 minutes of silence (the
+        # 2026-04-30 fleet-grind canary failure shape).
+        _start_bosun_heartbeat_loop
       else
         preflight_fail "$_bosun_grind_error"
       fi
@@ -3115,6 +3243,10 @@ graceful_shutdown() {
     return 0
   fi
   _dvb_shutting_down=1
+  # Signal-driven exit means the grind didn't reach its natural end —
+  # mark the Bosun grind session as `aborted` so the dashboard sees
+  # the difference between a clean shutdown and a controller kill.
+  _bosun_grind_done_reason="aborted"
   # If a session is running, give it time to commit and exit
   if [[ $_dvb_pid -gt 0 ]] && kill -0 "$_dvb_pid" 2>/dev/null; then
     echo ""
@@ -3167,6 +3299,13 @@ graceful_shutdown() {
 
 handle_exit_trap() {
   exit_status=$?
+  # Pipeline-verify failure or any non-zero exit means we did NOT
+  # complete cleanly — Bosun should see the grind session as aborted
+  # rather than completed. graceful_shutdown already set this for the
+  # signal path; this covers normal exits that fail the verify gate.
+  if [[ "$exit_status" -ne 0 || "${_pipeline_verify_failed:-0}" -eq 1 ]]; then
+    _bosun_grind_done_reason="aborted"
+  fi
   if [[ ${_dvb_skip_exit_final_sync:-0} -eq 0 ]]; then
     final_sync_all
   fi
@@ -3268,6 +3407,15 @@ cleanup() {
       notify-send "taskgrind complete" "$_notify_msg" 2>/dev/null || true
     fi
   fi
+  # Stop the Bosun heartbeat loop before deregistering — once the
+  # session is `done`, further heartbeats would 410 noisily.
+  _stop_bosun_heartbeat_loop
+  # Mark our Bosun grind session done with the reason we recorded
+  # (`completed` by default, `aborted` if a signal/error path
+  # downgraded it). No-op for caller-provided sessions and sessions
+  # we never registered. Pass the reason explicitly so shellcheck
+  # sees the function's optional argument as exercised (SC2120).
+  _finalize_bosun_grind_session "$_bosun_grind_done_reason"
   # Remove temp files
   [[ -n "${_DVB_SELF_COPY:-}" && -f "${_DVB_SELF_COPY}" ]] && rm -f "$_DVB_SELF_COPY"
   [[ -n "${_lock_file:-}" && -f "${_lock_file}" ]] && rm -f "$_lock_file"

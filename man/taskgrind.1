@@ -480,6 +480,32 @@ and auto-files a TASKS.md investigation entry. If a new non-markdown commit
 lacks Bosun pipeline attribution, taskgrind logs
 .BR "pipeline_verify DIRECT_CODE_BYPASS"
 and fails the run even when other pipelines completed concurrently.
+.PP
+For the same Bosun-dependent skills, taskgrind also manages the full
+.B grind session
+lifecycle: registration at preflight (via
+.BR "bosun grind register" ),
+periodic heartbeats every
+.B TG_BOSUN_HEARTBEAT_INTERVAL
+seconds (default 60) while the controller is running, and a
+.B "bosun grind done"
+call at exit with reason
+.B completed
+on a normal exit or
+.B aborted
+on a signal/error exit. Heartbeats keep Bosun's
+.B lastHeartbeatAt
+advancing so multi-minute child sessions don't get marked
+.B disconnected
+mid-grind. If the operator exported
+.B BOSUN_GRIND_SESSION_ID
+before launching taskgrind (caller-provided session), taskgrind heartbeats
+that slot to keep it active but does
+.B not
+deregister it on exit \(em the caller owns the lifecycle. Heartbeat failures
+are logged as
+.B "bosun_heartbeat_failed"
+warnings and do not crash the grind.
 .SH FILES
 .TP
 .I TASKS.md

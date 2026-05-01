@@ -2184,3 +2184,270 @@ _init_checkbox_repo() {
   [[ "$output" == *"removed=0"* ]]
   [[ "$output" == *"added=0"* ]]
 }
+
+# ── Bosun grind heartbeat + done lifecycle (live loop) ─────────────────
+#
+# These tests run the real marathon loop with DVB_BOSUN_HEARTBEAT_TEST=1
+# so the heartbeat loop and `bosun grind done` calls fire against a
+# fake bosun binary that records every invocation. Cannot use
+# run_tiny_workload here — that lane disables enough of the lifecycle
+# to make the loop a no-op.
+
+# Build a fake `bosun` CLI that records every invocation to
+# $TG_BOSUN_INVOCATIONS so tests can assert the heartbeat/done
+# protocol. `grind register` returns a stable session ID; `grind
+# heartbeat` and `grind done` succeed silently.
+_make_fake_bosun_recorder() {
+  local invocations="$1"
+  local bin_dir="$TEST_DIR/bin"
+  mkdir -p "$bin_dir"
+  cat > "$bin_dir/bosun" <<SCRIPT
+#!/bin/bash
+printf '%s\n' "\$*" >> "$invocations"
+case "\$1\$2" in
+  grindregister)
+    # ID must end with the project hash so the env file can be sourced
+    # by _source_bosun_grind_env without needing real bosun.
+    sid="fake-session-\${RANDOM}"
+    mkdir -p "\$HOME/.orchestrator"
+    cat > "\$HOME/.orchestrator/grind-session-\$sid.env" <<ENV
+export BOSUN_GRIND_SESSION_ID="\$sid"
+export BOSUN_GRIND_PROJECT_ID="$TEST_REPO"
+export BOSUN_API_BASE="http://localhost:9746"
+export BOSUN_URL="http://localhost:9746"
+ENV
+    echo "\$sid"
+    ;;
+esac
+exit 0
+SCRIPT
+  chmod +x "$bin_dir/bosun"
+  echo "$bin_dir/bosun"
+}
+
+@test "bosun grind: heartbeat fires at least twice during a multi-second fleet-grind run" {
+  # Use a 1s interval and run for ~3s so we observe ≥2 heartbeats.
+  local invocations="$TEST_DIR/bosun-invocations.log"
+  : > "$invocations"
+  local bosun_bin
+  bosun_bin=$(_make_fake_bosun_recorder "$invocations")
+
+  # Slow fake devin sleeps long enough for ≥2 heartbeats at the 1s
+  # interval, then ships the task so the grind ends naturally.
+  local fake_devin="$TEST_DIR/fake-devin-slow"
+  cat > "$fake_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+sleep 3
+cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+SCRIPT
+  chmod +x "$fake_devin"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Heartbeat live test task
+TASKS
+
+  export DVB_GRIND_CMD="$fake_devin"
+  export DVB_GRIND_INVOKE_LOG="$TEST_DIR/invocations.log"
+  export DVB_BOSUN_HEARTBEAT_TEST=1
+  export DVB_REGISTER_REAL_BOSUN_GRIND=1
+  export TG_BOSUN_HEARTBEAT_INTERVAL=1
+  export BOSUN_BIN="$bosun_bin"
+  export DVB_DEADLINE_OFFSET=10
+  export DVB_COOL=0
+  export DVB_MAX_ZERO_SHIP=1
+  export DVB_SYNC_INTERVAL=999
+  export DVB_EMPTY_QUEUE_WAIT=0
+  export DVB_SKIP_SWEEP_ON_EMPTY=1
+
+  run "$DVB_GRIND" --skill fleet-grind 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  # ≥2 heartbeat lines observed before exit
+  local heartbeat_count
+  heartbeat_count=$(grep -c '^grind heartbeat ' "$invocations" || true)
+  [ "$heartbeat_count" -ge 2 ]
+  # Heartbeat carries the session ID and the taskgrind-driver persona.
+  # `--session fake-session-` is adjacent to `grind heartbeat` (no
+  # intervening flag), so we don't need a `.*` between them.
+  grep -q 'grind heartbeat --session fake-session-' "$invocations"
+  grep -q -- '--persona taskgrind-driver' "$invocations"
+}
+
+@test "bosun grind: normal exit deregisters with --reason completed" {
+  local invocations="$TEST_DIR/bosun-invocations.log"
+  : > "$invocations"
+  local bosun_bin
+  bosun_bin=$(_make_fake_bosun_recorder "$invocations")
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Completed reason test
+TASKS
+
+  local fake_devin="$TEST_DIR/fake-devin-fast"
+  cat > "$fake_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+SCRIPT
+  chmod +x "$fake_devin"
+
+  export DVB_GRIND_CMD="$fake_devin"
+  export DVB_GRIND_INVOKE_LOG="$TEST_DIR/invocations.log"
+  export DVB_BOSUN_HEARTBEAT_TEST=1
+  export DVB_REGISTER_REAL_BOSUN_GRIND=1
+  export TG_BOSUN_HEARTBEAT_INTERVAL=99
+  export BOSUN_BIN="$bosun_bin"
+  export DVB_DEADLINE_OFFSET=5
+  export DVB_COOL=0
+  export DVB_MAX_ZERO_SHIP=1
+  export DVB_SYNC_INTERVAL=999
+  export DVB_EMPTY_QUEUE_WAIT=0
+  export DVB_SKIP_SWEEP_ON_EMPTY=1
+
+  run "$DVB_GRIND" --skill fleet-grind 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  grep -q 'grind done --session .* --reason completed' "$invocations"
+  # And NOT --reason aborted on a clean exit
+  ! grep -q -- '--reason aborted' "$invocations"
+}
+
+@test "bosun grind: caller-provided session is heartbeated but never deregistered" {
+  # The operator (or an outer wrapper) exported BOSUN_GRIND_SESSION_ID
+  # before invoking taskgrind. Taskgrind must heartbeat that slot to
+  # keep it active, but it must NOT call `bosun grind done` — the
+  # caller owns the lifecycle and would lose its slot otherwise.
+  local invocations="$TEST_DIR/bosun-invocations.log"
+  : > "$invocations"
+  local bosun_bin
+  bosun_bin=$(_make_fake_bosun_recorder "$invocations")
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Caller-provided test
+TASKS
+
+  local fake_devin="$TEST_DIR/fake-devin-slow"
+  cat > "$fake_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+sleep 2
+cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+SCRIPT
+  chmod +x "$fake_devin"
+
+  export DVB_GRIND_CMD="$fake_devin"
+  export DVB_GRIND_INVOKE_LOG="$TEST_DIR/invocations.log"
+  export DVB_BOSUN_HEARTBEAT_TEST=1
+  # IMPORTANT: BOSUN_GRIND_SESSION_ID is pre-set by the caller — taskgrind
+  # must take the caller-provided branch and NOT register a new session.
+  export BOSUN_GRIND_SESSION_ID="caller-owned-12345"
+  export BOSUN_GRIND_PROJECT_ID="$TEST_REPO"
+  export BOSUN_API_BASE="http://localhost:9746"
+  export TG_BOSUN_HEARTBEAT_INTERVAL=1
+  export BOSUN_BIN="$bosun_bin"
+  export DVB_DEADLINE_OFFSET=8
+  export DVB_COOL=0
+  export DVB_MAX_ZERO_SHIP=1
+  export DVB_SYNC_INTERVAL=999
+  export DVB_EMPTY_QUEUE_WAIT=0
+  export DVB_SKIP_SWEEP_ON_EMPTY=1
+
+  run "$DVB_GRIND" --skill fleet-grind 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  # We DID heartbeat the caller's session — at least once
+  grep -q 'grind heartbeat --session caller-owned-12345' "$invocations"
+  # We did NOT register (caller already owns the session)
+  ! grep -q '^grind register' "$invocations"
+  # We did NOT deregister (caller owns the lifecycle)
+  ! grep -q '^grind done' "$invocations"
+}
+
+@test "bosun grind: heartbeat failures are logged but do not crash the grind" {
+  # If `bosun grind heartbeat` returns non-zero (transient bosun
+  # restart, network blip, 410 from a session bosun already
+  # disconnected), the grind keeps running. The failure shows up as a
+  # `bosun_heartbeat_failed` log line; the marathon does not abort.
+  local invocations="$TEST_DIR/bosun-invocations.log"
+  : > "$invocations"
+  local bin_dir="$TEST_DIR/bin"
+  mkdir -p "$bin_dir"
+  cat > "$bin_dir/bosun" <<SCRIPT
+#!/bin/bash
+printf '%s\n' "\$*" >> "$invocations"
+case "\$1\$2" in
+  grindregister)
+    sid="failing-heartbeat-session"
+    mkdir -p "\$HOME/.orchestrator"
+    cat > "\$HOME/.orchestrator/grind-session-\$sid.env" <<ENV
+export BOSUN_GRIND_SESSION_ID="\$sid"
+export BOSUN_GRIND_PROJECT_ID="$TEST_REPO"
+export BOSUN_API_BASE="http://localhost:9746"
+export BOSUN_URL="http://localhost:9746"
+ENV
+    echo "\$sid"
+    exit 0
+    ;;
+  grindheartbeat)
+    # Simulate a 5xx-style transient failure on every heartbeat
+    echo "Server temporarily unavailable" >&2
+    exit 1
+    ;;
+esac
+exit 0
+SCRIPT
+  chmod +x "$bin_dir/bosun"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Heartbeat failure tolerance test
+TASKS
+
+  local fake_devin="$TEST_DIR/fake-devin-medium"
+  cat > "$fake_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+sleep 2
+cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+SCRIPT
+  chmod +x "$fake_devin"
+
+  export DVB_GRIND_CMD="$fake_devin"
+  export DVB_GRIND_INVOKE_LOG="$TEST_DIR/invocations.log"
+  export DVB_BOSUN_HEARTBEAT_TEST=1
+  export DVB_REGISTER_REAL_BOSUN_GRIND=1
+  export TG_BOSUN_HEARTBEAT_INTERVAL=1
+  export BOSUN_BIN="$bin_dir/bosun"
+  export DVB_DEADLINE_OFFSET=8
+  export DVB_COOL=0
+  export DVB_MAX_ZERO_SHIP=1
+  export DVB_SYNC_INTERVAL=999
+  export DVB_EMPTY_QUEUE_WAIT=0
+  export DVB_SKIP_SWEEP_ON_EMPTY=1
+  export DVB_LOG="$TEST_DIR/heartbeat-failure.log"
+
+  run "$DVB_GRIND" --skill fleet-grind 1 "$TEST_REPO"
+  # Grind exited cleanly even though every heartbeat failed
+  [ "$status" -eq 0 ]
+  # Heartbeat failure was logged
+  grep -q 'bosun_heartbeat_failed' "$DVB_LOG"
+  # And the deregister still ran (with completed reason)
+  grep -q 'grind done --session .* --reason completed' "$invocations"
+}

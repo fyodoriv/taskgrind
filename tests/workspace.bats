@@ -489,7 +489,7 @@ SCRIPT
 }
 
 @test "structural: handle_exit_trap calls final_sync_all" {
-  grep -B1 -A3 'handle_exit_trap()' "$DVB_GRIND" | grep -q 'final_sync_all'
+  awk '/^handle_exit_trap\(\) \{/,/^\}/' "$DVB_GRIND" | grep -q 'final_sync_all'
 }
 
 @test "structural: per-repo memo replaces single-pair head/ahead state" {
