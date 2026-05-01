@@ -449,13 +449,32 @@ and
 .BR pipeline-* ),
 taskgrind captures a preflight completed/waiting-for-merge pipeline-count baseline from
 .BR /api/v1/pipelines
-and compares it to the cleanup count. The request sends
+and compares it to the cleanup count. The primary signal is
+.B session-scoped:
+when
+.B BOSUN_GRIND_SESSION_ID
+is set (after a successful
+.BR "bosun grind register" ),
+taskgrind queries
+.BR /api/v1/pipelines?grindSessionId=<id>
+so the delta only counts pipelines tagged with this Taskgrind grind session.
+This keeps an unrelated fleet pipeline finishing during the run from masking a
+session-local bypass. The fleet-wide count is still queried alongside and
+written to the log as
+.BR global_start ,
+.BR global_end ,
+and
+.BR global_delta
+for debugging only \(em it is never the pass condition.
+.PP
+The request sends
 .BR "Authorization: Bearer <token>"
 using
 .B BOSUN_TOKEN
 when set, otherwise the first line of
 .BR ~/.orchestrator/auth-token .
-If a session ships tasks but no new bosun pipelines complete, taskgrind logs
+If a session ships tasks but no new bosun pipelines complete for this grind
+session, taskgrind logs
 .BR "pipeline_verify ANOMALY"
 and auto-files a TASKS.md investigation entry. If a new non-markdown commit
 lacks Bosun pipeline attribution, taskgrind logs
