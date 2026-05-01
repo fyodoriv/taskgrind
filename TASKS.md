@@ -15,6 +15,14 @@
 
 ## P1
 
+- [ ] Add a supervisor/fixer mode that lets one Taskgrind monitor another and unblock it
+  - **ID**: taskgrind-supervisor-fixer-mode
+  - **Tags**: supervisor, monitoring, recovery, cli, status-file
+  - **Source**: 2026-04-30 operator request: "Add a feature to taskgrind that allows one taskgrind to continuously monitor another taskgrind and perform fixes for it to make it proceed forward."
+  - **Details**: Design and implement a narrow supervisor lane where one Taskgrind process watches another Taskgrind run through its status file, log file, lock metadata, and repository state, then launches bounded repair sessions when the watched run is stuck or unable to proceed. The repair loop should target concrete unblockers such as failed preflight prerequisites, repeated fast failures, repeated zero-ship sessions with actionable diagnostics, git conflict/rebase states, stale lock/status files, or backend-health failures. Keep the public API small: prefer one flag/env surface on top of the existing `TG_STATUS_FILE` contract instead of adding a separate command family. The supervisor must not blindly kill or rewrite the watched process; it should make observable repairs, log what it did, and let the watched run continue or clearly report when human action is required.
+  - **Files**: `bin/taskgrind`, `tests/diagnostics.bats`, `tests/session.bats`, `tests/status-terminal-reasons.bats`, `tests/test_helper.bash`, `README.md`, `man/taskgrind.1`, `docs/architecture.md`
+  - **Acceptance**: a fake watched Taskgrind status/log fixture can trigger a repair session without launching a real backend; supervisor mode ignores healthy/progressing watched runs; at least three stuck states are covered by regression tests; every repair action is logged with a stable marker; the watched run's repo is not modified unless the repair session commits a scoped fix through the normal Taskgrind/session workflow; public-write safeguards and `TG_NO_PUSH` semantics are preserved; docs explain when to use supervisor mode instead of simply increasing timeouts or restarting; `make check` passes
+
 - [ ] Send Bosun grind-session heartbeats during long Taskgrind child sessions and mark sessions done on exit
   - **ID**: bosun-grind-session-heartbeats-and-done
   - **Tags**: bosun, fleet-grind, lifecycle, heartbeats, reliability
