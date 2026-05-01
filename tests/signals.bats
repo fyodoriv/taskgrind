@@ -1486,3 +1486,86 @@ TASKS
   run "$DVB_GRIND" 1 "$TEST_REPO"
   ! grep -q 'productive_timeout' "$TEST_LOG"
 }
+
+# ── Bosun grind: signal-aborted exit deregisters with --reason aborted ─
+
+@test "bosun grind: SIGTERM during a session deregisters with --reason aborted" {
+  # When the operator (or supervisor) kills the controller mid-grind,
+  # bosun must see the grind session as `aborted`, not `completed`.
+  # graceful_shutdown sets _bosun_grind_done_reason=aborted before
+  # cleanup runs, and cleanup propagates that into `bosun grind done`.
+  local invocations="$TEST_DIR/bosun-invocations.log"
+  : > "$invocations"
+  local bin_dir="$TEST_DIR/bin"
+  mkdir -p "$bin_dir"
+  cat > "$bin_dir/bosun" <<SCRIPT
+#!/bin/bash
+printf '%s\n' "\$*" >> "$invocations"
+case "\$1\$2" in
+  grindregister)
+    sid="abort-test-session"
+    mkdir -p "\$HOME/.orchestrator"
+    cat > "\$HOME/.orchestrator/grind-session-\$sid.env" <<ENV
+export BOSUN_GRIND_SESSION_ID="\$sid"
+export BOSUN_GRIND_PROJECT_ID="$TEST_REPO"
+export BOSUN_API_BASE="http://localhost:9746"
+export BOSUN_URL="http://localhost:9746"
+ENV
+    echo "\$sid"
+    ;;
+esac
+exit 0
+SCRIPT
+  chmod +x "$bin_dir/bosun"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Signal abort test
+TASKS
+
+  # Slow fake devin that runs long enough for us to send a signal
+  local slow_devin="$TEST_DIR/slow-devin-abort"
+  cat > "$slow_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+echo "started" >> "$TEST_DIR/abort-lifecycle.log"
+sleep 30
+SCRIPT
+  chmod +x "$slow_devin"
+
+  export DVB_GRIND_CMD="$slow_devin"
+  export DVB_BOSUN_HEARTBEAT_TEST=1
+  export DVB_REGISTER_REAL_BOSUN_GRIND=1
+  export TG_BOSUN_HEARTBEAT_INTERVAL=99
+  export BOSUN_BIN="$bin_dir/bosun"
+  export DVB_DEADLINE_OFFSET=60
+  export DVB_SHUTDOWN_GRACE=5
+  export DVB_COOL=0
+  export DVB_MAX_ZERO_SHIP=99
+  export DVB_SYNC_INTERVAL=999
+
+  "$DVB_GRIND" --skill fleet-grind 1 "$TEST_REPO" > "$TEST_DIR/abort-output.txt" 2>&1 &
+  local grind_pid=$!
+  _wait_for_file_pattern "$TEST_DIR/abort-lifecycle.log" 'started'
+  kill -TERM "$grind_pid" 2>/dev/null || true
+
+  set +e
+  wait "$grind_pid"
+  local status=$?
+  set -e
+
+  # SIGTERM exits with status 143
+  [ "$status" -eq 143 ]
+  # And the grind session was deregistered with reason=aborted
+  grep -q 'grind done --session abort-test-session --reason aborted' "$invocations"
+  ! grep -q -- '--reason completed' "$invocations"
+}
+
+# Note on SIGINT-vs-SIGTERM coverage: bats runs each test in a non-interactive
+# subshell, where bash discards SIGINT delivered to a backgrounded job
+# (`set +m`, no controlling terminal). SIGTERM is unaffected and exercises
+# the same `graceful_shutdown -> cleanup -> _finalize_bosun_grind_session`
+# code path, so the SIGTERM test above is the canonical coverage. The trap
+# binding for INT is asserted by the structural test
+# `taskgrind traps INT signal for cleanup` earlier in this file.

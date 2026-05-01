@@ -254,3 +254,104 @@ i_parser = text.find('IFS=\',\' read -ra _rotation_backends', i_guard)
 assert i_parser != -1, "rotation parser missing after autodetect"
 PY
 }
+
+# ── Bosun grind heartbeat + done lifecycle ────────────────────────────
+#
+# Background: 2026-04-30 fleet-grind canary. Taskgrind registered a
+# Bosun grind session and ran a 7-minute child Devin session. Bosun's
+# monitor marked the grind session `disconnected` after 5 minutes
+# because lastHeartbeatAt never advanced after registration. Even
+# though Taskgrind exited normally, the session's terminal status
+# was `disconnected`, not `completed`. These tests pin the heartbeat
+# loop and the deregister-on-exit lifecycle so the canary shape can't
+# regress silently.
+
+@test "_start_bosun_heartbeat_loop helper exists" {
+  grep -q '^_start_bosun_heartbeat_loop()' "$DVB_GRIND"
+}
+
+@test "_stop_bosun_heartbeat_loop helper exists" {
+  grep -q '^_stop_bosun_heartbeat_loop()' "$DVB_GRIND"
+}
+
+@test "_finalize_bosun_grind_session helper exists" {
+  grep -q '^_finalize_bosun_grind_session()' "$DVB_GRIND"
+}
+
+@test "_bosun_heartbeat_loop_body helper exists for bash 3.2 local-scope safety" {
+  # The actual heartbeat work runs in a function (not a `(...)` subshell)
+  # so `local hb_out hb_status` doesn't trip bash 3.2's "local outside
+  # of function" rule, which the bash-compat smoke test guards.
+  grep -q '^_bosun_heartbeat_loop_body()' "$DVB_GRIND"
+}
+
+@test "_bosun_grind_owned defaults to 0 (taskgrind never claims an unregistered session)" {
+  grep -q '^_bosun_grind_owned=0' "$DVB_GRIND"
+}
+
+@test "_ensure_bosun_grind_session sets _bosun_grind_owned=1 only after a successful register" {
+  # Caller-provided + test-stub branches must NOT flip ownership — the
+  # first thing taskgrind does after `bosun grind register` succeeds is
+  # claim the session for cleanup.
+  awk '/^_ensure_bosun_grind_session\(\) \{/,/^\}/' "$DVB_GRIND" \
+    | awk '/_bosun_grind_owned=1/{found++} END{exit (found==1)?0:1}'
+}
+
+@test "_finalize_bosun_grind_session is idempotent via _bosun_grind_done_called guard" {
+  awk '/^_finalize_bosun_grind_session\(\) \{/,/^\}/' "$DVB_GRIND" \
+    | grep -q '_bosun_grind_done_called'
+}
+
+@test "_finalize_bosun_grind_session no-ops when _bosun_grind_owned=0 (caller-provided sessions)" {
+  awk '/^_finalize_bosun_grind_session\(\) \{/,/^\}/' "$DVB_GRIND" \
+    | grep -q '_bosun_grind_owned'
+}
+
+@test "_finalize_bosun_grind_session calls bosun grind done with --reason flag" {
+  awk '/^_finalize_bosun_grind_session\(\) \{/,/^\}/' "$DVB_GRIND" \
+    | grep -q -- '--reason'
+}
+
+@test "_bosun_heartbeat_interval default is 60s — well under bosun's 5-min disconnect threshold" {
+  # Bosun's DEFAULT_HEARTBEAT_TIMEOUT_MS is 5 * 60_000 (5 min). 60s gives
+  # us 5x headroom for transient network issues without overloading the API.
+  grep -q '_bosun_heartbeat_interval="\${TG_BOSUN_HEARTBEAT_INTERVAL:-\${DVB_BOSUN_HEARTBEAT_INTERVAL:-60}}"' "$DVB_GRIND"
+}
+
+@test "graceful_shutdown sets _bosun_grind_done_reason=aborted before cleanup runs" {
+  awk '/^graceful_shutdown\(\) \{/,/^\}/' "$DVB_GRIND" \
+    | grep -q '_bosun_grind_done_reason="aborted"'
+}
+
+@test "handle_exit_trap downgrades reason to aborted when exit_status is non-zero" {
+  awk '/^handle_exit_trap\(\) \{/,/^\}/' "$DVB_GRIND" \
+    | grep -q '_bosun_grind_done_reason="aborted"'
+}
+
+@test "cleanup stops heartbeat loop before deregistering the session" {
+  # Order matters: _stop must come before _finalize, otherwise the next
+  # heartbeat fires after the deregister and gets a 410 from bosun.
+  awk '/^cleanup\(\) \{/,/^\}/' "$DVB_GRIND" > /tmp/cleanup-block.$$
+  local stop_line finalize_line
+  stop_line=$(grep -n '_stop_bosun_heartbeat_loop' /tmp/cleanup-block.$$ | head -1 | cut -d: -f1)
+  finalize_line=$(grep -n '_finalize_bosun_grind_session' /tmp/cleanup-block.$$ | head -1 | cut -d: -f1)
+  rm -f /tmp/cleanup-block.$$
+  [ -n "$stop_line" ]
+  [ -n "$finalize_line" ]
+  [ "$stop_line" -lt "$finalize_line" ]
+}
+
+@test "preflight starts heartbeat loop after _ensure_bosun_grind_session in both branches" {
+  # Test mode (DVB_GRIND_CMD) and live (bosun-health) branches both must
+  # call _start_bosun_heartbeat_loop after a successful registration so
+  # tests can observe the loop with DVB_BOSUN_HEARTBEAT_TEST=1.
+  python3 - "$DVB_GRIND" <<'PY'
+import sys, pathlib
+text = pathlib.Path(sys.argv[1]).read_text()
+i_check = text.find('10. Bosun server reachable')
+assert i_check != -1, 'preflight #10 marker missing'
+window = text[i_check:i_check + 2400]
+assert window.count('_start_bosun_heartbeat_loop') >= 2, \
+    'heartbeat loop must start in BOTH the test-mode and live preflight branches'
+PY
+}
