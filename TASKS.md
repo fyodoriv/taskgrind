@@ -155,6 +155,37 @@
 
 ## P2
 
+
+<!-- batch: bosun-autonomy-ops-integration — 2026-05-01.
+     Source: Bosun/taskgrind brainstorming. Bosun owns the milestone epics;
+     this repo owns the taskgrind-side protocol changes needed for local-only
+     V1 fleet visibility and later Tech Lead halt/resume supervision.
+-->
+
+- [ ] Register every taskgrind with Bosun when Bosun is available
+  - **ID**: bosun-autonomy-ops-always-register-local-grinds
+  - **Tags**: bosun, integration, observability, status-file, logs
+  - **Source**: 2026-05-01 Bosun/taskgrind integration brainstorming. Chosen discovery policy: self-registration is required for correctness; process scanning is only an optional Bosun fallback.
+  - **Details**: Today Taskgrind ensures a Bosun grind session mainly for Bosun-dependent skills such as `fleet-grind`. For the Autonomy Ops fleet board, every taskgrind should opportunistically self-register when a local Bosun server is reachable, without making Bosun a hard dependency for normal runs. Registration should include the control repo path, target repo paths, PID, hostname, backend, skill, model, deadline, slot, log path, status path, and a restart/resume launch summary. If Bosun is unreachable, Taskgrind logs a clear `bosun_register skipped` marker and continues normally. Keep this `/bin/bash` 3.2 compatible.
+  - **Files**: `bin/taskgrind`, `tests/preflight.bats`, `tests/logging.bats`, `tests/status-terminal-reasons.bats`, `tests/test_helper.bash`, `README.md`, `man/taskgrind.1`, `docs/user-stories.md`
+  - **Acceptance**: A normal `taskgrind ~/apps/repo 8` registers with Bosun when `BOSUN_API_BASE` is reachable even if `--skill` is `next-task`; a run continues successfully when Bosun is unavailable; the registration payload includes log/status paths and repo/target metadata; `--preflight` does not leave active stale sessions; docs explain the optional Bosun integration; tests cover reachable, unreachable, and caller-provided `BOSUN_GRIND_SESSION_ID` paths; `make check` passes
+
+- [ ] Add a Bosun-compatible halt/resume control contract for supervised grinds
+  - **ID**: bosun-autonomy-ops-halt-resume-contract
+  - **Tags**: bosun, supervisor, resume, signals, status-file
+  - **Source**: 2026-05-01 Bosun/taskgrind integration brainstorming. The Tech Lead must halt conflicting grinds, fix the affected repo, then prefer `taskgrind --resume` with fallback to stored launch spec.
+  - **Details**: Harden Taskgrind's externally supervised shutdown/resume path so Bosun can stop a conflicting run safely and restart it after a fix. Taskgrind already handles SIGTERM and resume state; this task makes that contract explicit and machine-readable. On graceful external termination, write a status phase/reason that tells Bosun whether resume is expected to work. Ensure the resume state preserves enough of backend, skill, model, prompt, no-push, target repos, deadline, and counters for Bosun's hybrid resume policy. Add stable log markers for `external_halt_requested`, `external_halt_ready_for_resume`, `resume_accepted`, and `resume_rejected`.
+  - **Files**: `bin/taskgrind`, `tests/signals.bats`, `tests/resume.bats`, `tests/status-terminal-reasons.bats`, `tests/test_helper.bash`, `docs/resume-state.md`, `docs/user-stories.md`, `man/taskgrind.1`
+  - **Acceptance**: A supervised SIGTERM produces a status snapshot that Bosun can classify as resumable or non-resumable; `taskgrind --resume <repo>` succeeds after a clean supervised halt with matching launch metadata; incompatible resume still fails with an actionable reason; log markers are stable and documented; tests cover clean halt/resume, incompatible resume, and fallback-needed status; `make check` passes
+
+- [ ] Enrich Taskgrind status snapshots with Tech Lead detector signals
+  - **ID**: bosun-autonomy-ops-detector-status-fields
+  - **Tags**: bosun, status-file, observability, detectors, tech-lead
+  - **Source**: 2026-05-01 Bosun/taskgrind integration brainstorming. Bosun should use deterministic status/log signals before launching a bounded Tech Lead fixer turn.
+  - **Details**: Extend `TG_STATUS_FILE` output with fields that let Bosun detect productivity and stuck patterns without scraping full logs: `zero_ship_streak`, recent shipped-window counts, `last_progress_at`, `last_phase_change_at`, `last_error_summary`, `blocked_task_count`, `open_task_count`, `skip_task_ids`, `pipeline_verify_status`, and whether the current session is a sweep/audit lane. Keep the existing fields backward-compatible. The goal is not to make Taskgrind decide what Tech Lead should do; it should expose reliable facts so Bosun's detector can make that decision.
+  - **Files**: `bin/taskgrind`, `tests/status-terminal-reasons.bats`, `tests/logging.bats`, `tests/session.bats`, `docs/user-stories.md`, `man/taskgrind.1`
+  - **Acceptance**: Existing status-file consumers keep working; new fields are present and documented; fixtures cover zero-ship, diminishing-returns, blocked queue, failed preflight/session, pipeline verification anomaly, and healthy running states; fields update atomically with the existing status file; `make check` passes
+
 - [ ] Deregister Bosun grind sessions created by `taskgrind --preflight`
   - **ID**: preflight-deregisters-bosun-grind-session
   - **Tags**: bosun, preflight, slots, cleanup, regression
