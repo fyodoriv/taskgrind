@@ -73,16 +73,15 @@ TASKS
   # test with a 1s `DVB_NET_MAX_WAIT` does not have to sit through one
   # full default 30s poll before the timeout fires.
   #
-  # `DVB_EMPTY_QUEUE_WAIT=1` collapses the post-sweep "wait for external
-  # task injection" pause from 600s (production default, capped at
-  # remaining deadline) to 1s for any test that hits an empty queue
+  # `DVB_EMPTY_QUEUE_WAIT=0` skips the post-sweep "wait for external
+  # task injection" pause for any test that hits an empty queue
   # without specifying its own value. Many session.bats tests only check
   # that "Queue empty" output appears or that `sweep_done` was logged;
   # they do not exercise the wait duration and were costing ~15s each
   # because the wait clamped to the auto-extended 15s deadline.
   : "${DVB_BACKOFF_BASE:=0}"
   : "${DVB_NET_WAIT:=0}"
-  : "${DVB_EMPTY_QUEUE_WAIT:=1}"
+  : "${DVB_EMPTY_QUEUE_WAIT:=0}"
   export DVB_BACKOFF_BASE DVB_NET_WAIT DVB_EMPTY_QUEUE_WAIT
 
   # Create a fake devin that just exits immediately
