@@ -51,7 +51,18 @@ TASKS
   export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
   export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
   export TASKGRIND_DIR="$TEST_DOTFILES"
+  # Cover both the primary TG_* and legacy DVB_* env-var names. Without
+  # the unset-then-set, an operator-launched grind that exported TG_LOG /
+  # TG_STATUS_FILE in its shell would have those values inherited by the
+  # bats child and overwrite the operator's live-grind log/status with
+  # the test fixture's fast-failure trace. (Observed 2026-05-02 18:22:
+  # an operator's 10h grind log on /tmp/taskgrind-techlead.log got stomped
+  # by a 17s test-fixture grind because TG_LOG was inherited.) Setting
+  # both names also future-proofs against the pending DVB_-deprecation
+  # task: tests stay correct after the legacy alias is removed.
+  unset TG_LOG TG_STATUS_FILE
   export DVB_LOG="$TEST_LOG"
+  export TG_LOG="$TEST_LOG"
   export DVB_COOL=0
   # Belt-and-suspenders against macOS Notification Center spam during
   # `make check`: bin/taskgrind already skips notifications when
