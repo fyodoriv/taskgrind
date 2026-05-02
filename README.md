@@ -114,6 +114,7 @@ taskgrind --preflight ~/apps/myrepo    # run health checks only
 taskgrind --resume ~/apps/myrepo       # resume an interrupted grind
 taskgrind --no-push 8 ~/apps/myrepo    # commit locally, never auto-push to origin
 taskgrind --no-pr-fallback 8 ~/apps/myrepo  # on protected-branch push rejection, skip auto-PR fallback
+taskgrind --supervise /tmp/taskgrind-status.json 1 ~/apps/myrepo  # inspect another run once and repair if stuck
 taskgrind --help / -h                  # show usage and environment variables
 taskgrind --version / -V               # print version (commit hash + date)
 TG_MODEL=sonnet taskgrind 8            # pick a model alias without changing shell history
@@ -191,6 +192,7 @@ Use `**Blocked by**` only when another task or external dependency truly prevent
 - **Preflight checks** — validates the backend, selected skill visibility, network, repo, disk, queue, and optional watchdog setup before launch, plus active slot reporting. `network-watchdog` is optional; if missing, taskgrind falls back to `curl` for connectivity checks.
 - **Pipeline-rate cross-check** — for skills that require bosun pipelines (`fleet-grind`, `full-sweep`, `bosun*`, `pipeline-*`, etc.), taskgrind captures a baseline of bosun's completed/waiting-for-merge pipeline count at preflight and compares to the end-of-session count at cleanup. The primary signal is **session-scoped**: when `BOSUN_GRIND_SESSION_ID` is set, the verifier queries `GET /api/v1/pipelines?grindSessionId=<id>` and only counts pipelines tagged with this Taskgrind grind session, so an unrelated fleet pipeline finishing during the run cannot mask a session-local bypass. The fleet-wide (`global_*`) counts are still logged for debugging. The API probe uses `BOSUN_TOKEN` when set, otherwise `~/.orchestrator/auth-token`, matching Bosun's authenticated `/api/v1/pipelines` routes. If the session shipped tasks but bosun saw zero new pipeline completions for THIS grind session, or if any new non-markdown commit lacks Bosun pipeline attribution (the Apr 28-29 incident shape — agent direct-committed code instead of going through pipelines), taskgrind logs `pipeline_verify ANOMALY` / `DIRECT_CODE_BYPASS` and auto-files a TASKS.md investigation entry. Best-effort: silent no-op when bosun is unreachable, when the skill doesn't need bosun, or when no baseline was captured.
 - **Bosun grind-session lifecycle** — for the same Bosun-dependent skills, taskgrind registers a `bosun grind` session at preflight, posts heartbeats every `TG_BOSUN_HEARTBEAT_INTERVAL` seconds (default 60s, well under Bosun's 5-minute disconnect timeout) while the controller is running, and calls `bosun grind done --reason completed` on a normal exit / `--reason aborted` on a signal or error exit. Heartbeats keep `lastHeartbeatAt` advancing so multi-minute child sessions don't get marked `disconnected` mid-grind (the 2026-04-30 fleet-grind canary failure shape). Caller-provided sessions (operator already exported `BOSUN_GRIND_SESSION_ID` before launching taskgrind) are heartbeated but **never** deregistered — the caller owns the slot. Heartbeat failures are logged as warnings and don't crash the grind.
+- **One-shot supervisor repair** — `taskgrind --supervise <TG_STATUS_FILE path>` reads another run's status JSON, ignores healthy/progressing phases, and launches one bounded repair session when the watched run is failed or stale. The repair prompt carries the watched status path, log path, repo, stuck reason, normal completion protocol, `TG_NO_PUSH` semantics, and the public-write gate. Use this first slice for targeted unblockers; continuous polling and richer repair states are tracked as follow-up tasks.
 - **Self-copy protection** — copies itself to `$TMPDIR` before running, survives script edits mid-grind
 - **Slot-based per-repo locking** — `TG_MAX_INSTANCES` allows multiple concurrent grinds on the same repo; slot 0 owns between-session git sync, higher slots get conflict-avoidance prompt guidance
 - **Blocked-queue detection** — when every remaining task has `**Blocked by**:` metadata, taskgrind sets the status phase to `blocked_wait`, pauses the marathon timer for 600 s (capped at the remaining deadline) while an external event (CI, merged PR, another agent) can unblock work, extends the deadline by the wait duration so no time budget is lost, re-checks the queue, and only then exits with the `all_tasks_blocked` phase and terminal reason if nothing changed
@@ -281,7 +283,15 @@ TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8
 cat /tmp/taskgrind-status.json
 ```
 
-The status file updates atomically on startup, before and after each session, during empty-queue sweeps and wait windows, during network waits, around git-sync decisions, and on final completion or failure. It includes the repo, process ID, slot, backend, skill, model, current session, remaining minutes, current phase, and the most recent session result.
+The status file updates atomically on startup, before and after each session, during empty-queue sweeps and wait windows, during network waits, around git-sync decisions, and on final completion or failure. It includes the repo, process ID, log path, slot, backend, skill, model, current session, remaining minutes, current phase, and the most recent session result.
+
+To let one Taskgrind instance inspect another without growing a separate command family, point supervisor mode at the watched run's status file:
+
+```bash
+taskgrind --supervise /tmp/taskgrind-status.json 1 ~/apps/myrepo
+```
+
+The current supervisor slice is intentionally one-shot. It logs `supervisor_observation`, skips healthy/progressing watched phases, and logs `supervisor_repair_start` / `supervisor_repair_end` around a single repair session for failed or stale watched status. Keep `TG_NO_PUSH=1` or `--no-push` on the supervisor command when the repair branch must stay local for review.
 
 Supervisor example:
 
@@ -338,6 +348,7 @@ Status payload fields:
 |-------|------|---------|
 | `repo` | string | Absolute or user-supplied repo path being ground |
 | `pid` | number | Process ID of the current `taskgrind` run |
+| `log_file` | string | Primary log path for the current run; supervisor mode uses this to include watched-run context in repair prompts |
 | `slot` | number | Claimed concurrency slot for this repo (`0` owns git sync) |
 | `backend` | string | Active backend such as `devin`, `claude-code`, or `codex` |
 | `skill` | string | Skill prompt sent to each session |
@@ -360,6 +371,7 @@ Example lifecycle snapshots:
 {
   "repo": "/Users/alex/apps/myrepo",
   "pid": 48122,
+  "log_file": "/tmp/taskgrind-myrepo.log",
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
@@ -384,6 +396,7 @@ Example lifecycle snapshots:
 {
   "repo": "/Users/alex/apps/myrepo",
   "pid": 48122,
+  "log_file": "/tmp/taskgrind-myrepo.log",
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
@@ -407,6 +420,7 @@ Example lifecycle snapshots:
 {
   "repo": "/Users/alex/apps/myrepo",
   "pid": 48122,
+  "log_file": "/tmp/taskgrind-myrepo.log",
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
@@ -430,6 +444,7 @@ Example lifecycle snapshots:
 {
   "repo": "/Users/alex/apps/myrepo",
   "pid": 48122,
+  "log_file": "/tmp/taskgrind-myrepo.log",
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",

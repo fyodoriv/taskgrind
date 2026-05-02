@@ -7,15 +7,6 @@
 
 ## P1
 
-- [ ] Add one-shot supervisor status classification and repair-session launch
-  - **ID**: supervisor-status-classifier-repair-launcher
-  - **Tags**: supervisor, monitoring, recovery, cli, status-file
-  - **Parent**: taskgrind-supervisor-fixer-mode
-  - **Source**: Decomposes `taskgrind-supervisor-fixer-mode`.
-  - **Details**: Add the narrow first slice of supervisor mode: `taskgrind --supervise <TG_STATUS_FILE path>` reads another Taskgrind run's status JSON, uses the status/log contract to classify healthy vs stuck states, and launches one bounded repair session only when the watched run is clearly stuck. Cover missing status files, failed terminal phases, and stale active phases. Healthy/progressing status files should exit without invoking a backend. The repair prompt must include the watched status path, watched log path when present, detected reason, repo, and the same no-push/public-write guardrails normal sessions receive.
-  - **Files**: `bin/taskgrind`, `tests/supervisor.bats`, `README.md`, `man/taskgrind.1`, `docs/architecture.md`
-  - **Acceptance**: a fake healthy watched status fixture does not invoke the fake backend and logs `supervisor_observation outcome=healthy`; a fake failed/stale watched status fixture invokes the fake backend once without launching a real backend; repair prompts preserve `TG_NO_PUSH` semantics and the public-write gate; every repair attempt logs `supervisor_repair_start` and `supervisor_repair_end`; status JSON exposes the watched run's log path; `make check` passes
-
 - [ ] Make supervisor mode continuously poll with bounded repair cooldowns
   - **ID**: supervisor-continuous-polling-cooldowns
   - **Tags**: supervisor, monitoring, cooldowns, status-file
