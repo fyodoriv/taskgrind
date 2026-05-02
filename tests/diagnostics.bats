@@ -511,6 +511,40 @@ SCRIPT
   [[ "$output" == *"TG_DEVIN_PATH"* ]]
 }
 
+@test "error quality: missing claude-code backend gives Claude-specific install guidance" {
+  unset DVB_GRIND_CMD
+  export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+  init_test_repo "$TEST_REPO"
+  echo "# Tasks" > "$TEST_REPO/TASKS.md"
+
+  run "$DVB_GRIND" --preflight --backend claude-code "$TEST_REPO"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Backend binary not found (claude-code)"* ]]
+  [[ "$output" == *"expected 'claude' on PATH"* ]]
+  [[ "$output" == *"npm install -g @anthropic-ai/claude-code"* ]]
+  [[ "$output" != *"TG_DEVIN_PATH"* ]]
+}
+
+@test "error quality: non-executable claude-code backend names the bad path" {
+  local fake_bin="$TEST_DIR/fake-bin"
+  mkdir -p "$fake_bin"
+  printf '#!/bin/bash\necho should-not-run\n' > "$fake_bin/claude"
+  chmod 0644 "$fake_bin/claude"
+
+  unset DVB_GRIND_CMD
+  export PATH="$fake_bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  init_test_repo "$TEST_REPO"
+  echo "# Tasks" > "$TEST_REPO/TASKS.md"
+
+  run "$DVB_GRIND" --preflight --backend claude-code "$TEST_REPO"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Backend binary is not executable (claude-code): $fake_bin/claude"* ]]
+  [[ "$output" == *"ensure the 'claude' binary is executable and on PATH"* ]]
+  [[ "$output" != *"TG_DEVIN_PATH"* ]]
+}
+
 @test "numeric directory name treated as repo path not hours" {
   local num_dir="$TEST_DIR/42"
   mkdir -p "$num_dir"
@@ -847,6 +881,8 @@ SCRIPT
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"backend binary may be a stub or broken: 'claude-code'"* ]]
+  [[ "$output" == *"npm install -g @anthropic-ai/claude-code"* ]]
+  [[ "$output" != *"Devin CLI"* ]]
   grep -qE 'backend_probe_failed exit=0 duration=[0-9]+s backend=claude-code' "$TEST_LOG"
   grep -q -- '--version' "$DVB_GRIND_INVOKE_LOG"
 }

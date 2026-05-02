@@ -1107,6 +1107,79 @@ build_session_args() {
   esac
 }
 
+backend_binary_name() {
+  case "$1" in
+    devin) printf '%s' "devin" ;;
+    claude-code) printf '%s' "claude" ;;
+    codex) printf '%s' "codex" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+backend_install_hint() {
+  case "$1" in
+    devin)
+      printf '%s' "Install the Devin CLI, ensure 'devin' is executable and on PATH, or set TG_DEVIN_PATH to an executable custom path. See README.md 'Install' for setup steps."
+      ;;
+    claude-code)
+      printf '%s' "Install Claude Code with 'npm install -g @anthropic-ai/claude-code', then ensure the 'claude' binary is executable and on PATH. See README.md 'Install' for setup steps."
+      ;;
+    codex)
+      printf '%s' "Install Codex with 'npm install -g @openai/codex', then ensure the 'codex' binary is executable and on PATH. See README.md 'Install' for setup steps."
+      ;;
+    *)
+      printf '%s' "Install the selected backend CLI and ensure it is executable and on PATH."
+      ;;
+  esac
+}
+
+backend_binary_error() {
+  local binary_name hint
+  binary_name="$(backend_binary_name "$backend")"
+  hint="$(backend_install_hint "$backend")"
+  if [[ -n "${_backend_binary:-}" && -e "$_backend_binary" && ! -x "$_backend_binary" ]]; then
+    printf 'Backend binary is not executable (%s): %s. %s' "$backend" "$_backend_binary" "$hint"
+  elif [[ -n "${_backend_binary:-}" ]]; then
+    printf "Backend binary not found (%s): expected '%s' on PATH; looked at %s. %s" "$backend" "$binary_name" "$_backend_binary" "$hint"
+  else
+    printf "Backend binary not found (%s): expected '%s' on PATH. %s" "$backend" "$binary_name" "$hint"
+  fi
+}
+
+backend_model_hint() {
+  case "$1" in
+    devin)
+      printf '%s' "Check the model name with 'devin --model <name> --help' for this Devin install."
+      ;;
+    claude-code)
+      printf '%s' "Check that the Claude model is available to this Claude Code install and account with 'claude --model <name> --help'."
+      ;;
+    codex)
+      printf '%s' "Check the OpenAI model name with 'codex --model <name> --help'; Codex usually expects models such as o3 or gpt-5.5."
+      ;;
+    *)
+      printf '%s' "Check the selected model with the backend CLI before retrying."
+      ;;
+  esac
+}
+
+backend_probe_hint() {
+  case "$1" in
+    devin)
+      printf '%s' "reinstall or roll back the Devin CLI before starting another grind."
+      ;;
+    claude-code)
+      printf '%s' "Reinstall Claude Code with 'npm install -g @anthropic-ai/claude-code' and confirm 'claude --version' prints output before retrying."
+      ;;
+    codex)
+      printf '%s' "Reinstall Codex with 'npm install -g @openai/codex' and confirm 'codex --version' prints output before retrying."
+      ;;
+    *)
+      printf '%s' "Reinstall or roll back the backend CLI before starting another grind."
+      ;;
+  esac
+}
+
 _backend_probe_error=""
 _backend_probe_summary=""
 
@@ -1129,7 +1202,7 @@ run_backend_probe() {
   # making parallel-suite runs silently accept broken backends).
   if [[ "$probe_status" -eq 0 && -z "$probe_output_clean" ]]; then
     _backend_probe_summary="backend_probe_failed exit=$probe_status duration=${probe_elapsed}s backend=$backend"
-    _backend_probe_error="backend binary may be a stub or broken: '$backend' exited in ${probe_elapsed}s with no output when running --version. reinstall or roll back the backend CLI before starting another grind."
+    _backend_probe_error="backend binary may be a stub or broken: '$backend' exited in ${probe_elapsed}s with no output when running --version. $(backend_probe_hint "$backend")"
     return 1
   fi
 
@@ -2123,7 +2196,7 @@ preflight_check() {
     if [[ -x "$_backend_binary" ]]; then
       preflight_pass "Backend binary ($backend): $_backend_binary"
     else
-      preflight_fail "Backend binary not found ($backend): ${_backend_binary:-not in PATH}. Install the $backend CLI and ensure it is on PATH; see README.md 'Install' section or set TG_DEVIN_PATH to an explicit path."
+      preflight_fail "$(backend_binary_error)"
       backend_available=0
     fi
   fi
@@ -2135,7 +2208,7 @@ preflight_check() {
       dvb_spinner_stop; preflight_pass "Model accepted by $backend: $model"
     else
       dvb_spinner_stop
-      preflight_fail "Model rejected by $backend before starting: ${_model_validation_error:-unknown error}"
+      preflight_fail "Model rejected by $backend before starting: ${_model_validation_error:-unknown error}. $(backend_model_hint "$backend")"
     fi
   elif [[ -n "${DVB_GRIND_CMD:-}" ]]; then
     preflight_pass "Model validation skipped in test mode"
@@ -2811,7 +2884,7 @@ if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
 else
   resolve_backend_binary
   if [[ ! -x "$_backend_binary" ]]; then
-    echo "Error: $backend binary not found: ${_backend_binary:-not in PATH}" >&2
+    echo "Error: $(backend_binary_error)" >&2
     exit 1
   fi
   devin_cmd=("$_backend_binary")

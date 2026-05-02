@@ -422,6 +422,19 @@ when the Claude Code CLI is not installed or not on
 and
 .B Model rejected by claude\-code before starting
 when the selected Claude model is not available to that install or account.
+Install or repair Claude Code with
+.B npm install \-g @anthropic\-ai/claude\-code
+and confirm
+.B claude \-\-version
+prints output. If preflight reports
+.B Backend binary is not executable (claude\-code)
+or the startup probe reports a silent stub after
+.BR \-\-version ,
+fix the
+.B claude
+binary on
+.B PATH
+before retrying.
 .TP
 .B codex
 Binary detection uses

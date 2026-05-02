@@ -384,6 +384,8 @@ SCRIPT
   [ "$status" -eq 1 ]
   [[ "$output" == *"backend said invalid model: invalid-model"* ]]
   [[ "$output" == *"Model rejected by claude-code before starting"* ]]
+  [[ "$output" == *"Claude Code install and account"* ]]
+  [[ "$output" != *"Devin"* ]]
 
   # With backend_probe guarding startup, the binary is invoked twice before
   # preflight bails: once for '--version' (probe) and once for

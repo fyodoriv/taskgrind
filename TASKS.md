@@ -5,15 +5,6 @@
 
 ## P0
 
-- [ ] Harden Claude Code preflight and operator diagnostics to match Devin
-  - **ID**: claude-code-preflight-diagnostics-parity
-  - **Parent**: claude-code-first-class-backend-parity
-  - **Tags**: backend, claude-code, preflight, diagnostics, tests
-  - **Source**: Decomposition of `claude-code-first-class-backend-parity`.
-  - **Details**: Audit Claude Code binary resolution, model validation, missing/non-executable binary messages, silent-stub startup probe handling, and install guidance so every failure style is as actionable as Devin's. Keep backend-specific invocation details isolated behind the backend abstraction.
-  - **Files**: `bin/taskgrind`, `lib/constants.sh`, `tests/preflight.bats`, `tests/diagnostics.bats`, `README.md`, `man/taskgrind.1`
-  - **Acceptance**: missing `claude`, non-executable paths, rejected models, and silent stubs fail before the session loop with clear `claude-code`-specific guidance; docs list Claude Code as a supported backend with install/preflight recovery steps; no Devin-only wording leaks into Claude Code diagnostics; `make check` passes
-
 - [ ] Exercise Claude Code backend rotation and self-investigation parity
   - **ID**: claude-code-rotation-self-investigation-parity
   - **Parent**: claude-code-first-class-backend-parity
@@ -156,6 +147,14 @@
     - `make check` passes
 
 ## P2
+
+- [ ] Deduplicate backend binary diagnostics for `--from-prompt` translation
+  - **ID**: from-prompt-backend-diagnostics-parity
+  - **Tags**: backend, from-prompt, diagnostics, claude-code, tests
+  - **Source**: Scout finding while fixing `claude-code-preflight-diagnostics-parity`.
+  - **Details**: `translate_from_prompt` resolves the real backend before the shared backend diagnostic helpers are defined, so missing or non-executable backend binaries during `--from-prompt` still use a separate generic message path. Align that early translation failure with the preflight/session resolver diagnostics so Claude Code reports the `claude` binary name, npm install command, PATH guidance, and no Devin-only override text.
+  - **Files**: `bin/taskgrind`, `tests/from-prompt.bats`, `tests/diagnostics.bats`, `README.md`, `man/taskgrind.1`
+  - **Acceptance**: Missing and non-executable `claude` during `--from-prompt --backend claude-code` fail before translation with the same Claude Code-specific guidance as preflight; no `TG_DEVIN_PATH` wording appears for Claude Code; the implementation reuses one diagnostic source of truth or moves it early safely; `make check` passes
 
 
 <!-- batch: bosun-autonomy-ops-integration — 2026-05-01.
