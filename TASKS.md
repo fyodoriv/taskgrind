@@ -680,6 +680,41 @@
     - The new `grind_done` field is documented in `man/taskgrind.1` so the OUTPUT field reference matches reality
     - `make check` passes including the three new tests; PR description includes the before/after `grind_done` line for the dotfiles 2026-05-01 reproduction so reviewers see the bug surface
 
+- [ ] `TG_STATUS_FILE` should heartbeat during a running session, not only at phase transitions
+  - **ID**: status-file-heartbeat-mid-session
+  - **Tags**: status-file, observability, supervisor, tech-lead, log-mining
+  - **Source**: 2026-05-02 18:10 tech-lead session monitoring `taskgrind 10` on this repo. Status JSON's `updated_at` was frozen at `18:11:00` (the moment `running_session` phase started) for the entire 20+ minutes the agent was working — even while the agent committed `73f7245` and accumulated 184 lines of WIP in `bin/taskgrind`. The supervisor (and any future Bosun autonomy-ops detector) has no way to distinguish "agent is actively shipping" from "agent is wedged"; the only live signal is `git log --since="N min ago"` and `ps`-tree on the child devin pid.
+  - **Details**: Add a heartbeat writer that updates `$TG_STATUS_FILE` at a bounded cadence while a session is running. Two designs are viable, pick the smaller one:
+    1. **Mid-session heartbeat thread** (preferred): the existing per-session watchdog already wakes up periodically. Every `TG_STATUS_HEARTBEAT_INTERVAL` seconds (default 60), it touches the status file with a refreshed `updated_at`, the live `remaining_minutes`, and a new `last_heartbeat_at` field. No new fields beyond `last_heartbeat_at`; the supervisor can compute "is this run alive?" as `now - last_heartbeat_at > 2 * interval`.
+    2. **Hook into the agent's child output**: `tee -a` on the child devin's output already exists; pipe through a small shell function that bumps `last_heartbeat_at` whenever a line crosses (any line, since any output is liveness). Cheaper but more fragile (silent agents look stuck).
+    Add a single new field `last_heartbeat_at` (ISO8601). Document in `man/taskgrind.1` STATUS FILE section: "Use `last_heartbeat_at` for liveness, `updated_at` for state-change recency." Out of scope: streaming intermediate ship counts (the agent's WIP isn't reportable until git commit; tracking commits-since-session-start is a separate task).
+  - **Files**: `bin/taskgrind` (the per-session loop, the existing status-file writer helpers); `lib/constants.sh` (`DVB_DEFAULT_STATUS_HEARTBEAT_INTERVAL="60"`); `tests/logging.bats` or new `tests/status-heartbeat.bats` (assert: status file `last_heartbeat_at` advances during a long fake session; freezes after session_end; supervisor-style polling can detect a wedged session by `now - last_heartbeat_at > 120s`); `man/taskgrind.1` (STATUS FILE section: enumerate `last_heartbeat_at` and the cadence env var); `docs/architecture.md` (one paragraph on heartbeat-vs-phase-update semantics)
+  - **Acceptance**:
+    - Running `taskgrind` with a fake long session (60 s) shows `last_heartbeat_at` increment at the configured cadence; `updated_at` only changes at phase transitions
+    - A supervisor-style polling loop can detect a wedged session (`SIGSTOP` the parent, observe heartbeat freezes within `2 * interval` seconds) without false positives during normal long-running agent calls
+    - `TG_STATUS_HEARTBEAT_INTERVAL=0` disables the heartbeat (back-compat for any consumer that diffs `updated_at` and expects strict phase-transition semantics)
+    - `make check` passes; the new test stays under +5 s on the `make test` budget; PR description includes a measurement: heartbeat cadence ≤ 65 s in the new test, status-file size growth bounded (heartbeat must not bloat the JSON beyond 1.1× over the prior baseline)
+
+- [ ] `make audit` (or a new `make clean-branches`) should detect and offer to delete branches whose unique commits are already content-merged on `main`
+  - **ID**: detect-and-clean-content-merged-branches
+  - **Tags**: branch-hygiene, git, tech-lead, audit, dx
+  - **Source**: 2026-05-02 18:25 tech-lead branch-hygiene sweep. Found 5 stale local branches in this repo: `docs/tasks-from-10-recent-logs`, `feat/preflight-pipeline-rate-cross-check`, `fix/ci-stabilize-test-job-20260430`, `fix/ci-stable-test-job`, `fix/pipeline-owned-preflight-robustness`. Each had 1 commit "ahead of main" by SHA but `git cherry main <branch>` confirmed the patches were already content-merged on main as different SHAs (squash-merge, rebase-merge, or commit-message rewording during PR landing). `git branch --merged main` does NOT find these because it only matches by ancestry, not by patch-id. So they pile up indefinitely; the only way an operator notices is by running the manual `git cherry` audit per branch.
+  - **Details**: Add a check that uses `git cherry main "$branch"` to find branches whose every unique commit (vs main) returns `-` (patch-equivalent on main). These are safe to delete locally — origin still has them if anyone wants the history.
+    Two delivery shapes, pick one (do not ship both):
+    1. **Make target `make clean-branches`** (preferred): Runs the audit, prints a table, prompts for confirmation, then `git branch -D` the cleared set. Non-destructive default — read-only print mode unless the operator confirms. Mirrors the existing `make audit` pattern. Add a `--dry-run` / `--force` knob via env: `CLEAN_BRANCHES_FORCE=1 make clean-branches` for unattended use.
+    2. **Hook into `make audit`**: have `make audit` print the count and tip line when ≥1 content-merged branch is detected; clean-up stays a separate explicit action.
+    For both shapes:
+    - Skip branches that are checked out in any worktree (`git worktree list --porcelain`); operators sometimes deliberately keep stale branches checked out for archaeology
+    - Skip branches with `[gone]` upstream when `git fetch` was within `TG_BRANCH_FETCH_FRESHNESS_SEC` (default 3600 — i.e., the gone-detection is from a recent fetch); without freshness data, leaving `[gone]` branches alone is the safer default
+    - Print the original branch tip SHA in the output so the operator can `git reflog` recover if needed
+    - Out of scope for this task: deleting REMOTE branches (that is "Unsafe git publication" per global rules and needs explicit per-action approval); auto-cleanup at preflight (covered by the existing `health-check-detect-stranded-commits` for the inverse problem of *unmerged* stranded work)
+  - **Files**: `Makefile` (new `clean-branches` target, or audit hook); new `bin/clean-branches` helper if logic crosses 30 LOC; `tests/basics.bats` or new `tests/clean-branches.bats` (assert: a branch with all unique commits content-merged is detected; checked-out branches are skipped; `[gone]` branches without a recent fetch are skipped; the dry-run mode is non-destructive); `README.md` (Development section); `man/taskgrind.1` (TROUBLESHOOTING entry: stale branches accumulate; run `make clean-branches`)
+  - **Acceptance**:
+    - In a test fixture with 1 fully-merged-by-content branch + 1 unmerged branch + 1 checked-out merged branch, `make clean-branches --dry-run` reports exactly the first; the other two are skipped with a clear reason per branch
+    - Default mode is non-destructive (prints + tip line); the operator must confirm or set `CLEAN_BRANCHES_FORCE=1` for the actual delete
+    - The deleted branches' tip SHAs are echoed before the delete so `git reflog` recovery is one copy-paste away
+    - `make check` passes; the new test stays under +3 s on the `make test` budget
+
 ## P3
 
 - [ ] Add automated repo-local skill validation so invalid `.devin/skills/*/SKILL.md` files fail fast in `make audit`
