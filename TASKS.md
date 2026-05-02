@@ -5,15 +5,6 @@
 
 ## P0
 
-- [ ] Exercise Claude Code backend rotation and self-investigation parity
-  - **ID**: claude-code-rotation-self-investigation-parity
-  - **Parent**: claude-code-first-class-backend-parity
-  - **Tags**: backend, claude-code, rotation, self-investigation, tests
-  - **Source**: Decomposition of `claude-code-first-class-backend-parity`.
-  - **Details**: Add end-to-end regression tests for `TG_ROTATE_BACKENDS` / `--rotate-backends` covering rotation into and out of Claude Code on rate-limit and zero-ship self-investigation triggers. Verify rotation preserves counters, prompt overlays, task state, status/log fields, and final-sync behavior.
-  - **Files**: `bin/taskgrind`, `tests/features.bats`, `tests/session.bats`, `tests/diagnostics.bats`, `tests/test_helper.bash`
-  - **Acceptance**: `devin,claude-code` and `claude-code,devin` rotations both launch the expected next backend after a trigger; self-investigation rotation records stable log markers without losing task counters or prompt context; missing next-backend binaries skip safely and keep the current backend; `make check` passes
-
 - [ ] Finish Claude Code parity documentation and full-suite verification
   - **ID**: claude-code-parity-docs-and-verification
   - **Parent**: claude-code-first-class-backend-parity
