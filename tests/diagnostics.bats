@@ -439,7 +439,7 @@ SCRIPT
   [[ "$output" == *"--model requires a name"* ]]
   # (b) next step: shows an example model
   [[ "$output" == *"example:"* ]]
-  [[ "$output" == *"--model gpt-5-5-xhigh-priority"* ]]
+  [[ "$output" == *"--model claude-opus-4-7-max"* ]]
   # (c) doc pointer
   [[ "$output" == *"'taskgrind --help'"* ]]
 }
@@ -450,7 +450,7 @@ SCRIPT
   [ "$status" -ne 0 ]
   [[ "$output" == *"--model requires a non-empty name"* ]]
   [[ "$output" == *"example:"* ]]
-  [[ "$output" == *"--model gpt-5-5-xhigh-priority"* ]]
+  [[ "$output" == *"--model claude-opus-4-7-max"* ]]
   [[ "$output" == *"'taskgrind --help'"* ]]
 }
 

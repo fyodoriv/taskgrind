@@ -387,10 +387,10 @@ EOF
 }
 
 @test "operator docs keep sample model examples aligned with current defaults" {
-  run grep -nF 'model:    gpt-5-5-xhigh-priority' "$BATS_TEST_DIRNAME/../README.md"
+  run grep -nF 'model:    claude-opus-4-7-max' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]
 
-  run grep -nF 'model:    gpt-5-5-xhigh-priority' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
+  run grep -nF 'model:    claude-opus-4-7-max' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
   [ "$status" -eq 0 ]
 
   run grep -nF 'alias resolves to claude-opus-4-7-max' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
@@ -751,16 +751,16 @@ PY
 }
 
 @test "live model override docs use the shipped default model id" {
-  run grep -nF 'taskgrind --model gpt-5-5-xhigh-priority 8' "$BATS_TEST_DIRNAME/../README.md"
+  run grep -nF 'taskgrind --model claude-opus-4-7-max 8' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]
 
-  run grep -nF 'taskgrind --model "gpt-5.5 XHigh thinking fast" 8' "$BATS_TEST_DIRNAME/../README.md"
+  run grep -nF 'taskgrind --model "Claude Opus 4.7 Max" 8' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]
 
-  run grep -nF -- '--model gpt-5-5-xhigh-priority' "$BATS_TEST_DIRNAME/../README.md"
+  run grep -nF -- '--model claude-opus-4-7-max' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]
 
-  run grep -nF 'model=gpt-5-5-xhigh-priority' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
+  run grep -nF 'model=claude-opus-4-7-max' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
   [ "$status" -eq 0 ]
 
   run grep -nF 'echo "claude-sonnet-4.6" > ~/apps/myrepo/.taskgrind-model' "$BATS_TEST_DIRNAME/../README.md"
@@ -774,10 +774,10 @@ PY
 }
 
 @test "script usage examples use the shipped default model id" {
-  run grep -nF '#        taskgrind --model gpt-5-5-xhigh-priority 8' "$BATS_TEST_DIRNAME/../bin/taskgrind"
+  run grep -nF '#        taskgrind --model claude-opus-4-7-max 8' "$BATS_TEST_DIRNAME/../bin/taskgrind"
   [ "$status" -eq 0 ]
 
-  run grep -nF '#        taskgrind --model "gpt-5.5 XHigh thinking fast" 8' "$BATS_TEST_DIRNAME/../bin/taskgrind"
+  run grep -nF '#        taskgrind --model "Claude Opus 4.7 Max" 8' "$BATS_TEST_DIRNAME/../bin/taskgrind"
   [ "$status" -eq 0 ]
 
   run grep -n 'gpt-5-4' "$BATS_TEST_DIRNAME/../bin/taskgrind"
@@ -897,13 +897,13 @@ PY
 
 # ── Model selection ──────────────────────────────────────────────────
 
-@test "defaults to gpt-5-5-xhigh-priority" {
+@test "defaults to claude-opus-4-7-max" {
   export DVB_DEADLINE_OFFSET=30
   export DVB_MAX_ZERO_SHIP=1
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Must be the exact default model string
-  grep -q -- '--model gpt-5-5-xhigh-priority' "$DVB_GRIND_INVOKE_LOG"
+  grep -q -- '--model claude-opus-4-7-max' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "default model does not use 'opus' shortname" {
@@ -931,10 +931,10 @@ PY
 }
 
 
-@test "default model is gpt-5-5-xhigh-priority" {
+@test "default model is claude-opus-4-7-max" {
   local grind_default
   grind_default=$(grep '^DVB_DEFAULT_MODEL=' "$BATS_TEST_DIRNAME/../lib/constants.sh" | sed 's/.*="\(.*\)"/\1/')
-  [[ "$grind_default" == "gpt-5-5-xhigh-priority" ]]
+  [[ "$grind_default" == "claude-opus-4-7-max" ]]
 }
 
 @test "default model has no -1m suffix" {
@@ -958,7 +958,7 @@ PY
   # The default model string must appear in the invocation log
   local invocation
   invocation=$(head -1 "$DVB_GRIND_INVOKE_LOG")
-  [[ "$invocation" == *"--model gpt-5-5-xhigh-priority"* ]]
+  [[ "$invocation" == *"--model claude-opus-4-7-max"* ]]
 }
 
 @test "every session gets the same model flag" {
@@ -968,7 +968,7 @@ PY
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Every invocation line must contain the exact model flag
   while IFS= read -r line; do
-    [[ "$line" == *"--model gpt-5-5-xhigh-priority"* ]] || {
+    [[ "$line" == *"--model claude-opus-4-7-max"* ]] || {
       echo "Session missing model flag: $line"; return 1
     }
   done < "$DVB_GRIND_INVOKE_LOG"
@@ -981,7 +981,7 @@ PY
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q -- '--model claude-sonnet-4.6' "$DVB_GRIND_INVOKE_LOG"
   # And the default must not appear
-  ! grep -q -- '--model gpt-5-5-xhigh-priority ' "$DVB_GRIND_INVOKE_LOG"
+  ! grep -q -- '--model claude-opus-4-7-max ' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "DVB_MODEL=claude-sonnet-4.5 passes through exactly" {
@@ -1035,14 +1035,14 @@ PY
   export DVB_DEADLINE_OFFSET=5
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
-  [[ "$output" == *"gpt-5-5-xhigh-priority"* ]]
+  [[ "$output" == *"claude-opus-4-7-max"* ]]
 }
 
 @test "model shows in log file header" {
   export DVB_DEADLINE_OFFSET=5
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
-  grep -q 'model=gpt-5-5-xhigh-priority' "$TEST_LOG"
+  grep -q 'model=claude-opus-4-7-max' "$TEST_LOG"
 }
 
 @test "repo defaults to current directory" {

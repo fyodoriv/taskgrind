@@ -276,9 +276,9 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "--model preserves quoted multi-word values" {
-  run_tiny_workload --model "gpt-5-5 XHigh thinking fast" 1 "$TEST_REPO"
+  run_tiny_workload --model "Claude Opus 4.7 Max" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  grep -q -- '--model gpt-5-5 XHigh thinking fast' "$DVB_GRIND_INVOKE_LOG"
+  grep -q -- '--model Claude Opus 4.7 Max' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--model alias resolves before backend invocation" {
@@ -313,7 +313,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 @test "--help shows --model in usage" {
   run "$DVB_GRIND" --help
   [[ "$output" == *"--model"* ]]
-  [[ "$output" == *'--model "gpt-5.5 XHigh thinking fast"'* ]]
+  [[ "$output" == *'--model "Claude Opus 4.7 Max"'* ]]
 }
 
 @test "fleet-grind default GPT-5.5 dry-run includes standard context guard" {

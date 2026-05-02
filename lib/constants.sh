@@ -6,10 +6,16 @@
 # Variables below are sourced by bin/taskgrind.
 # shellcheck disable=SC2034  # used by sourcing scripts
 
-# Default AI model for Devin / Claude-compatible backends
-DVB_DEFAULT_MODEL="gpt-5-5-xhigh-priority"
+# Default AI model for Devin / Claude-compatible backends.
+#
+# Devin's "Claude Opus 4.7 Max" is the kebab-case ID `claude-opus-4-7-max`.
+# Claude Code rejects the `-max` suffix (it's a Devin product label that maps
+# to model `claude-opus-4-7` + max-effort thinking server-side). When taskgrind
+# launches the `claude-code` backend it must drop the suffix; Devin happily
+# accepts the full `-max` ID. Hence the per-backend split below.
+DVB_DEFAULT_MODEL="claude-opus-4-7-max"
 DVB_DEFAULT_DEVIN_MODEL="$DVB_DEFAULT_MODEL"
-DVB_DEFAULT_CLAUDE_CODE_MODEL="$DVB_DEFAULT_MODEL"
+DVB_DEFAULT_CLAUDE_CODE_MODEL="claude-opus-4-7"
 DVB_DEFAULT_CODEX_MODEL="gpt-5.5"
 DVB_RESUME_STATE_VERSION="1"
 DVB_RESUME_STATE_BASENAME=".taskgrind-state"

@@ -52,7 +52,7 @@ What happens:
 
 Sample banner:
 ```
-☕ taskgrind: 4h (until 13:00) — backend=devin, skill=next-task, model=gpt-5-5-xhigh-priority, repo=/Users/you/apps/myproject
+☕ taskgrind: 4h (until 13:00) — backend=devin, skill=next-task, model=claude-opus-4-7-max, repo=/Users/you/apps/myproject
    Each session runs next-task. Git sync every 5 sessions.
    Focus: focus on test coverage
    Log: ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
@@ -288,7 +288,7 @@ taskgrind --dry-run
   repo:     /Users/you/apps/myproject
   backend:  devin
   skill:    next-task
-  model:    gpt-5-5-xhigh-priority
+  model:    claude-opus-4-7-max
   cooldown: 5s
   log:      ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
   status:   disabled
@@ -303,7 +303,7 @@ taskgrind --preflight
   repo:     /Users/you/apps/myproject
   backend:  devin
   skill:    next-task
-  model:    gpt-5-5-xhigh-priority
+  model:    claude-opus-4-7-max
   slots:    0/2 active
 
 Preflight checks for: /Users/you/apps/myproject
@@ -359,7 +359,7 @@ What happens:
 
 Sample output:
 ```
-☕ taskgrind: 6h (until 15:00) — backend=devin, skill=next-task, model=gpt-5-5-xhigh-priority, repo=/Users/you/apps/myproject
+☕ taskgrind: 6h (until 15:00) — backend=devin, skill=next-task, model=claude-opus-4-7-max, repo=/Users/you/apps/myproject
    Resuming: session=3 shipped=2 zero-ship=1
    Each session runs next-task. Git sync every 5 sessions.
    Log: ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
@@ -485,9 +485,9 @@ What happens:
 
 Sample log:
 ```
-[pid=38291] [09:00] session=1 remaining=360m tasks=9 model=gpt-5-5-xhigh-priority
+[pid=38291] [09:00] session=1 remaining=360m tasks=9 model=claude-opus-4-7-max
 [pid=38291] [09:42] session=1 ended exit=0 duration=2520s tasks_after=8 shipped=1
-[pid=38291] [09:47] live_model=claude-sonnet-4.6 (startup=gpt-5-5-xhigh-priority)
+[pid=38291] [09:47] live_model=claude-sonnet-4.6 (startup=claude-opus-4-7-max)
 [pid=38291] [09:47] session=2 remaining=313m tasks=8 model=claude-sonnet-4.6
 ```
 
@@ -542,14 +542,14 @@ keep moving.
 
 Sample log showing the transition:
 ```
-[pid=38291] [11:00] session=4 remaining=420m tasks=9 model=gpt-5-5-xhigh-priority
+[pid=38291] [11:00] session=4 remaining=420m tasks=9 model=claude-opus-4-7-max
 [pid=38291] [11:45] session=4 ended exit=0 duration=2700s tasks_after=9 shipped=0
-[pid=38291] [11:50] session=5 remaining=375m tasks=9 model=gpt-5-5-xhigh-priority
+[pid=38291] [11:50] session=5 remaining=375m tasks=9 model=claude-opus-4-7-max
 [pid=38291] [12:35] session=5 ended exit=0 duration=2700s tasks_after=9 shipped=0
-[pid=38291] [12:40] session=6 remaining=330m tasks=9 model=gpt-5-5-xhigh-priority
+[pid=38291] [12:40] session=6 remaining=330m tasks=9 model=claude-opus-4-7-max
 [pid=38291] [13:25] session=6 ended exit=0 duration=2700s tasks_after=9 shipped=0
 [pid=38291] [13:25] task_skip_threshold ids=refactor-auth-adapter
-[pid=38291] [13:30] session=7 remaining=285m tasks=9 model=gpt-5-5-xhigh-priority
+[pid=38291] [13:30] session=7 remaining=285m tasks=9 model=claude-opus-4-7-max
 ```
 
 Session 7's prompt (shown by `taskgrind --dry-run` style expansion) now
@@ -743,7 +743,7 @@ What happens:
 
 Sample banner:
 ```
-☕ taskgrind: 8h (until 17:00) — backend=devin, skill=next-task, model=gpt-5-5-xhigh-priority, repo=/Users/you/apps/control
+☕ taskgrind: 8h (until 17:00) — backend=devin, skill=next-task, model=claude-opus-4-7-max, repo=/Users/you/apps/control
    Workspace: control + 2 target(s)
      - /Users/you/apps/frontend
      - /Users/you/apps/backend
@@ -853,7 +853,7 @@ taskgrind --dry-run
   repo:     /Users/you/apps/agentbrew
   backend:  devin
   skill:    next-task
-  model:    gpt-5-5-xhigh-priority
+  model:    claude-opus-4-7-max
   ...
   workspace: control + 2 target(s)
   target:   /Users/you/apps/frontend

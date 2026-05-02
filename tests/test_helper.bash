@@ -188,8 +188,8 @@ sessions_zero_ship=0
 consecutive_zero_ship=0
 backend=devin
 skill=next-task
-model=gpt-5-5-xhigh-priority
-startup_model=gpt-5-5-xhigh-priority
+model=claude-opus-4-7-max
+startup_model=claude-opus-4-7-max
 startup_prompt=
 EOF
 
