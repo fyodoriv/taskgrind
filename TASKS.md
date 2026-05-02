@@ -7,13 +7,32 @@
 
 ## P1
 
-- [ ] Add a supervisor/fixer mode that lets one Taskgrind monitor another and unblock it
-  - **ID**: taskgrind-supervisor-fixer-mode
+- [ ] Add one-shot supervisor status classification and repair-session launch
+  - **ID**: supervisor-status-classifier-repair-launcher
   - **Tags**: supervisor, monitoring, recovery, cli, status-file
-  - **Source**: 2026-04-30 operator request: "Add a feature to taskgrind that allows one taskgrind to continuously monitor another taskgrind and perform fixes for it to make it proceed forward."
-  - **Details**: Design and implement a narrow supervisor lane where one Taskgrind process watches another Taskgrind run through its status file, log file, lock metadata, and repository state, then launches bounded repair sessions when the watched run is stuck or unable to proceed. The repair loop should target concrete unblockers such as failed preflight prerequisites, repeated fast failures, repeated zero-ship sessions with actionable diagnostics, git conflict/rebase states, stale lock/status files, or backend-health failures. Keep the public API small: prefer one flag/env surface on top of the existing `TG_STATUS_FILE` contract instead of adding a separate command family. The supervisor must not blindly kill or rewrite the watched process; it should make observable repairs, log what it did, and let the watched run continue or clearly report when human action is required.
-  - **Files**: `bin/taskgrind`, `tests/diagnostics.bats`, `tests/session.bats`, `tests/status-terminal-reasons.bats`, `tests/test_helper.bash`, `README.md`, `man/taskgrind.1`, `docs/architecture.md`
-  - **Acceptance**: a fake watched Taskgrind status/log fixture can trigger a repair session without launching a real backend; supervisor mode ignores healthy/progressing watched runs; at least three stuck states are covered by regression tests; every repair action is logged with a stable marker; the watched run's repo is not modified unless the repair session commits a scoped fix through the normal Taskgrind/session workflow; public-write safeguards and `TG_NO_PUSH` semantics are preserved; docs explain when to use supervisor mode instead of simply increasing timeouts or restarting; `make check` passes
+  - **Parent**: taskgrind-supervisor-fixer-mode
+  - **Source**: Decomposes `taskgrind-supervisor-fixer-mode`.
+  - **Details**: Add the narrow first slice of supervisor mode: `taskgrind --supervise <TG_STATUS_FILE path>` reads another Taskgrind run's status JSON, uses the status/log contract to classify healthy vs stuck states, and launches one bounded repair session only when the watched run is clearly stuck. Cover missing status files, failed terminal phases, and stale active phases. Healthy/progressing status files should exit without invoking a backend. The repair prompt must include the watched status path, watched log path when present, detected reason, repo, and the same no-push/public-write guardrails normal sessions receive.
+  - **Files**: `bin/taskgrind`, `tests/supervisor.bats`, `README.md`, `man/taskgrind.1`, `docs/architecture.md`
+  - **Acceptance**: a fake healthy watched status fixture does not invoke the fake backend and logs `supervisor_observation outcome=healthy`; a fake failed/stale watched status fixture invokes the fake backend once without launching a real backend; repair prompts preserve `TG_NO_PUSH` semantics and the public-write gate; every repair attempt logs `supervisor_repair_start` and `supervisor_repair_end`; status JSON exposes the watched run's log path; `make check` passes
+
+- [ ] Make supervisor mode continuously poll with bounded repair cooldowns
+  - **ID**: supervisor-continuous-polling-cooldowns
+  - **Tags**: supervisor, monitoring, cooldowns, status-file
+  - **Parent**: taskgrind-supervisor-fixer-mode
+  - **Source**: Decomposes `taskgrind-supervisor-fixer-mode`.
+  - **Details**: Extend the one-shot supervisor lane into an actual monitor loop that polls the watched status file until the supervisor deadline expires, preserves the watched run's timer semantics, and avoids repair storms. Add a small poll interval/cooldown surface, cap concurrent repairs at one, and keep a recent-repair memo so the same stuck reason does not spawn an unbounded stream of sessions. The loop should log every observation with a stable marker and stop cleanly when the watched run reaches a terminal healthy state.
+  - **Files**: `bin/taskgrind`, `tests/supervisor.bats`, `README.md`, `man/taskgrind.1`, `docs/architecture.md`
+  - **Acceptance**: supervisor mode polls until deadline rather than exiting after one observation; repeated identical stuck states respect a repair cooldown; repair processes never overlap; completed/queue-empty watched runs stop the supervisor cleanly; `make check` passes
+
+- [ ] Teach supervisor repairs concrete repo/lock/backend stuck states
+  - **ID**: supervisor-concrete-repair-states
+  - **Tags**: supervisor, git, locks, preflight, backend-health
+  - **Parent**: taskgrind-supervisor-fixer-mode
+  - **Source**: Decomposes `taskgrind-supervisor-fixer-mode`.
+  - **Details**: Add concrete unblocker handlers to supervisor mode beyond generic failed/stale status: failed preflight prerequisites, repeated fast failures with actionable diagnostics, repeated zero-ship sessions, git conflict/rebase states, stale lock/status files, and backend-health failures. Repairs must be observable, scoped, and non-destructive: the supervisor must not blindly kill or rewrite the watched process, and the watched repo should only change through a normal repair session commit.
+  - **Files**: `bin/taskgrind`, `tests/diagnostics.bats`, `tests/session.bats`, `tests/status-terminal-reasons.bats`, `tests/supervisor.bats`, `tests/test_helper.bash`, `README.md`, `man/taskgrind.1`, `docs/architecture.md`
+  - **Acceptance**: at least three concrete stuck states are covered by regression tests; repair logs name the detected stuck state and chosen action; stale lock/status handling never deletes live-process files; docs explain when to use supervisor mode instead of simply increasing timeouts or restarting; `make check` passes
 
 - [ ] Replace fixed sleeps and deadline offsets in live-loop tests with event sentinels so tests stop waiting on real time
   - **ID**: event-driven-live-loop-test-sentinels
