@@ -24,7 +24,7 @@
   - **Files**: `tests/test_helper.bash`; `tests/logging.bats`; `tests/network.bats`; `tests/session.bats`; `tests/signals.bats`; `tests/resume.bats`; `tests/multi-instance.bats`; `bin/taskgrind` only for guarded test-mode sentinels if helper-only changes are insufficient
   - **Acceptance**: `rg -n 'sleep [1-9]|DVB_DEADLINE_OFFSET=(1[0-9]|[2-9][0-9])' tests/*.bats` returns only tests that explicitly verify real-time timeout/cooldown behavior and each remaining hit has a comment explaining why wall time is required; live status, resume, queue-empty, signal, and network tests wait on sentinel/status/log milestones instead of fixed sleeps; `tests/session.bats` passes 3 consecutive `make test-force TESTS=tests/session.bats TEST_JOBS=8` stress runs without increasing deadline offsets; full-suite `bats --timing` shows the converted tests no longer dominate the slowest-test list; `make check` passes
 
-- [ ] Slim the `--help` env-var block from 33 vars to ~12 by hiding tuning knobs in the man page only
+- [ ] Slim the `--help` env-var block from 33 vars to ~12 by hiding tuning knobs in the man page only (@devin-session-11)
   - **ID**: simplify-help-surface-area
   - **Tags**: cli, ux, docs, api-surface
   - **Source**: operator feedback after browsing `taskgrind --help` (see investigation of `taskgrind-2026-04-26-2134-apps-78034.log` — 40-min wasted run starting from a misconfigured invocation, partly because the help text is too dense to skim before launching).
@@ -59,6 +59,11 @@
     - The CLI parity test (`CLI docs parity keeps help, README, and man page in sync`) still passes — README/help/man stay aligned for the kept set
     - Hidden env vars still take effect at runtime (no tests deleted from `tests/*.bats`; `make check` shows the same 906 passes)
     - PR description includes a before/after `--help | wc -l` measurement so the size cut is auditable
+  - **Plan**:
+    - [ ] Identify the current help, README, man-page, and basics-test parity contracts
+    - [ ] Keep only the normal-use 12 `TG_*` vars in `--help` and README
+    - [ ] Make the man page the complete env-var reference for hidden tuning knobs
+    - [ ] Update doc-drift tests and verify the trimmed surface
 
 - [ ] Consolidate the three stall-exit env vars (`TG_EARLY_EXIT_ON_STALL` / `TG_EXIT_ON_STALL` / `TG_NO_STALL_EXIT`) into one `TG_STALL_EXIT={never|first|second}`
   - **ID**: consolidate-stall-exit-env-vars
