@@ -5,15 +5,6 @@
 
 ## P0
 
-- [ ] Lock Claude Code backend lifecycle parity with behavioral tests
-  - **ID**: claude-code-backend-lifecycle-parity-tests
-  - **Parent**: claude-code-first-class-backend-parity
-  - **Tags**: backend, claude-code, parity, runtime, tests
-  - **Source**: Decomposition of `claude-code-first-class-backend-parity` so the broad parity request can ship in verifiable slices.
-  - **Details**: Add regression coverage that runs `--backend claude-code` through the normal Taskgrind lifecycle with a stub backend instead of relying only on structural greps. Cover dry-run/env selection, one full session, log/status fields, startup probe markers, fast-failure accounting, and matching/mismatched resume state.
-  - **Files**: `tests/features.bats`, `tests/session.bats`, `tests/diagnostics.bats`, `tests/resume.bats`, `tests/test_helper.bash`, `bin/taskgrind`
-  - **Acceptance**: a fake Claude Code backend completes one normal workload and records `session_start`, `session_end`, `backend=claude-code`, status-file backend/phase fields, and Claude-specific invocation flags; fast-failure and startup probe tests assert `backend=claude-code` in diagnostics; resume accepts saved Claude Code state and rejects incompatible backend overrides; targeted bats tests pass and `make check` passes before completion
-
 - [ ] Harden Claude Code preflight and operator diagnostics to match Devin
   - **ID**: claude-code-preflight-diagnostics-parity
   - **Parent**: claude-code-first-class-backend-parity

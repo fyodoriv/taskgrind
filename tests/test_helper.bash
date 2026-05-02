@@ -123,11 +123,16 @@ _preflight_git_init() {
   git -C "$TEST_REPO" commit --allow-empty -m "init" --quiet
 }
 
+# Helper: create an executable fake backend script from stdin.
+create_fake_backend() {
+  local fake_backend_path="$1"
+  cat > "$fake_backend_path"
+  chmod +x "$fake_backend_path"
+}
+
 # Helper: create an executable fake devin script from stdin.
 create_fake_devin() {
-  local fake_devin_path="$1"
-  cat > "$fake_devin_path"
-  chmod +x "$fake_devin_path"
+  create_fake_backend "$1"
 }
 
 # Helper: create an executable fake git-style binary from stdin.

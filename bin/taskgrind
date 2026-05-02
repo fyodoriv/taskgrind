@@ -4375,6 +4375,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
 
   echo "🔄 Session $session — ${remaining_h}h${remaining_m}m remaining — $tasks_before tasks queued — model=$model"
   log_write "[$(date '+%H:%M')] session=$session remaining=${remaining_min}m tasks=$tasks_before model=$model"
+  log_write "[$(date '+%H:%M')] session_start session=$session remaining=${remaining_min}m tasks=$tasks_before backend=$backend model=$model"
   last_session_number=$session
   last_session_result="pending"
   last_session_exit=""
@@ -4562,7 +4563,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
         echo "   Last session output (tail):"
         tail -5 "$session_output" | sed 's/^/      /'
       fi
-      log_write "[$(date '+%H:%M')] bail_out consecutive=$consecutive_fast exit=$session_exit"
+      log_write "[$(date '+%H:%M')] bail_out consecutive=$consecutive_fast exit=$session_exit backend=$backend"
       set_phase "failed"
       break
     fi
@@ -4574,7 +4575,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
       backoff_max="${DVB_BACKOFF_MAX:-$DVB_DEFAULT_BACKOFF_MAX}"
       [[ $backoff -gt $backoff_max ]] && backoff=$backoff_max
       echo "   ⚠ ${consecutive_fast} fast failures (exit=$session_exit, network OK). Backing off ${backoff}s..."
-      log_write "[$(date '+%H:%M')] fast_fail consecutive=$consecutive_fast backoff=${backoff}s exit=$session_exit"
+      log_write "[$(date '+%H:%M')] fast_fail consecutive=$consecutive_fast backoff=${backoff}s exit=$session_exit backend=$backend"
       dvb_countdown_sleep "$backoff" "Backoff"
       # Extend deadline by backoff duration — dead time should not count
       # against the marathon, same pattern as wait_for_network()
@@ -4910,6 +4911,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
   # Guard: skip session-end log if cleanup already ran (Ctrl-C race)
   if [[ $_dvb_finalizing -eq 0 ]]; then
     log_write "[$(date '+%H:%M')] session=$session ended exit=$session_exit duration=${session_elapsed}s tasks_after=$tasks_after shipped=$session_shipped"
+    log_write "[$(date '+%H:%M')] session_end session=$session exit=$session_exit duration=${session_elapsed}s tasks_after=$tasks_after shipped=$session_shipped backend=$backend"
   fi
 
   # Mid-flight backend rotation: if the just-finished session output contains

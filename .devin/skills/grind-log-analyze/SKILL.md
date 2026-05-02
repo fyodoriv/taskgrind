@@ -72,13 +72,14 @@ For each session, build a record:
 
 | Field | Source pattern |
 |-------|---------------|
-| `session_num` | `session=N` from start line |
-| `tasks_before` | `tasks=N` from start line |
-| `remaining_min` | `remaining=Nm` from start line |
-| `exit_code` | `exit=N` from ended line |
-| `duration_secs` | `duration=Ns` from ended line |
-| `tasks_after` | `tasks_after=N` from ended line |
-| `shipped` | `shipped=N` from ended line |
+| `session_num` | `session=N` from `session_start` line |
+| `backend` | `backend=<backend>` from `session_start` / `session_end` |
+| `tasks_before` | `tasks=N` from `session_start` line |
+| `remaining_min` | `remaining=Nm` from `session_start` line |
+| `exit_code` | `exit=N` from `session_end` line |
+| `duration_secs` | `duration=Ns` from `session_end` line |
+| `tasks_after` | `tasks_after=N` from `session_end` line |
+| `shipped` | `shipped=N` from `session_end` line |
 | `was_timeout` | presence of `session_timeout session=N` |
 | `was_sweep` | presence of `sweep_done` instead of session ended |
 
@@ -88,8 +89,8 @@ Collect every occurrence of:
 
 | Event | Pattern | Fields |
 |-------|---------|--------|
-| Fast failure | `fast_fail consecutive=N backoff=Ns exit=N` | consecutive, backoff, exit |
-| Bail out | `bail_out consecutive=N exit=N` | consecutive, exit |
+| Fast failure | `fast_fail consecutive=N backoff=Ns exit=N backend=<b>` | consecutive, backoff, exit, backend |
+| Bail out | `bail_out consecutive=N exit=N backend=<b>` | consecutive, exit, backend |
 | Network down | `network_down` | timestamp |
 | Network restored | `network_restored waited=Ns` | wait_duration |
 | Network timeout | `network_timeout waited=Ns` | wait_duration |
@@ -181,8 +182,8 @@ origin actually shipped:
 | Deadline pre-loop | `deadline_expired_before_session_loop deadline=N now=N` | Hours arg expired before any session ran |
 | Deadline pre-session | `deadline_expired_before_session_start deadline=N now=N` | Sets `terminal_reason=deadline_expired` and exits cleanly |
 | Live model | `live_model=<m> [(alias=A, startup=S)] [(startup=S)]` | Mid-run model override applied |
-| Session start | `session=N remaining=Mm tasks=N model=<m>` | First line of every session |
-| Session end | `session=N ended exit=N duration=Ns tasks_after=N shipped=N` | Last line of every session |
+| Session start | `session_start session=N remaining=Mm tasks=N backend=<b> model=<m>` | First line of every session; older logs may only have `session=N remaining=Mm tasks=N model=<m>` |
+| Session end | `session_end session=N exit=N duration=Ns tasks_after=N shipped=N backend=<b>` | Last line of every session; older logs may only have `session=N ended exit=N duration=Ns tasks_after=N shipped=N` |
 | Graceful shutdown wait | `graceful_shutdown waiting pid=N grace=Ns` | First Ctrl+C — waits for backend to finish |
 | Graceful shutdown timeout | `graceful_shutdown timeout — killing pid=N` | Backend ignored Ctrl+C past grace; SIGKILL |
 | Graceful shutdown finished | `graceful_shutdown session_finished after=Ns` | Backend shut down cleanly within grace |

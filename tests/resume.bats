@@ -186,6 +186,38 @@ EOF
   [[ "$output" == *"saved state is incompatible: backend override does not match saved state"* ]]
 }
 
+@test "--resume accepts matching claude-code backend state" {
+  local state_file="$TEST_DIR/resume-state"
+  export DVB_STATE_FILE="$state_file"
+  prepare_tiny_workload
+
+  write_resume_state_file "$state_file" \
+    "repo=$TEST_REPO" \
+    "session=1" \
+    "backend=claude-code"
+
+  run "$DVB_GRIND" --resume "$TEST_REPO" --backend claude-code
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Resuming: session=1"* ]]
+  grep -q -- '--dangerously-skip-permissions' "$DVB_GRIND_INVOKE_LOG"
+  [ ! -f "$state_file" ]
+}
+
+@test "--resume rejects claude-code state when backend override asks for devin" {
+  local state_file="$TEST_DIR/resume-state"
+  export DVB_STATE_FILE="$state_file"
+
+  write_resume_state_file "$state_file" \
+    "repo=$TEST_REPO" \
+    "backend=claude-code"
+
+  run "$DVB_GRIND" --resume "$TEST_REPO" --backend devin
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"saved state is incompatible: backend override does not match saved state"* ]]
+}
+
 @test "--resume rejects model override mismatches" {
   local state_file="$TEST_DIR/resume-state"
   export DVB_STATE_FILE="$state_file"
