@@ -80,6 +80,45 @@ What happens:
 - If you need a one-off run with different settings, pass flags on that command; explicit flags stay the clearest option for ad hoc overrides you want visible in shell history
 - Repo-local `.taskgrind-model` still wins later between sessions, so you can start with an env default and then steer a long-running grind without restarting it
 
+## 2b. Claude Code as the primary backend
+
+You want Claude Code to be the default lane for a repo, while still keeping the
+same preflight, rotation, resume, and troubleshooting workflow as every other
+backend.
+
+```bash
+# Prove the local Claude Code install before starting a long run
+taskgrind --preflight --backend claude-code --model claude-sonnet-4.6 ~/apps/myproject
+
+# Keep Claude Code as the reusable default for wrapper restarts
+TG_BACKEND=claude-code TG_MODEL=sonnet taskgrind ~/apps/myproject 6
+
+# Let taskgrind rotate away from whichever backend is rate-limited
+taskgrind --rotate-backends devin,claude-code,codex ~/apps/myproject 8
+
+# Resume a Claude Code grind with the same startup choices
+taskgrind --resume --backend claude-code --model sonnet ~/apps/myproject
+```
+
+What happens:
+- `--preflight --backend claude-code` checks the `claude` binary, validates the
+  selected model with `claude --model <name> --help`, confirms skill visibility,
+  and reports setup failures before session 1 starts
+- `TG_BACKEND=claude-code` behaves like `--backend claude-code`, so shell
+  wrappers, `launchd`, cron, and resume commands can inherit the same backend
+  baseline without long flag lists
+- `--rotate-backends devin,claude-code,codex` keeps Claude Code in the same
+  rotation pool as Devin and Codex; rate-limit, quota, throttle, and
+  zero-ship-streak diagnostics can move the next session to another installed
+  backend
+- Resume validation is backend-aware: if `.taskgrind-state` saved
+  `backend=claude-code`, the resume command must keep that backend plus the
+  saved model, skill, and baseline prompt choices
+- Troubleshooting uses the same log/status loop as other backends, with
+  Claude-specific startup failures such as `Backend binary not found
+  (claude-code)`, `Backend binary is not executable (claude-code)`, and
+  `Model rejected by claude-code before starting`
+
 ## 3. Multi-repo grind
 
 You have tasks spread across two repos. Run one grind per repo, either sequentially or in separate terminals.

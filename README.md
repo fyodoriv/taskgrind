@@ -51,6 +51,22 @@ taskgrind --preflight --backend claude-code --model claude-sonnet-4.6 ~/apps/myr
 taskgrind --preflight --backend codex --model o3 ~/apps/myrepo
 ```
 
+Claude Code is a first-class backend, not a special case. A typical Claude Code
+lane looks like:
+
+```bash
+taskgrind --preflight --backend claude-code --model claude-sonnet-4.6 ~/apps/myrepo
+TG_BACKEND=claude-code TG_MODEL=sonnet taskgrind ~/apps/myrepo 8
+taskgrind --rotate-backends devin,claude-code,codex ~/apps/myrepo 8
+taskgrind --resume --backend claude-code --model sonnet ~/apps/myrepo
+```
+
+If preflight reports `Backend binary not found (claude-code)`,
+`Backend binary is not executable (claude-code)`, or
+`Model rejected by claude-code before starting`, fix the local `claude`
+installation/model first, then rerun the same preflight command before starting
+or resuming the grind.
+
 ## Install
 
 ### Homebrew (macOS / Linux)
@@ -101,7 +117,7 @@ taskgrind --no-pr-fallback 8 ~/apps/myrepo  # on protected-branch push rejection
 taskgrind --help / -h                  # show usage and environment variables
 taskgrind --version / -V               # print version (commit hash + date)
 TG_MODEL=sonnet taskgrind 8            # pick a model alias without changing shell history
-TG_BACKEND=codex taskgrind 8           # make a wrapper or terminal default use Codex
+TG_BACKEND=claude-code taskgrind 8     # make a wrapper or terminal default use Claude Code
 TG_MAX_INSTANCES=3 taskgrind ~/apps/myrepo 8  # allow three concurrent grinds per repo
 TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8  # write machine-readable status snapshots
 TG_TARGET_REPOS=~/apps/frontend:~/apps/backend taskgrind ~/apps/control 8  # workspace mode via env (colon-separated)
@@ -596,6 +612,7 @@ story in the log named in the startup banner.
 | Another terminal says the repo is busy or a new worker will not start | `taskgrind --preflight ~/apps/myrepo` for `slots: N/M active`; the active-slot owner list in preflight output; `current_phase` in `TG_STATUS_FILE` for the active worker | Wait for a slot to free up, or raise `TG_MAX_INSTANCES` before starting another grind. Keep slot `0` as the sync owner; point higher slots at docs, audits, `TASKS.md` maintenance, or status-file supervision instead of overlapping code edits. |
 | Sessions keep ending with zero shipped tasks | `last_session.result`, `last_session.shipped`, and log markers such as `productive_zero_ship`, `shipped_inferred`, or repeated `tasks_after=` counts | Read the last few session summaries before killing the run. If the queue is churning under another agent, taskgrind may still be shipping work. If the same task is being retried without progress, tighten the prompt, split the task, or remove the blocker in `TASKS.md` before resuming. |
 | Same task retried for hours with no progress | `task_skip_threshold ids=<id>` in the log; the next session banner + prompt contains `SKIP these stuck tasks (attempted 3+ times): <id>` | Taskgrind automatically skips tasks after 3 unproductive sessions on them. Read the task itself: if it is genuinely ambiguous, split it into 2–3 sub-tasks (the smaller IDs start fresh counters). If it is actually blocked on an external event, add `**Blocked by**:` metadata so the grind uses `blocked_wait` instead of the skip list. Shipping or removing the task clears its counter. |
+| Claude Code fails before useful work starts | `taskgrind --preflight --backend claude-code --model claude-sonnet-4.6 ~/apps/myrepo`; stderr/log lines containing `Backend binary not found (claude-code)`, `Backend binary is not executable (claude-code)`, or `Model rejected by claude-code before starting` | Install or repair `@anthropic-ai/claude-code`, confirm `claude --version` prints output, and choose a Claude model the account can use. If the failed run was resumable, rerun `taskgrind --resume --backend claude-code --model sonnet ~/apps/myrepo` with the same startup backend/model/skill/prompt choices saved in `.taskgrind-state`. |
 | Network outages pause progress for too long | `current_phase=waiting_for_network`; log lines around connectivity retries and `network_restored` | Let taskgrind hold the deadline open during short outages. If the outage exceeds `TG_NET_MAX_WAIT`, restore connectivity first, then resume with the same repo plus the original startup overrides so the saved backend/model/skill/prompt contract still matches. |
 | `--resume` refuses to continue | The rejection message in stderr; `.taskgrind-state`; `docs/resume-state.md` for the saved field contract | Fix the mismatch the message calls out: rerun with the same repo plus the same `--backend`, `--model`, `--skill`, and baseline `--prompt` / `TG_PROMPT` inputs, restore the missing state file, or start a fresh grind if the deadline already expired. Do not copy stale state across repos. |
 | Final push or sync fails during shutdown | The final `git push` / `git pull --rebase` lines in the log; `git status --short`; `git log --oneline --decorate -5` | Resolve the git problem in the repo first, usually with `git pull --rebase` for incoming changes or by fixing the rejected push target. Then rerun resume with the same repo plus the original startup overrides if the interrupted run did not use pure defaults. |

@@ -5,15 +5,6 @@
 
 ## P0
 
-- [ ] Finish Claude Code parity documentation and full-suite verification
-  - **ID**: claude-code-parity-docs-and-verification
-  - **Parent**: claude-code-first-class-backend-parity
-  - **Tags**: backend, claude-code, docs, verification
-  - **Source**: Decomposition of `claude-code-first-class-backend-parity`.
-  - **Details**: After the runtime, diagnostics, and rotation slices land, audit README, man page, and user stories so Claude Code is presented as a fully supported backend rather than experimental. Run the full verification gate and remove any stale wording or tests that still imply Devin-only semantics.
-  - **Files**: `README.md`, `man/taskgrind.1`, `docs/user-stories.md`, `tests/basics.bats`, `tests/user-stories-docs.bats`, `bin/taskgrind`
-  - **Acceptance**: docs show `--backend claude-code`, `TG_BACKEND=claude-code`, rotation, preflight, resume, and troubleshooting examples as first-class supported paths; docs avoid Devin-only lifecycle wording where it applies to all backends; all targeted doc parity tests and `make check` pass
-
 ## P1
 
 - [ ] Add a supervisor/fixer mode that lets one Taskgrind monitor another and unblock it
