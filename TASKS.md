@@ -97,6 +97,88 @@
     - `make check` passes (906+ tests, including new ones for the consolidated knob)
     - `man/taskgrind.1` documents both the new knob and the deprecation timeline so operators know when the old names will stop working
 
+- [ ] Honor Bosun 410 EXIT_NOW from atomic heartbeat
+  - **ID**: bosun-410-honor-exit-now
+  - **Tags**: bosun-integration, heartbeat, lifecycle
+  - **Source**: 2026-05-02 fleet-grind sessions (0e8f1657 → c247638c). After Bosun PR #1581 (atomic heartbeat) the heartbeat handler returns 410 EXIT_NOW more aggressively whenever the session is no longer in `active`/`paused` (status-flip race + recency window). Taskgrind's heartbeat loop currently treats 410 the same as 200 — logs it and continues. The agent keeps spawning sessions and committing after Bosun has marked the session over, which is exactly the leak path the bypass investigation tracked.
+  - **Details**: Locate the heartbeat loop in `bin/taskgrind` (search for `bosun_heartbeat` / `HTTP_STATUS=200|410`). On 410 specifically:
+    - Set a controller-level `BOSUN_SESSION_TERMINATED=1` flag that prevents the next iteration of the session loop from spawning a new agent
+    - Send `SIGTERM` to the currently-running backend subprocess (devin/claude-code/etc.) after a short grace period (default 30s, override via `TG_BOSUN_410_GRACE`)
+    - Run the normal `grind_done` summary path with `terminal_reason=bosun-410-exit-now`
+    - Document the contract in `docs/architecture.md` (or wherever the Bosun integration is described)
+  - **Files**: `bin/taskgrind` (heartbeat loop + session-loop guard), `tests/network.bats` (or new `tests/bosun-410.bats`), `docs/architecture.md`, `man/taskgrind.1`
+  - **Acceptance**:
+    - A simulated 410 from a fake Bosun causes the current session to exit cleanly within 30 seconds (configurable via `TG_BOSUN_410_GRACE`)
+    - The grind controller does NOT spawn another session after a 410
+    - The `grind_done` summary records `terminal_reason=bosun-410-exit-now`
+
+- [ ] Run agent in a dedicated worktree, never the operator's main checkout
+  - **ID**: agent-worktree-isolation
+  - **Tags**: isolation, multi-agent, git, lifecycle
+  - **Source**: 2026-05-02 — Bosun pipeline-0c1f055d committed `ebdbeb2e` to operator branch `fix/iron-rule-7-status-flip-race-aifn-720` because pipelines lacked worktree isolation (now fixed in Bosun PR #1582). Taskgrind has the same class of bug: the agent runs in the operator's main checkout, so any branch the agent creates lives on the operator's HEAD, and any uncommitted changes the operator has stack with the agent's edits. When the agent and operator collide on the same checkout, agent commits can land on the operator's branch unintentionally.
+  - **Details**: At session start (in `bin/taskgrind` near the preflight block), create a per-session worktree at `<repo>/.taskgrind/<session-slug>-<pid-suffix>/` (or similarly-isolated path that's git-ignored). Cd the agent into that worktree via the existing `cd` in `_run_session`. The agent's commits land on the worktree-owned branch the operator never has checked out. At session end:
+    - If the agent shipped only markdown and the worktree is fast-forwardable into the matching main-checkout branch, auto-merge (opt-in via `TG_AUTOMERGE_MARKDOWN=1`)
+    - Otherwise leave the worktree for the operator to inspect (default — no surprise merges)
+    - On crash recovery (subsequent runs), reuse the existing worktree if it's still on disk; clean up worktrees older than `TG_WORKTREE_RETENTION_HOURS` (default 48h)
+    Treat this as the taskgrind-side mirror of Bosun PR #1582 — "execute in a worktree, never the user's primary checkout."
+  - **Files**: `bin/taskgrind` (session setup + cleanup), new `tests/worktree-isolation.bats`, `docs/architecture.md`, README.md
+  - **Acceptance**:
+    - When a taskgrind run is active, `git worktree list` shows the per-session worktree
+    - The operator can `git checkout` any branch in the main checkout without disrupting the agent
+    - After session end, the worktree is either auto-merged (opt-in) or left for inspection (default); old worktrees are reaped on next run
+    - A regression test covering the "operator-on-different-branch + agent-running" scenario verifies no commits leak onto the operator's HEAD
+
+- [ ] Pre-flight: warn when `git stash list` has more than 5 entries
+  - **ID**: preflight-stale-stash-warning
+  - **Tags**: preflight, stash, hygiene, ux
+  - **Source**: 2026-05-02 — bosun repo had 9+ stashes from previous failed runs, dating back to fleet-grind sessions that crashed mid-rebase. None had been cleaned up. The agent's pre-launch checks didn't notice. Stale stashes hide real WIP and inflate `.git/`.
+  - **Details**: Add a check to `taskgrind --preflight` that runs `git -C "$REPO" stash list --max-count=20 | wc -l`. If the count exceeds the threshold (default 5, override via `TG_STASH_WARN_THRESHOLD`):
+    - Print a one-line warning with the count and the oldest stash's age
+    - Print the inspect command: `git -C <repo> stash list --pretty='%gd %ai %gs'`
+    - Exit code stays 0 — warning only, never block launch
+  - **Files**: `bin/taskgrind` (preflight subroutine), `tests/preflight.bats`, README.md (env var section), `man/taskgrind.1`
+  - **Acceptance**:
+    - Running `taskgrind --preflight` in a repo with 6+ stashes prints a warning naming the count + age of oldest stash
+    - The threshold is configurable via `TG_STASH_WARN_THRESHOLD`
+    - At threshold or below, no warning is printed
+    - Existing preflight tests continue to pass
+
+- [ ] Document the `BOSUN_HOOK_RECENCY_SECONDS=0` operator escape hatch in `--help` and README
+  - **ID**: document-bosun-hook-recency-escape-hatch
+  - **Tags**: docs, bosun-integration, operator-ux
+  - **Source**: 2026-05-02 — operator (running session bosun PR #1580) needed to commit a fix in the same shell where a grind had just ended. The pre-commit hook was correctly blocking based on a 10-minute recency window. The escape hatch `BOSUN_HOOK_RECENCY_SECONDS=0` is documented in the bosun hook source and was used to land PR #1580 itself, but it's not in any taskgrind user-facing docs — operators have to know to look at the hook source.
+  - **Details**: Add a "Operator escape hatches" section to `taskgrind --help` (after env vars) and to README.md. Include:
+    - `BOSUN_HOOK_RECENCY_SECONDS=0 git commit ...` — bypass the recency window when shipping a hotfix immediately after `taskgrind` exits cleanly
+    - When NOT to use it (during an active grind, ever — only after legitimate exit)
+    - Link to the upstream bosun hook (`hooks/pre-commit`) for the full contract
+  - **Files**: `bin/taskgrind` (help string), README.md, `man/taskgrind.1`
+  - **Acceptance**:
+    - `taskgrind --help` mentions `BOSUN_HOOK_RECENCY_SECONDS=0` with a one-line description and a "use after grind ends" caveat
+    - README has a "Operator escape hatches" subsection
+    - The CLI parity test (`CLI docs parity keeps help, README, and man page in sync`) covers the new section
+
+- [ ] Structured session-lifecycle audit log (mirror of Bosun's `/tmp/bosun-hook-audit.log`)
+  - **ID**: session-lifecycle-audit-log
+  - **Tags**: observability, debugging, lifecycle, AIFN-720
+  - **Source**: 2026-05-02 forensic investigation. Bosun introduced `/tmp/bosun-hook-audit.log` (PR #1579) and it was the SINGLE thing that let us disambiguate `--no-verify` vs token-reuse vs status-flip race. Taskgrind has a parent log per run with heartbeat lines but no per-event structured record — debugging "why did session N do X" requires correlating multiple files by hand.
+  - **Details**: At each lifecycle event, append one structured line to `/tmp/taskgrind-audit-<repo-slug>.log` (override via `TG_AUDIT_LOG`). Format mirrors Bosun's: `<ISO-UTC-timestamp> <event> session=<id> <kv-pairs>`. Events to capture:
+    - `session_start` (session number, remaining minutes, model, backend, slot)
+    - `session_end` (exit code, duration, ships, terminal reason)
+    - `heartbeat` (status code, decoded action — none/410-exit/404-replace)
+    - `agent_spawn` (pid, backend, model)
+    - `agent_exit` (pid, exit code, duration)
+    - `sweep_observation` (tasks delta)
+    - `ship` (commit sha, files changed, persona if attributed)
+    - `git_sync` (action, conflicts, duration)
+    Document the path in README's "Debugging" section.
+  - **Files**: `bin/taskgrind` (helper function + call sites), new `tests/audit-log.bats`, README.md, `man/taskgrind.1`
+  - **Acceptance**:
+    - After a multi-session run, `/tmp/taskgrind-audit-bosun.log` contains structured lines for every lifecycle event
+    - Format is `<ISO timestamp> <event> session=<id> <kv>...` — grep-friendly, no JSON
+    - README documents the file path and event taxonomy
+    - The log path can be overridden via `TG_AUDIT_LOG`
+    - A bats test asserts at least the `session_start` and `session_end` events fire for a one-session run
+
 ## P2
 
 - [ ] Deduplicate backend binary diagnostics for `--from-prompt` translation
