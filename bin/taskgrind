@@ -2627,7 +2627,15 @@ if [[ "$dry_run" -eq 1 ]]; then
   fi
   echo ""
   echo "Prompt:"
-  echo "  Run the $skill skill. Session 1, $((hours * 60)) minutes remaining, timeout ${max_session}s."
+  # Resolve the canonical SKILL.md path so the dry-run mirrors the live prompt
+  # (the live path runs preflight first; dry-run skips preflight, so we resolve
+  # explicitly here). Silent on failure — fall back to the bare prompt.
+  _validate_skill_available >/dev/null 2>&1 || true
+  if [[ -n "${_skill_validation_path:-}" ]]; then
+    echo "  Run the $skill skill (canonical SKILL.md: $_skill_validation_path). Session 1, $((hours * 60)) minutes remaining, timeout ${max_session}s."
+  else
+    echo "  Run the $skill skill. Session 1, $((hours * 60)) minutes remaining, timeout ${max_session}s."
+  fi
   if [[ "$no_push" == "1" ]]; then
     echo "  COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. NO-PUBLISH MODE: commit locally only. Do NOT push to any remote. Do NOT create pull requests. Do NOT merge pull requests. Do NOT use 'gh pr create', 'gh pr merge', 'git push', or any tool that publishes to origin. Remove the completed task block from TASKS.md and commit locally — that is the entire publish step. The operator will review and push manually after the grind exits."
   else
@@ -4486,7 +4494,15 @@ while [[ $(date +%s) -lt $deadline ]]; do
   fi
 
   # Thin prompt — the skill handles task selection and execution.
-  prompt="Run the $skill skill."
+  # Include the absolute SKILL.md path when known so the agent doesn't need to
+  # `find /Users/$USER -path '*/<skill>*'` (a multi-minute walk over $HOME)
+  # before reading the skill. Tracked in bosun TASKS.md as
+  # `cross-repo-taskgrind-skill-resolver-find-walk`.
+  if [[ -n "${_skill_validation_path:-}" ]]; then
+    prompt="Run the $skill skill (canonical SKILL.md: $_skill_validation_path)."
+  else
+    prompt="Run the $skill skill."
+  fi
   prompt+=" Session $session, ${remaining_min} minutes remaining, timeout ${max_session}s."
 
   # Task completion protocol — the agent MUST close the loop. In no-publish
