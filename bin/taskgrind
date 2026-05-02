@@ -1413,6 +1413,28 @@ _preflight_check_remote_reachable() {
   fi
 }
 
+_preflight_check_tasks_md() {
+  local check_repo="$1" mode="${2:-control}"
+  local tasks_path="$check_repo/TASKS.md"
+  if [[ ( -e "$tasks_path" || -L "$tasks_path" ) && ! -f "$tasks_path" ]]; then
+    local is_dir="no" is_link="no"
+    [[ -d "$tasks_path" ]] && is_dir="yes"
+    [[ -L "$tasks_path" ]] && is_link="yes"
+    preflight_fail "TASKS.md exists at $tasks_path but is not a regular file (is_dir=$is_dir, is_link=$is_link). On macOS, this can happen on case-insensitive filesystems when a sibling like 'tasks.md/' exists. Pass a real repo path, not a parent directory containing entries that case-collapse to TASKS.md. If you meant to work across repos or do not remember the flags, use --from-prompt or --target-repo."
+    return 0
+  fi
+
+  if [[ "$mode" == "control" ]]; then
+    if [[ -f "$tasks_path" ]]; then
+      local task_count
+      task_count=$(grep -c '^[[:space:]]*- \[ \]' "$tasks_path" 2>/dev/null) || true
+      preflight_pass "TASKS.md found (${task_count:-0} open tasks)"
+    else
+      preflight_warn "TASKS.md not found — empty queue sweep will find work"
+    fi
+  fi
+}
+
 # ── Bosun-server preflight ─────────────────────────────────────────────
 # When the configured skill drives bosun pipelines (fleet-grind, pipeline-ops,
 # rescue-pipeline, …), the agent will fail every session if the bosun server
@@ -2290,13 +2312,7 @@ preflight_check() {
   fi
 
   # 8. TASKS.md exists — signal for work discovery
-  if [[ -f "$repo/TASKS.md" ]]; then
-    local task_count
-    task_count=$(grep -c '^[[:space:]]*- \[ \]' "$repo/TASKS.md" 2>/dev/null) || true
-    preflight_pass "TASKS.md found (${task_count:-0} open tasks)"
-  else
-    preflight_warn "TASKS.md not found — empty queue sweep will find work"
-  fi
+  _preflight_check_tasks_md "$repo" "control"
 
   # 9. network-watchdog available — network resilience during marathon
   if command -v network-watchdog >/dev/null 2>&1; then
@@ -2429,6 +2445,10 @@ preflight_check_target() {
   else
     preflight_fail "Disk space critical: $(( free_kb / 1024 ))MB free"
   fi
+
+  # Target repos do not need their own queue, but a TASKS.md directory/special
+  # file still means the operator likely passed a parent path by mistake.
+  _preflight_check_tasks_md "$repo" "target"
 
   # Summary
   echo ""

@@ -896,6 +896,21 @@ unblock
 .I TASKS.md
 instead of restarting immediately.
 .TP
+.B TASKS.md is not a regular file
+If preflight reports that
+.I TASKS.md
+exists but is not a regular file, verify that you passed the real repo path.
+On macOS case-insensitive filesystems, a sibling directory such as
+.I tasks.md/
+can satisfy the
+.I TASKS.md
+path lookup when you meant to point at a specific repo instead of a
+parent-of-repos directory. Pass the concrete repo, use
+.BR \-\-target\-repo
+for workspace mode, or rerun with
+.BR \-\-from\-prompt
+if you do not remember the flags.
+.TP
 .B Slot contention
 Run
 .B taskgrind \-\-preflight ~/apps/myrepo

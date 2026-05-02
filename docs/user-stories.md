@@ -320,6 +320,12 @@ Preflight checks for: /Users/you/apps/myproject
   ✓ Preflight passed — ready to grind.
 ```
 
+If preflight reports `TASKS.md exists ... but is not a regular file`, stop and
+check the path you passed. On macOS, a parent directory that contains a sibling
+`tasks.md/` checkout can case-collapse to `TASKS.md`; pass the concrete repo
+path, use `--target-repo` for workspace mode, or use `--from-prompt` if you do
+not remember the flags.
+
 ## 7. Resuming an interrupted grind
 
 Your terminal crashes or the machine reboots mid-session, but you want to keep
@@ -399,6 +405,7 @@ Recovery cheat sheet:
 | Symptom | Signal to inspect | Recommended action |
 |-------|---------|---------|
 | Empty queue or blocked queue | `current_phase=queue_empty_wait` or `blocked_wait` | Add or unblock tasks, then let the next wait cycle refill naturally |
+| `TASKS.md` is not a regular file | Preflight failure with `is_dir=` / `is_link=` details | Pass the concrete repo path; on macOS this often means you pointed at a parent directory containing a `tasks.md/` sibling |
 | Slot contention | `slots: N/M active` plus slot owners in `--preflight` | Wait for a free slot or raise `TG_MAX_INSTANCES`; keep higher slots on non-overlapping work |
 | Repeated zero-ship sessions | `last_session.shipped`, `productive_zero_ship`, `shipped_inferred` in the log | Check whether another agent changed `TASKS.md`; split or unblock the task before resuming |
 | Productive sessions still hitting the clock | `productive_timeout session=N shipped=X timeout=Ys new_timeout=Zs` in the log | No action required — taskgrind already bumps `TG_MAX_SESSION` by 1800 s (cap 7200 s) so the next session gets more runway. If the log shows `(at cap)` and tasks still time out, split the task instead of raising the budget further. |
