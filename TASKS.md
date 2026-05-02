@@ -65,8 +65,15 @@
     - [ ] Make the man page the complete env-var reference for hidden tuning knobs
     - [ ] Update doc-drift tests and verify the trimmed surface
 
-- [ ] Consolidate the three stall-exit env vars (`TG_EARLY_EXIT_ON_STALL` / `TG_EXIT_ON_STALL` / `TG_NO_STALL_EXIT`) into one `TG_STALL_EXIT={never|first|second}`
+- [ ] Consolidate the three stall-exit env vars (`TG_EARLY_EXIT_ON_STALL` / `TG_EXIT_ON_STALL` / `TG_NO_STALL_EXIT`) into one `TG_STALL_EXIT={never|first|second}` (@devin-session-1)
   - **ID**: consolidate-stall-exit-env-vars
+  - **Plan**:
+    - [ ] Resolve `_stall_exit_policy` at startup: explicit TG_STALL_EXIT > legacy translation > default `second`. Validate new var, hard-fail on mutual exclusion of legacy vars
+    - [ ] Emit a one-shot deprecation notice on stderr when any legacy var is set (suppressed in test mode via `DVB_GRIND_CMD`)
+    - [ ] Replace runtime three-var checks in the diminishing-returns block with the resolved `_stall_exit_policy`
+    - [ ] Update `--dry-run` to show only `stall_exit_policy: <never|first|second>` (drop `early_exit_on_stall:` line)
+    - [ ] Migrate existing assertions in `tests/features.bats` / `tests/diagnostics.bats` / `tests/signals.bats` from old policy strings to the tri-state names; add coverage for new var, deprecation, mutual exclusion
+    - [ ] Update README, man page, docs/architecture.md, docs/user-stories.md to reference TG_STALL_EXIT and document the deprecation timeline
   - **Tags**: cli, env-vars, api-surface, breaking-change-ish
   - **Source**: API surface audit triggered by `simplify-help-surface-area` — the stall-exit triplet is the single worst case of "three env vars to express one tri-state decision" in the surface.
   - **Details**: Today `bin/taskgrind` exposes three distinct env vars for one decision: when do we auto-exit on the diminishing-returns signal?
