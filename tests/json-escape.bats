@@ -2,8 +2,8 @@
 # Direct unit-style coverage for json_escape() in bin/taskgrind.
 #
 # json_escape() powers every string field in the JSON payload written by
-# write_status_file() — repo, backend, skill, model, current_phase,
-# terminal_reason, and last_session.{result,completed_at}. Today it is
+# write_status_file() — repo, log_file, backend, skill, model,
+# current_phase, terminal_reason, and last_session.{result,completed_at}. Today it is
 # covered only through integration-level status-file assertions in
 # tests/logging.bats, so a subtle regression in backslash/quote/newline/
 # tab escaping (for example, a repo path containing a literal \", a CR,

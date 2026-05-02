@@ -3,7 +3,7 @@
 taskgrind \- autonomous multi-session grind tool
 .SH SYNOPSIS
 .B taskgrind
-[\fIhours\fR] [\fIrepo\fR] [\fB\-\-model\fR \fIname\fR] [\fB\-\-skill\fR \fIname\fR] [\fB\-\-backend\fR \fIname\fR] [\fB\-\-prompt\fR \fItext\fR] [\fB\-\-target\-repo\fR \fIpath\fR]... [\fB\-\-from\-prompt\fR \fItext\fR] [\fB\-\-dry\-run\fR] [\fB\-\-preflight\fR] [\fB\-\-resume\fR] [\fB\-\-no\-push\fR] [\fB\-\-help\fR] [\fB\-\-version\fR]
+[\fIhours\fR] [\fIrepo\fR] [\fB\-\-model\fR \fIname\fR] [\fB\-\-skill\fR \fIname\fR] [\fB\-\-backend\fR \fIname\fR] [\fB\-\-prompt\fR \fItext\fR] [\fB\-\-target\-repo\fR \fIpath\fR]... [\fB\-\-from\-prompt\fR \fItext\fR] [\fB\-\-dry\-run\fR] [\fB\-\-preflight\fR] [\fB\-\-resume\fR] [\fB\-\-no\-push\fR] [\fB\-\-supervise\fR \fIstatus-file\fR] [\fB\-\-help\fR] [\fB\-\-version\fR]
 .SH DESCRIPTION
 Runs sequential AI coding sessions against a TASKS.md repo until a deadline.
 Each session starts with full context, picks a task from TASKS.md, implements
@@ -123,6 +123,17 @@ and
 .B TG_PUBLIC_WRITE_TOKEN
 is set. Without the token, taskgrind writes a draft PR body to a temp file and
 falls through to manual recovery.
+.TP
+.BR \-\-supervise " " \fIstatus-file\fR
+Inspect another Taskgrind run's
+.B TG_STATUS_FILE
+JSON once. Healthy/progressing watched phases exit without invoking a
+backend; failed or stale watched phases launch one bounded repair session in
+the watched repo. The repair prompt includes the status path, watched log path,
+stuck reason, normal completion protocol,
+.B TG_NO_PUSH
+semantics, and the public-write gate. This is the first supervisor/fixer slice;
+continuous polling and richer repair heuristics are follow-up work.
 .TP
 .BR \-\-help ", " \-h
 Show usage and environment variables.
@@ -668,6 +679,10 @@ Repo path being ground.
 .B pid
 Process ID of the current taskgrind run.
 .TP
+.B log_file
+Primary log path for the current run. Supervisor mode includes this watched log
+path in repair prompts when present.
+.TP
 .B slot
 Claimed concurrency slot for this repo.
 .TP
@@ -744,6 +759,7 @@ Lifecycle example:
 {
   "repo": "/Users/alex/apps/myrepo",
   "pid": 48122,
+  "log_file": "/tmp/taskgrind-myrepo.log",
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
@@ -774,6 +790,27 @@ from queue_empty, all_tasks_blocked, deadline_expired, or audit_focus_blocked,
 that reason remains in
 .B terminal_reason
 for slower monitors. Startup or runtime errors finish as failed.
+.PP
+To run one Taskgrind as a one-shot fixer for another, point
+.BR \-\-supervise
+at the watched run's status file:
+.PP
+.nf
+taskgrind \-\-supervise /tmp/taskgrind-status.json 1 ~/apps/myrepo
+.fi
+.PP
+Supervisor mode writes
+.BR supervisor_observation
+for every inspection. Healthy/progressing phases do not launch a backend.
+Failed or stale watched status logs
+.BR supervisor_repair_start
+and
+.BR supervisor_repair_end
+around a single repair session. Pass
+.BR \-\-no\-push
+or set
+.BR TG_NO_PUSH=1
+on the supervisor command when repair commits must stay local for review.
 .PP
 Supervisors should treat
 .BR startup ,
@@ -834,6 +871,8 @@ taskgrind \-\-resume ~/apps/myrepo
                                    # resume an interrupted grind
 taskgrind \-\-resume \-\-backend claude\-code \-\-model sonnet ~/apps/myrepo
                                    # resume with saved Claude Code choices
+taskgrind \-\-supervise /tmp/taskgrind-status.json 1 ~/apps/myrepo
+                                   # inspect another run once and repair if stuck
 taskgrind \-\-help / \-h            # show usage and environment variables
 taskgrind \-\-version / \-V         # print version
 TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8
