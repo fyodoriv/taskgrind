@@ -5,40 +5,25 @@
 
 ## P0
 
-- [ ] Make Claude Code a first-class runtime backend with Devin parity
-  - **ID**: claude-code-first-class-backend-parity
-  - **Tags**: backend, claude-code, parity, runtime, cli, tests
-  - **Source**: 2026-04-30 operator request: Taskgrind should run with Claude Code, not just Devin, and it should behave exactly the same: same session lifecycle, same error handling, same backend switching, same recovery semantics.
-  - **Details**: Treat this as parity-hardening, not a docs-only task. Audit every Devin-only path and make `--backend claude-code`, `TG_BACKEND=claude-code`, backend auto-detection, `TG_ROTATE_BACKENDS`, `--rotate-backends`, and self-investigation rotation run through the same lifecycle as Devin. Claude Code must share the same preflight gates, startup sanity probe behavior, model override handling, prompt construction, timeout watchdog, fast-failure accounting, log/status fields, git sync/final-sync behavior, resume compatibility checks, and operator-facing diagnostics. Backend-specific invocation flags are fine, but they must be isolated behind the backend abstraction so the rest of the marathon loop does not special-case Devin.
-  - **Files**: `bin/taskgrind`, `lib/constants.sh`, `tests/features.bats`, `tests/preflight.bats`, `tests/session.bats`, `tests/diagnostics.bats`, `tests/test_helper.bash`, `README.md`, `man/taskgrind.1`, `docs/user-stories.md`
-  - **Acceptance**: `taskgrind --dry-run --backend claude-code <repo>` and `TG_BACKEND=claude-code taskgrind --dry-run <repo>` show the same config surface as Devin except for backend name and backend-specific flags; a stubbed Claude Code backend can run at least one full session through the normal marathon loop and produces the same `session_start`, `session_end`, fast-failure, timeout, status-file, and final-sync behavior already tested for Devin; preflight failures for missing/non-executable Claude Code, rejected models, silent stubs, and startup probe failures use the same actionable error style as Devin; rotation between `devin,claude-code` works in both directions without losing counters, prompt overlays, task state, or git-sync/final-sync behavior; resume rejects incompatible backend changes and accepts matching Claude Code resumes; all backend-specific behavior is covered by regression tests rather than only structural greps; docs show Claude Code as a fully supported backend, not experimental; `make check` passes locally and the GitHub Actions `check` workflow is green after the change lands
-
 ## P1
 
-- [ ] Add a supervisor/fixer mode that lets one Taskgrind monitor another and unblock it
-  - **ID**: taskgrind-supervisor-fixer-mode
-  - **Tags**: supervisor, monitoring, recovery, cli, status-file
-  - **Source**: 2026-04-30 operator request: "Add a feature to taskgrind that allows one taskgrind to continuously monitor another taskgrind and perform fixes for it to make it proceed forward."
-  - **Details**: Design and implement a narrow supervisor lane where one Taskgrind process watches another Taskgrind run through its status file, log file, lock metadata, and repository state, then launches bounded repair sessions when the watched run is stuck or unable to proceed. The repair loop should target concrete unblockers such as failed preflight prerequisites, repeated fast failures, repeated zero-ship sessions with actionable diagnostics, git conflict/rebase states, stale lock/status files, or backend-health failures. Keep the public API small: prefer one flag/env surface on top of the existing `TG_STATUS_FILE` contract instead of adding a separate command family. The supervisor must not blindly kill or rewrite the watched process; it should make observable repairs, log what it did, and let the watched run continue or clearly report when human action is required.
-  - **Files**: `bin/taskgrind`, `tests/diagnostics.bats`, `tests/session.bats`, `tests/status-terminal-reasons.bats`, `tests/test_helper.bash`, `README.md`, `man/taskgrind.1`, `docs/architecture.md`
-  - **Acceptance**: a fake watched Taskgrind status/log fixture can trigger a repair session without launching a real backend; supervisor mode ignores healthy/progressing watched runs; at least three stuck states are covered by regression tests; every repair action is logged with a stable marker; the watched run's repo is not modified unless the repair session commits a scoped fix through the normal Taskgrind/session workflow; public-write safeguards and `TG_NO_PUSH` semantics are preserved; docs explain when to use supervisor mode instead of simply increasing timeouts or restarting; `make check` passes
+- [ ] Make supervisor mode continuously poll with bounded repair cooldowns
+  - **ID**: supervisor-continuous-polling-cooldowns
+  - **Tags**: supervisor, monitoring, cooldowns, status-file
+  - **Parent**: taskgrind-supervisor-fixer-mode
+  - **Source**: Decomposes `taskgrind-supervisor-fixer-mode`.
+  - **Details**: Extend the one-shot supervisor lane into an actual monitor loop that polls the watched status file until the supervisor deadline expires, preserves the watched run's timer semantics, and avoids repair storms. Add a small poll interval/cooldown surface, cap concurrent repairs at one, and keep a recent-repair memo so the same stuck reason does not spawn an unbounded stream of sessions. The loop should log every observation with a stable marker and stop cleanly when the watched run reaches a terminal healthy state.
+  - **Files**: `bin/taskgrind`, `tests/supervisor.bats`, `README.md`, `man/taskgrind.1`, `docs/architecture.md`
+  - **Acceptance**: supervisor mode polls until deadline rather than exiting after one observation; repeated identical stuck states respect a repair cooldown; repair processes never overlap; completed/queue-empty watched runs stop the supervisor cleanly; `make check` passes
 
-- [ ] Cut the no-cache bats suite 5x by scoping CLI-shape tests to a tiny taskgrind workload (@devin)
-  - **ID**: dotfiles-style-scoped-taskgrind-test-workloads
-  - **Tags**: tests, perf, bats, dx, dotfiles-precedent
-  - **Source**: 2026-04-30 operator request: "We must speed up 5x how tests run in taskgrind. Note how similar optimization was done in dotfiles." Dotfiles commit `3057710` (`perf(test): 3.84x faster suite via doctor --module scoping`) is the precedent: most `doctor.bats` tests did not need the full ~30s, 200+ check doctor; they only needed representative output, so they were scoped to the smallest module and the full suite dropped from 15:44 to 4:06.
-  - **Details**: Apply the same idea to taskgrind. Many tests run the full `$DVB_GRIND` marathon loop with a fake backend even when they only assert output shape, a log field, a status JSON key, prompt construction, backend arg shape, or a dry-run/config invariant. Static audit of the current suite shows 900+ bats tests across `tests/*.bats`, with the largest full-loop surfaces in `tests/session.bats`, `tests/features.bats`, `tests/diagnostics.bats`, `tests/signals.bats`, `tests/logging.bats`, `tests/network.bats`, and `tests/workspace.bats`. Those files repeatedly pay taskgrind startup, self-copy, preflight, fake backend launch, deadline math, status/log plumbing, and teardown even for assertions that do not care about the full loop.
-    Build a test-only "tiny workload" lane analogous to dotfiles' `DOCTOR_TINY_MODULE`: one queued task, one immediate fake backend, no sweep wait, no backoff, no cooldown, no network wait, no git sync unless the test explicitly opts in, and a deterministic single-session/one-loop exit. Expose it as test helper(s), not as user-facing API. Then migrate CLI-shape tests to that lane or to existing direct function extraction/static assertions. Keep true full-loop tests only where the loop semantics are the point: timeout watchdogs, signal handling, git sync, queue mutation, workspace fan-out, multi-instance locking, and backend rotation.
-    Do not accept a broad "just increase TEST_JOBS" fix as satisfying this task. Parallelism is already capped for stability and does not remove the repeated work inside each test. The win must come from not running the full workload when the test only needs a representative workload, exactly like the dotfiles doctor scoping change.
-  - **Files**: `tests/test_helper.bash` (tiny workload helper and migration guidance); `tests/logging.bats`, `tests/features.bats`, `tests/diagnostics.bats`, `tests/session.bats`, `tests/signals.bats`, `tests/network.bats`, `tests/workspace.bats` (migrate eligible tests); `bin/taskgrind` only if a test-only internal hook is required; `AGENTS.md` (document when to use tiny workload vs full loop)
-  - **Acceptance**: baseline is recorded before changes with `/usr/bin/time -p make test-force TEST_JOBS=2` and `/usr/bin/time -p make test-force TEST_JOBS=4`; after the migration, no-cache full-suite wall time is at least 5x faster than the recorded stable baseline on the same machine/configuration; a before/after table lists the top slow files and top slow tests using `bats --timing`; at least 70% of tests that invoke `$DVB_GRIND` only for CLI/log/status shape are converted to tiny workload, dry-run, or direct helper coverage; every remaining full-loop test has an inline reason why it must stay full-loop; no new user-facing flag/env var appears in `--help`, README, or man page; `make check` passes locally and GitHub Actions stays green at the existing stable `TEST_JOBS` cap
-  - **Plan**:
-    - [x] Add a repo-local tiny workload helper that ships one task without sweep, cooldown, or git-sync waits.
-    - [x] Migrate the first wave of mechanical log, banner, backend, model, prompt, and prompt-hardening tests.
-    - [x] Fix the Makefile cache key so multi-file `TESTS='file file'` targeted reruns can finish after tests pass.
-    - [x] Extend the migration to diagnostics, workspace prompt, and remaining eligible session-shape tests.
-    - [x] Verify the migrated suite with a full `make check` pass (`real 1699.67`).
-    - [ ] Record clean before/after no-cache timings from an unmodified baseline and the final migrated suite.
+- [ ] Teach supervisor repairs concrete repo/lock/backend stuck states
+  - **ID**: supervisor-concrete-repair-states
+  - **Tags**: supervisor, git, locks, preflight, backend-health
+  - **Parent**: taskgrind-supervisor-fixer-mode
+  - **Source**: Decomposes `taskgrind-supervisor-fixer-mode`.
+  - **Details**: Add concrete unblocker handlers to supervisor mode beyond generic failed/stale status: failed preflight prerequisites, repeated fast failures with actionable diagnostics, repeated zero-ship sessions, git conflict/rebase states, stale lock/status files, and backend-health failures. Repairs must be observable, scoped, and non-destructive: the supervisor must not blindly kill or rewrite the watched process, and the watched repo should only change through a normal repair session commit.
+  - **Files**: `bin/taskgrind`, `tests/diagnostics.bats`, `tests/session.bats`, `tests/status-terminal-reasons.bats`, `tests/supervisor.bats`, `tests/test_helper.bash`, `README.md`, `man/taskgrind.1`, `docs/architecture.md`
+  - **Acceptance**: at least three concrete stuck states are covered by regression tests; repair logs name the detected stuck state and chosen action; stale lock/status handling never deletes live-process files; docs explain when to use supervisor mode instead of simply increasing timeouts or restarting; `make check` passes
 
 - [ ] Replace fixed sleeps and deadline offsets in live-loop tests with event sentinels so tests stop waiting on real time
   - **ID**: event-driven-live-loop-test-sentinels
@@ -49,7 +34,7 @@
   - **Files**: `tests/test_helper.bash`; `tests/logging.bats`; `tests/network.bats`; `tests/session.bats`; `tests/signals.bats`; `tests/resume.bats`; `tests/multi-instance.bats`; `bin/taskgrind` only for guarded test-mode sentinels if helper-only changes are insufficient
   - **Acceptance**: `rg -n 'sleep [1-9]|DVB_DEADLINE_OFFSET=(1[0-9]|[2-9][0-9])' tests/*.bats` returns only tests that explicitly verify real-time timeout/cooldown behavior and each remaining hit has a comment explaining why wall time is required; live status, resume, queue-empty, signal, and network tests wait on sentinel/status/log milestones instead of fixed sleeps; `tests/session.bats` passes 3 consecutive `make test-force TESTS=tests/session.bats TEST_JOBS=8` stress runs without increasing deadline offsets; full-suite `bats --timing` shows the converted tests no longer dominate the slowest-test list; `make check` passes
 
-- [ ] Slim the `--help` env-var block from 33 vars to ~12 by hiding tuning knobs in the man page only
+- [ ] Slim the `--help` env-var block from 33 vars to ~12 by hiding tuning knobs in the man page only (@devin-session-11)
   - **ID**: simplify-help-surface-area
   - **Tags**: cli, ux, docs, api-surface
   - **Source**: operator feedback after browsing `taskgrind --help` (see investigation of `taskgrind-2026-04-26-2134-apps-78034.log` — 40-min wasted run starting from a misconfigured invocation, partly because the help text is too dense to skim before launching).
@@ -84,6 +69,11 @@
     - The CLI parity test (`CLI docs parity keeps help, README, and man page in sync`) still passes — README/help/man stay aligned for the kept set
     - Hidden env vars still take effect at runtime (no tests deleted from `tests/*.bats`; `make check` shows the same 906 passes)
     - PR description includes a before/after `--help | wc -l` measurement so the size cut is auditable
+  - **Plan**:
+    - [ ] Identify the current help, README, man-page, and basics-test parity contracts
+    - [ ] Keep only the normal-use 12 `TG_*` vars in `--help` and README
+    - [ ] Make the man page the complete env-var reference for hidden tuning knobs
+    - [ ] Update doc-drift tests and verify the trimmed surface
 
 - [ ] Consolidate the three stall-exit env vars (`TG_EARLY_EXIT_ON_STALL` / `TG_EXIT_ON_STALL` / `TG_NO_STALL_EXIT`) into one `TG_STALL_EXIT={never|first|second}`
   - **ID**: consolidate-stall-exit-env-vars
@@ -117,43 +107,97 @@
     - `make check` passes (906+ tests, including new ones for the consolidated knob)
     - `man/taskgrind.1` documents both the new knob and the deprecation timeline so operators know when the old names will stop working
 
-- [ ] Preflight should FAIL (not warn) when `$repo/TASKS.md` is a directory — the macOS case-insensitive-FS quirk that wastes 40+ minutes of compute per occurrence
-  - **ID**: preflight-fail-tasks-md-is-directory
-  - **Tags**: preflight, ux, macos, case-insensitive-fs, foot-gun, fail-loud
-  - **Source**: investigation of `taskgrind-2026-04-26-2134-apps-78034.log` (the user's `~/apps` parent-of-repos misconfig run that wasted 40 min on a doomed sweep). Root cause traced to macOS APFS being case-insensitive: `/Users/fivanishche/apps/TASKS.md` resolves to the existing `tasks.md/` subdirectory (the `tasks.md` spec repo clone) so `[[ -f "$repo/TASKS.md" ]]` returns false, preflight emits the soft `TASKS.md not found — empty queue sweep will find work` warning, and the loop launches a sweep against an unworkable parent dir. Sweep timed out at the full 1800s cap, post-sweep wait burned another 10 min, total 40 min wasted with `sessions=1 shipped=0`.
-  - **Details**: Today the preflight TASKS.md check at `bin/taskgrind:1204-1211` is:
-    ```bash
-    if [[ -f "$repo/TASKS.md" ]]; then
-      preflight_pass "TASKS.md found ..."
-    else
-      preflight_warn "TASKS.md not found — empty queue sweep will find work"
-    fi
-    ```
-    The `[[ -f ]]` test conflates three meaningfully different states:
-    1. **Missing entirely** — operator hasn't created `TASKS.md`. Today's `warn` + sweep recovery is the right call: an empty repo is a valid starting point.
-    2. **Exists as a regular file** — the happy path.
-    3. **Exists but is a directory** — operator pointed taskgrind at a path where some other file/folder named `tasks.md` (case-insensitive) exists. On macOS APFS this is invisible to the operator until taskgrind logs `0 tasks queued` and the sweep kicks off — and the sweep ALSO can't read TASKS.md because it's a directory, so it produces nothing.
-    The fix splits state 3 from state 1 with an actionable error:
-    1. **Add a directory check** before the `-f` test: `if [[ -e "$repo/TASKS.md" && ! -f "$repo/TASKS.md" ]]; then preflight_fail "TASKS.md exists at $repo/TASKS.md but is not a regular file (is_dir=$([[ -d "$repo/TASKS.md" ]] && echo yes || echo no), is_link=$([[ -L "$repo/TASKS.md" ]] && echo yes || echo no)). On macOS, this can happen on case-insensitive filesystems when a sibling like 'tasks.md/' exists. Pass a real repo path, not a parent directory containing other entries that case-collapse to the same name."; fi`
-    2. **`preflight_fail` (not `preflight_warn`)** — this is the existing fail bucket that blocks the marathon. The condition is unrecoverable in-process; only the operator can fix the path. Soft-warning here is the bug — it lets a doomed run start.
-    3. **Surface the actual entry type** in the error so the operator doesn't have to guess: directory vs symlink vs other special file all need different recovery (rename a colliding subdir vs fix a broken symlink vs... whatever the third case turns out to be).
-    4. **Mention `--from-prompt`** as the recovery path: the user's run had a "for both repos" intent that was the workspace-mode use case; if they'd seen `Did you mean: taskgrind --target-repo <each-repo> <control-repo>?` they'd have stopped before launching.
-    Counter-arguments: (a) "what if a user genuinely has a directory named TASKS.md as part of their repo structure?" — the directory-form is never the actual queue file per the [tasks.md spec](https://github.com/tasksmd/tasks.md); a directory at this path is always a misconfig on case-insensitive FS or an extremely unusual setup that the operator should explicitly opt into (out of scope for this fix); (b) "preflight currently runs in `--preflight` mode AND in the main loop pre-launch — should both fail?" — yes; the `--preflight` mode should exit non-zero (so operators wiring it into pre-launch checks see the failure), and the main-loop preflight should refuse to enter the session loop with a clear error and exit 1.
-    **What's NOT in scope**: detecting case-insensitive FS in general (out of scope — too invasive); auto-renaming the colliding directory (destructive, never the right call from a tool); supporting "directory of TASKS.md files" semantics like the tasks.md spec's monorepo split (separate feature, would need its own design); changing other preflight behaviors.
-    **Why P1**: this is silent, expensive, and recurrent — every macOS operator who passes a parent-of-repos path with a sibling `tasks.md` repo on disk will hit the same 40-min waste. The fix is one if-block with high-confidence diagnosis from a real reproduced incident. Cost of inaction = reproducible 40-min compute waste per occurrence; cost of fix = ~10 LOC + 2 bats tests.
-  - **Files**:
-    - `bin/taskgrind` — the preflight TASKS.md check around L1204-1211 (split state 3 out, emit `preflight_fail` with the actionable message); the same check exists in the per-target preflight for workspace mode (`preflight_check_target` around the corresponding line) and needs the same fix
-    - `tests/preflight.bats` — three new tests: (a) directory-named-TASKS.md fails with the actionable error including `is_dir=yes`, (b) symlink-to-directory fails with `is_link=yes is_dir=yes`, (c) regular file still passes (existing happy path), (d) the existing missing-TASKS.md warning path is unchanged (regression guard)
-    - `man/taskgrind.1` — TROUBLESHOOTING section gets a short `TASKS.md not a regular file` entry pointing at the case-insensitive FS root cause
-    - `docs/user-stories.md` — story #N updated to mention the misconfig case and the actionable error
+- [ ] Honor Bosun 410 EXIT_NOW from atomic heartbeat
+  - **ID**: bosun-410-honor-exit-now
+  - **Tags**: bosun-integration, heartbeat, lifecycle
+  - **Source**: 2026-05-02 fleet-grind sessions (0e8f1657 → c247638c). After Bosun PR #1581 (atomic heartbeat) the heartbeat handler returns 410 EXIT_NOW more aggressively whenever the session is no longer in `active`/`paused` (status-flip race + recency window). Taskgrind's heartbeat loop currently treats 410 the same as 200 — logs it and continues. The agent keeps spawning sessions and committing after Bosun has marked the session over, which is exactly the leak path the bypass investigation tracked.
+  - **Details**: Locate the heartbeat loop in `bin/taskgrind` (search for `bosun_heartbeat` / `HTTP_STATUS=200|410`). On 410 specifically:
+    - Set a controller-level `BOSUN_SESSION_TERMINATED=1` flag that prevents the next iteration of the session loop from spawning a new agent
+    - Send `SIGTERM` to the currently-running backend subprocess (devin/claude-code/etc.) after a short grace period (default 30s, override via `TG_BOSUN_410_GRACE`)
+    - Run the normal `grind_done` summary path with `terminal_reason=bosun-410-exit-now`
+    - Document the contract in `docs/architecture.md` (or wherever the Bosun integration is described)
+  - **Files**: `bin/taskgrind` (heartbeat loop + session-loop guard), `tests/network.bats` (or new `tests/bosun-410.bats`), `docs/architecture.md`, `man/taskgrind.1`
   - **Acceptance**:
-    - `taskgrind --preflight ~/apps` (parent-of-repos directory with a `tasks.md/` subdir) exits 1 with `✗ TASKS.md exists at ~/apps/TASKS.md but is not a regular file (is_dir=yes, is_link=no). On macOS, this can happen on case-insensitive filesystems...` and the marathon does NOT start
-    - `taskgrind ~/apps` (without `--preflight`) hits the same failure path, exits 1, no session launched
-    - The taskgrind-2026-04-26-2134-apps-78034.log scenario is rerun (or simulated in a bats test) and the run terminates at preflight in <1 second instead of 40 minutes
-    - The empty-repo / missing-TASKS.md path still emits the soft warning and runs the sweep (no regression on the legitimate empty-queue case)
-    - `make check` passes
+    - A simulated 410 from a fake Bosun causes the current session to exit cleanly within 30 seconds (configurable via `TG_BOSUN_410_GRACE`)
+    - The grind controller does NOT spawn another session after a 410
+    - The `grind_done` summary records `terminal_reason=bosun-410-exit-now`
+
+- [ ] Run agent in a dedicated worktree, never the operator's main checkout
+  - **ID**: agent-worktree-isolation
+  - **Tags**: isolation, multi-agent, git, lifecycle
+  - **Source**: 2026-05-02 — Bosun pipeline-0c1f055d committed `ebdbeb2e` to operator branch `fix/iron-rule-7-status-flip-race-aifn-720` because pipelines lacked worktree isolation (now fixed in Bosun PR #1582). Taskgrind has the same class of bug: the agent runs in the operator's main checkout, so any branch the agent creates lives on the operator's HEAD, and any uncommitted changes the operator has stack with the agent's edits. When the agent and operator collide on the same checkout, agent commits can land on the operator's branch unintentionally.
+  - **Details**: At session start (in `bin/taskgrind` near the preflight block), create a per-session worktree at `<repo>/.taskgrind/<session-slug>-<pid-suffix>/` (or similarly-isolated path that's git-ignored). Cd the agent into that worktree via the existing `cd` in `_run_session`. The agent's commits land on the worktree-owned branch the operator never has checked out. At session end:
+    - If the agent shipped only markdown and the worktree is fast-forwardable into the matching main-checkout branch, auto-merge (opt-in via `TG_AUTOMERGE_MARKDOWN=1`)
+    - Otherwise leave the worktree for the operator to inspect (default — no surprise merges)
+    - On crash recovery (subsequent runs), reuse the existing worktree if it's still on disk; clean up worktrees older than `TG_WORKTREE_RETENTION_HOURS` (default 48h)
+    Treat this as the taskgrind-side mirror of Bosun PR #1582 — "execute in a worktree, never the user's primary checkout."
+  - **Files**: `bin/taskgrind` (session setup + cleanup), new `tests/worktree-isolation.bats`, `docs/architecture.md`, README.md
+  - **Acceptance**:
+    - When a taskgrind run is active, `git worktree list` shows the per-session worktree
+    - The operator can `git checkout` any branch in the main checkout without disrupting the agent
+    - After session end, the worktree is either auto-merged (opt-in) or left for inspection (default); old worktrees are reaped on next run
+    - A regression test covering the "operator-on-different-branch + agent-running" scenario verifies no commits leak onto the operator's HEAD
+
+- [ ] Pre-flight: warn when `git stash list` has more than 5 entries
+  - **ID**: preflight-stale-stash-warning
+  - **Tags**: preflight, stash, hygiene, ux
+  - **Source**: 2026-05-02 — bosun repo had 9+ stashes from previous failed runs, dating back to fleet-grind sessions that crashed mid-rebase. None had been cleaned up. The agent's pre-launch checks didn't notice. Stale stashes hide real WIP and inflate `.git/`.
+  - **Details**: Add a check to `taskgrind --preflight` that runs `git -C "$REPO" stash list --max-count=20 | wc -l`. If the count exceeds the threshold (default 5, override via `TG_STASH_WARN_THRESHOLD`):
+    - Print a one-line warning with the count and the oldest stash's age
+    - Print the inspect command: `git -C <repo> stash list --pretty='%gd %ai %gs'`
+    - Exit code stays 0 — warning only, never block launch
+  - **Files**: `bin/taskgrind` (preflight subroutine), `tests/preflight.bats`, README.md (env var section), `man/taskgrind.1`
+  - **Acceptance**:
+    - Running `taskgrind --preflight` in a repo with 6+ stashes prints a warning naming the count + age of oldest stash
+    - The threshold is configurable via `TG_STASH_WARN_THRESHOLD`
+    - At threshold or below, no warning is printed
+    - Existing preflight tests continue to pass
+
+- [ ] Document the `BOSUN_HOOK_RECENCY_SECONDS=0` operator escape hatch in `--help` and README
+  - **ID**: document-bosun-hook-recency-escape-hatch
+  - **Tags**: docs, bosun-integration, operator-ux
+  - **Source**: 2026-05-02 — operator (running session bosun PR #1580) needed to commit a fix in the same shell where a grind had just ended. The pre-commit hook was correctly blocking based on a 10-minute recency window. The escape hatch `BOSUN_HOOK_RECENCY_SECONDS=0` is documented in the bosun hook source and was used to land PR #1580 itself, but it's not in any taskgrind user-facing docs — operators have to know to look at the hook source.
+  - **Details**: Add a "Operator escape hatches" section to `taskgrind --help` (after env vars) and to README.md. Include:
+    - `BOSUN_HOOK_RECENCY_SECONDS=0 git commit ...` — bypass the recency window when shipping a hotfix immediately after `taskgrind` exits cleanly
+    - When NOT to use it (during an active grind, ever — only after legitimate exit)
+    - Link to the upstream bosun hook (`hooks/pre-commit`) for the full contract
+  - **Files**: `bin/taskgrind` (help string), README.md, `man/taskgrind.1`
+  - **Acceptance**:
+    - `taskgrind --help` mentions `BOSUN_HOOK_RECENCY_SECONDS=0` with a one-line description and a "use after grind ends" caveat
+    - README has a "Operator escape hatches" subsection
+    - The CLI parity test (`CLI docs parity keeps help, README, and man page in sync`) covers the new section
+
+- [ ] Structured session-lifecycle audit log (mirror of Bosun's `/tmp/bosun-hook-audit.log`)
+  - **ID**: session-lifecycle-audit-log
+  - **Tags**: observability, debugging, lifecycle, AIFN-720
+  - **Source**: 2026-05-02 forensic investigation. Bosun introduced `/tmp/bosun-hook-audit.log` (PR #1579) and it was the SINGLE thing that let us disambiguate `--no-verify` vs token-reuse vs status-flip race. Taskgrind has a parent log per run with heartbeat lines but no per-event structured record — debugging "why did session N do X" requires correlating multiple files by hand.
+  - **Details**: At each lifecycle event, append one structured line to `/tmp/taskgrind-audit-<repo-slug>.log` (override via `TG_AUDIT_LOG`). Format mirrors Bosun's: `<ISO-UTC-timestamp> <event> session=<id> <kv-pairs>`. Events to capture:
+    - `session_start` (session number, remaining minutes, model, backend, slot)
+    - `session_end` (exit code, duration, ships, terminal reason)
+    - `heartbeat` (status code, decoded action — none/410-exit/404-replace)
+    - `agent_spawn` (pid, backend, model)
+    - `agent_exit` (pid, exit code, duration)
+    - `sweep_observation` (tasks delta)
+    - `ship` (commit sha, files changed, persona if attributed)
+    - `git_sync` (action, conflicts, duration)
+    Document the path in README's "Debugging" section.
+  - **Files**: `bin/taskgrind` (helper function + call sites), new `tests/audit-log.bats`, README.md, `man/taskgrind.1`
+  - **Acceptance**:
+    - After a multi-session run, `/tmp/taskgrind-audit-bosun.log` contains structured lines for every lifecycle event
+    - Format is `<ISO timestamp> <event> session=<id> <kv>...` — grep-friendly, no JSON
+    - README documents the file path and event taxonomy
+    - The log path can be overridden via `TG_AUDIT_LOG`
+    - A bats test asserts at least the `session_start` and `session_end` events fire for a one-session run
 
 ## P2
+
+- [ ] Deduplicate backend binary diagnostics for `--from-prompt` translation
+  - **ID**: from-prompt-backend-diagnostics-parity
+  - **Tags**: backend, from-prompt, diagnostics, claude-code, tests
+  - **Source**: Scout finding while fixing `claude-code-preflight-diagnostics-parity`.
+  - **Details**: `translate_from_prompt` resolves the real backend before the shared backend diagnostic helpers are defined, so missing or non-executable backend binaries during `--from-prompt` still use a separate generic message path. Align that early translation failure with the preflight/session resolver diagnostics so Claude Code reports the `claude` binary name, npm install command, PATH guidance, and no Devin-only override text.
+  - **Files**: `bin/taskgrind`, `tests/from-prompt.bats`, `tests/diagnostics.bats`, `README.md`, `man/taskgrind.1`
+  - **Acceptance**: Missing and non-executable `claude` during `--from-prompt --backend claude-code` fail before translation with the same Claude Code-specific guidance as preflight; no `TG_DEVIN_PATH` wording appears for Claude Code; the implementation reuses one diagnostic source of truth or moves it early safely; `make check` passes
 
 
 <!-- batch: bosun-autonomy-ops-integration — 2026-05-01.

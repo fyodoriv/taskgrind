@@ -215,6 +215,63 @@ SCRIPT
   [[ "$output" == *"TASKS.md not found"* ]]
 }
 
+@test "preflight fails when TASKS.md is a directory" {
+  _preflight_git_init
+  rm -f "$TEST_REPO/TASKS.md"
+  mkdir "$TEST_REPO/TASKS.md"
+
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"TASKS.md exists at $TEST_REPO/TASKS.md but is not a regular file (is_dir=yes, is_link=no)"* ]]
+  [[ "$output" == *"case-insensitive filesystems"* ]]
+  [[ "$output" == *"--from-prompt"* ]]
+  [[ "$output" == *"Preflight FAILED"* ]]
+}
+
+@test "preflight fails when TASKS.md is a symlink to a directory" {
+  _preflight_git_init
+  rm -f "$TEST_REPO/TASKS.md"
+  mkdir "$TEST_DIR/tasks-dir"
+  ln -s "$TEST_DIR/tasks-dir" "$TEST_REPO/TASKS.md"
+
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"TASKS.md exists at $TEST_REPO/TASKS.md but is not a regular file (is_dir=yes, is_link=yes)"* ]]
+}
+
+@test "main loop preflight fails before launching when TASKS.md is a directory" {
+  _preflight_git_init
+  rm -f "$TEST_REPO/TASKS.md"
+  mkdir "$TEST_REPO/TASKS.md"
+
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"TASKS.md exists at $TEST_REPO/TASKS.md but is not a regular file"* ]]
+  [[ "$output" == *"Preflight FAILED"* ]]
+  [ ! -f "$DVB_GRIND_INVOKE_LOG" ]
+}
+
+@test "workspace target preflight fails when target TASKS.md is a directory" {
+  _preflight_git_init
+  local target_repo="$TEST_DIR/target-repo"
+  mkdir -p "$target_repo"
+  git -C "$target_repo" init -q -b main
+  git -C "$target_repo" config user.email "test@test.com"
+  git -C "$target_repo" config user.name "Test"
+  git -C "$target_repo" commit --allow-empty -m "init" --quiet
+  mkdir "$target_repo/TASKS.md"
+
+  run "$DVB_GRIND" --preflight --target-repo "$target_repo" "$TEST_REPO"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Target repo preflight: $target_repo"* ]]
+  [[ "$output" == *"TASKS.md exists at $target_repo/TASKS.md but is not a regular file (is_dir=yes, is_link=no)"* ]]
+  [[ "$output" == *"Target preflight FAILED"* ]]
+}
+
 @test "preflight shows task count when TASKS.md exists" {
   _preflight_git_init
   cat > "$TEST_REPO/TASKS.md" <<'EOF'
@@ -384,6 +441,8 @@ SCRIPT
   [ "$status" -eq 1 ]
   [[ "$output" == *"backend said invalid model: invalid-model"* ]]
   [[ "$output" == *"Model rejected by claude-code before starting"* ]]
+  [[ "$output" == *"Claude Code install and account"* ]]
+  [[ "$output" != *"Devin"* ]]
 
   # With backend_probe guarding startup, the binary is invoked twice before
   # preflight bails: once for '--version' (probe) and once for

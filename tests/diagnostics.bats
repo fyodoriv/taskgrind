@@ -44,6 +44,28 @@ SCRIPT
   grep -q 'bail_out' "$TEST_LOG"
 }
 
+@test "claude-code fast-failure accounting records selected backend" {
+  local failing_claude="$TEST_DIR/fail-claude"
+  create_fake_backend "$failing_claude" <<'SCRIPT'
+#!/bin/bash
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+exit 42
+SCRIPT
+  export DVB_GRIND_CMD="$failing_claude"
+  setup_network_sentinel "$TEST_DIR/net-up"
+  export DVB_MIN_SESSION=999
+  export DVB_MAX_FAST=3
+  export DVB_BACKOFF_BASE=0
+  export DVB_COOL=0
+  export DVB_DEADLINE_OFFSET=15
+
+  run "$DVB_GRIND" --backend claude-code 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  grep -q 'bail_out consecutive=3 exit=42 backend=claude-code' "$TEST_LOG"
+  grep -q -- '--dangerously-skip-permissions' "$DVB_GRIND_INVOKE_LOG"
+}
+
 @test "bail out stops the loop (no more sessions after)" {
   local counter_devin="$TEST_DIR/counter-devin"
   create_fake_devin "$counter_devin" <<SCRIPT
@@ -489,6 +511,40 @@ SCRIPT
   [[ "$output" == *"TG_DEVIN_PATH"* ]]
 }
 
+@test "error quality: missing claude-code backend gives Claude-specific install guidance" {
+  unset DVB_GRIND_CMD
+  export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+  init_test_repo "$TEST_REPO"
+  echo "# Tasks" > "$TEST_REPO/TASKS.md"
+
+  run "$DVB_GRIND" --preflight --backend claude-code "$TEST_REPO"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Backend binary not found (claude-code)"* ]]
+  [[ "$output" == *"expected 'claude' on PATH"* ]]
+  [[ "$output" == *"npm install -g @anthropic-ai/claude-code"* ]]
+  [[ "$output" != *"TG_DEVIN_PATH"* ]]
+}
+
+@test "error quality: non-executable claude-code backend names the bad path" {
+  local fake_bin="$TEST_DIR/fake-bin"
+  mkdir -p "$fake_bin"
+  printf '#!/bin/bash\necho should-not-run\n' > "$fake_bin/claude"
+  chmod 0644 "$fake_bin/claude"
+
+  unset DVB_GRIND_CMD
+  export PATH="$fake_bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  init_test_repo "$TEST_REPO"
+  echo "# Tasks" > "$TEST_REPO/TASKS.md"
+
+  run "$DVB_GRIND" --preflight --backend claude-code "$TEST_REPO"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Backend binary is not executable (claude-code): $fake_bin/claude"* ]]
+  [[ "$output" == *"ensure the 'claude' binary is executable and on PATH"* ]]
+  [[ "$output" != *"TG_DEVIN_PATH"* ]]
+}
+
 @test "numeric directory name treated as repo path not hours" {
   local num_dir="$TEST_DIR/42"
   mkdir -p "$num_dir"
@@ -804,6 +860,31 @@ SCRIPT
   # under parallel load; detection no longer depends on it.
   grep -qE 'backend_probe_failed exit=0 duration=[0-9]+s backend=devin' "$TEST_LOG"
   ! [ -f "$DVB_GRIND_INVOKE_LOG" ]
+}
+
+@test "claude-code startup probe diagnostics use selected backend name" {
+  local silent_stub="$TEST_DIR/silent-stub-claude"
+  create_fake_backend "$silent_stub" <<'SCRIPT'
+#!/bin/bash
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+if [[ "$1" == "--version" ]]; then
+  exit 0
+fi
+exit 0
+SCRIPT
+
+  export DVB_GRIND_CMD="$silent_stub"
+  export DVB_VALIDATE_BACKEND_STARTUP=1
+  export DVB_DEADLINE_OFFSET=30
+
+  run "$DVB_GRIND" --backend claude-code 1 "$TEST_REPO"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"backend binary may be a stub or broken: 'claude-code'"* ]]
+  [[ "$output" == *"npm install -g @anthropic-ai/claude-code"* ]]
+  [[ "$output" != *"Devin CLI"* ]]
+  grep -qE 'backend_probe_failed exit=0 duration=[0-9]+s backend=claude-code' "$TEST_LOG"
+  grep -q -- '--version' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "backend sanity probe allows versioned binaries to reach session 1" {

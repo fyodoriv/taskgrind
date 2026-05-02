@@ -31,10 +31,13 @@
 #        taskgrind --no-pr-fallback 8 ~/apps/myrepo
 #                                             → on protected-branch push rejection, skip the
 #                                               auto-PR fallback and require manual recovery
+#        taskgrind --supervise /tmp/taskgrind-status.json 1 ~/apps/myrepo
+#                                             → inspect another run's TG_STATUS_FILE once
+#                                               and launch a bounded repair session if stuck
 #        taskgrind --help / -h                → show this help and exit
 #        taskgrind --version / -V             → print version (commit hash + date)
 #        TG_MODEL=sonnet taskgrind 8           → 8h grind, sonnet model
-#        TG_BACKEND=codex taskgrind 8          → 8h grind with Codex
+#        TG_BACKEND=claude-code taskgrind 8    → 8h grind with Claude Code
 #        TG_MAX_INSTANCES=3 taskgrind ~/apps/myrepo 8
 #                                             → allow three concurrent grinds per repo
 #        TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8
@@ -225,7 +228,7 @@ unset _tg_var _tg_ref
 # Save original args before parsing — caffeinate re-exec needs them intact
 _orig_args=("$@")
 
-# Parse all args in any order: hours (integer), --model NAME, --skill NAME, --backend NAME, --prompt TEXT, --dry-run, --preflight, repo path
+# Parse all args in any order: hours (integer), --model NAME, --skill NAME, --backend NAME, --prompt TEXT, --dry-run, --preflight, --supervise STATUS_FILE, repo path
 hours="10"
 repo="."
 skill="${DVB_SKILL:-next-task}"
@@ -236,6 +239,7 @@ _cli_model=""
 dry_run=0
 preflight_only=0
 resume_run=0
+supervise_status_file=""
 _cli_no_push=""  # tri-state: "" = unset, "0" / "1" = explicit CLI choice
 _cli_no_pr_fallback=""  # tri-state: "" = unset, "0" / "1" = explicit CLI choice
 # Slot-tracking flags — distinguish "user passed this on the CLI" from "still
@@ -278,6 +282,15 @@ while [[ $# -gt 0 ]]; do
     --resume) resume_run=1; shift ;;
     --no-push) _cli_no_push=1; shift ;;
     --no-pr-fallback) _cli_no_pr_fallback=1; shift ;;
+    --supervise=*) supervise_status_file="${1#--supervise=}"; [[ -z "$supervise_status_file" ]] && { echo "Error: --supervise requires a TG_STATUS_FILE path" >&2; exit 1; }; shift ;;
+    --supervise)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --supervise requires a TG_STATUS_FILE path" >&2; exit 1
+      fi
+      supervise_status_file="$2"
+      [[ -z "$supervise_status_file" ]] && { echo "Error: --supervise requires a non-empty TG_STATUS_FILE path" >&2; exit 1; }
+      shift 2
+      ;;
     --model=*) _cli_model="${1#--model=}"; [[ -z "$_cli_model" ]] && { echo "Error: --model requires a non-empty name (example: --model gpt-5-5-xhigh-priority). See 'taskgrind --help'." >&2; exit 1; }; shift ;;
     --model)
       if [[ $# -lt 2 ]]; then
@@ -532,6 +545,15 @@ EOF
 # Run translation now, before slot resolution. Reject --resume + --from-prompt:
 # resume's source of truth is the saved .taskgrind-state, not a re-translated
 # brief that could silently diverge from the original run's config.
+if [[ -n "$supervise_status_file" && "$resume_run" -eq 1 ]]; then
+  echo "Error: --supervise is not compatible with --resume. Supervisor mode reads the watched run's TG_STATUS_FILE instead of this process's resume state." >&2
+  exit 1
+fi
+if [[ -n "$supervise_status_file" && -n "$_from_prompt_text" ]]; then
+  echo "Error: --supervise is not compatible with --from-prompt. Pass explicit supervisor settings so the repair lane is auditable." >&2
+  exit 1
+fi
+
 if [[ -n "$_from_prompt_text" ]]; then
   if [[ "$resume_run" -eq 1 ]]; then
     echo "Error: --from-prompt is not compatible with --resume. Resume uses the saved .taskgrind-state; drop --from-prompt or start a fresh grind." >&2
@@ -1107,6 +1129,79 @@ build_session_args() {
   esac
 }
 
+backend_binary_name() {
+  case "$1" in
+    devin) printf '%s' "devin" ;;
+    claude-code) printf '%s' "claude" ;;
+    codex) printf '%s' "codex" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+backend_install_hint() {
+  case "$1" in
+    devin)
+      printf '%s' "Install the Devin CLI, ensure 'devin' is executable and on PATH, or set TG_DEVIN_PATH to an executable custom path. See README.md 'Install' for setup steps."
+      ;;
+    claude-code)
+      printf '%s' "Install Claude Code with 'npm install -g @anthropic-ai/claude-code', then ensure the 'claude' binary is executable and on PATH. See README.md 'Install' for setup steps."
+      ;;
+    codex)
+      printf '%s' "Install Codex with 'npm install -g @openai/codex', then ensure the 'codex' binary is executable and on PATH. See README.md 'Install' for setup steps."
+      ;;
+    *)
+      printf '%s' "Install the selected backend CLI and ensure it is executable and on PATH."
+      ;;
+  esac
+}
+
+backend_binary_error() {
+  local binary_name hint
+  binary_name="$(backend_binary_name "$backend")"
+  hint="$(backend_install_hint "$backend")"
+  if [[ -n "${_backend_binary:-}" && -e "$_backend_binary" && ! -x "$_backend_binary" ]]; then
+    printf 'Backend binary is not executable (%s): %s. %s' "$backend" "$_backend_binary" "$hint"
+  elif [[ -n "${_backend_binary:-}" ]]; then
+    printf "Backend binary not found (%s): expected '%s' on PATH; looked at %s. %s" "$backend" "$binary_name" "$_backend_binary" "$hint"
+  else
+    printf "Backend binary not found (%s): expected '%s' on PATH. %s" "$backend" "$binary_name" "$hint"
+  fi
+}
+
+backend_model_hint() {
+  case "$1" in
+    devin)
+      printf '%s' "Check the model name with 'devin --model <name> --help' for this Devin install."
+      ;;
+    claude-code)
+      printf '%s' "Check that the Claude model is available to this Claude Code install and account with 'claude --model <name> --help'."
+      ;;
+    codex)
+      printf '%s' "Check the OpenAI model name with 'codex --model <name> --help'; Codex usually expects models such as o3 or gpt-5.5."
+      ;;
+    *)
+      printf '%s' "Check the selected model with the backend CLI before retrying."
+      ;;
+  esac
+}
+
+backend_probe_hint() {
+  case "$1" in
+    devin)
+      printf '%s' "reinstall or roll back the Devin CLI before starting another grind."
+      ;;
+    claude-code)
+      printf '%s' "Reinstall Claude Code with 'npm install -g @anthropic-ai/claude-code' and confirm 'claude --version' prints output before retrying."
+      ;;
+    codex)
+      printf '%s' "Reinstall Codex with 'npm install -g @openai/codex' and confirm 'codex --version' prints output before retrying."
+      ;;
+    *)
+      printf '%s' "Reinstall or roll back the backend CLI before starting another grind."
+      ;;
+  esac
+}
+
 _backend_probe_error=""
 _backend_probe_summary=""
 
@@ -1129,7 +1224,7 @@ run_backend_probe() {
   # making parallel-suite runs silently accept broken backends).
   if [[ "$probe_status" -eq 0 && -z "$probe_output_clean" ]]; then
     _backend_probe_summary="backend_probe_failed exit=$probe_status duration=${probe_elapsed}s backend=$backend"
-    _backend_probe_error="backend binary may be a stub or broken: '$backend' exited in ${probe_elapsed}s with no output when running --version. reinstall or roll back the backend CLI before starting another grind."
+    _backend_probe_error="backend binary may be a stub or broken: '$backend' exited in ${probe_elapsed}s with no output when running --version. $(backend_probe_hint "$backend")"
     return 1
   fi
 
@@ -1337,6 +1432,28 @@ _preflight_check_remote_reachable() {
     dvb_spinner_stop; preflight_pass "Git remote reachable"
   else
     dvb_spinner_stop; preflight_warn "$unreachable_msg"
+  fi
+}
+
+_preflight_check_tasks_md() {
+  local check_repo="$1" mode="${2:-control}"
+  local tasks_path="$check_repo/TASKS.md"
+  if [[ ( -e "$tasks_path" || -L "$tasks_path" ) && ! -f "$tasks_path" ]]; then
+    local is_dir="no" is_link="no"
+    [[ -d "$tasks_path" ]] && is_dir="yes"
+    [[ -L "$tasks_path" ]] && is_link="yes"
+    preflight_fail "TASKS.md exists at $tasks_path but is not a regular file (is_dir=$is_dir, is_link=$is_link). On macOS, this can happen on case-insensitive filesystems when a sibling like 'tasks.md/' exists. Pass a real repo path, not a parent directory containing entries that case-collapse to TASKS.md. If you meant to work across repos or do not remember the flags, use --from-prompt or --target-repo."
+    return 0
+  fi
+
+  if [[ "$mode" == "control" ]]; then
+    if [[ -f "$tasks_path" ]]; then
+      local task_count
+      task_count=$(grep -c '^[[:space:]]*- \[ \]' "$tasks_path" 2>/dev/null) || true
+      preflight_pass "TASKS.md found (${task_count:-0} open tasks)"
+    else
+      preflight_warn "TASKS.md not found — empty queue sweep will find work"
+    fi
   fi
 }
 
@@ -1678,9 +1795,14 @@ _bosun_heartbeat_loop_body() {
   local bosun_bin="$1"
   # Don't inherit traps from the parent — the loop should exit cleanly
   # on SIGTERM without re-running graceful_shutdown.
-  trap 'exit 0' TERM INT
+  local sleep_pid=""
+  trap '[[ -n "${sleep_pid:-}" ]] && kill "$sleep_pid" 2>/dev/null || true; exit 0' TERM INT
   local hb_out hb_status
-  while sleep "$_bosun_heartbeat_interval"; do
+  while :; do
+    sleep "$_bosun_heartbeat_interval" &
+    sleep_pid=$!
+    wait "$sleep_pid" || exit 0
+    sleep_pid=""
     hb_out=$(
       "$bosun_bin" grind heartbeat \
         --session "$BOSUN_GRIND_SESSION_ID" \
@@ -2118,7 +2240,7 @@ preflight_check() {
     if [[ -x "$_backend_binary" ]]; then
       preflight_pass "Backend binary ($backend): $_backend_binary"
     else
-      preflight_fail "Backend binary not found ($backend): ${_backend_binary:-not in PATH}. Install the $backend CLI and ensure it is on PATH; see README.md 'Install' section or set TG_DEVIN_PATH to an explicit path."
+      preflight_fail "$(backend_binary_error)"
       backend_available=0
     fi
   fi
@@ -2130,7 +2252,7 @@ preflight_check() {
       dvb_spinner_stop; preflight_pass "Model accepted by $backend: $model"
     else
       dvb_spinner_stop
-      preflight_fail "Model rejected by $backend before starting: ${_model_validation_error:-unknown error}"
+      preflight_fail "Model rejected by $backend before starting: ${_model_validation_error:-unknown error}. $(backend_model_hint "$backend")"
     fi
   elif [[ -n "${DVB_GRIND_CMD:-}" ]]; then
     preflight_pass "Model validation skipped in test mode"
@@ -2212,13 +2334,7 @@ preflight_check() {
   fi
 
   # 8. TASKS.md exists — signal for work discovery
-  if [[ -f "$repo/TASKS.md" ]]; then
-    local task_count
-    task_count=$(grep -c '^[[:space:]]*- \[ \]' "$repo/TASKS.md" 2>/dev/null) || true
-    preflight_pass "TASKS.md found (${task_count:-0} open tasks)"
-  else
-    preflight_warn "TASKS.md not found — empty queue sweep will find work"
-  fi
+  _preflight_check_tasks_md "$repo" "control"
 
   # 9. network-watchdog available — network resilience during marathon
   if command -v network-watchdog >/dev/null 2>&1; then
@@ -2351,6 +2467,10 @@ preflight_check_target() {
   else
     preflight_fail "Disk space critical: $(( free_kb / 1024 ))MB free"
   fi
+
+  # Target repos do not need their own queue, but a TASKS.md directory/special
+  # file still means the operator likely passed a parent path by mistake.
+  _preflight_check_tasks_md "$repo" "target"
 
   # Summary
   echo ""
@@ -2751,6 +2871,7 @@ write_status_file() {
 {
   "repo": "$(json_escape "$repo")",
   "pid": $$,
+  "log_file": "$(json_escape "$log_file")",
   "slot": $_dvb_slot,
   "backend": "$(json_escape "$backend")",
   "skill": "$(json_escape "$skill")",
@@ -2796,20 +2917,247 @@ run_test_backend() {
   return "$_test_backend_status"
 }
 
-# Resolve the session runner command — injectable for testing
-if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
-  if ! resolve_test_backend_command; then
-    echo "Error: $_test_backend_error" >&2
-    exit 1
+supervisor_json_string_field() {
+  local json_file="$1"
+  local field="$2"
+  awk -v field="$field" '
+    BEGIN { needle = "\"" field "\"" }
+    index($0, needle) {
+      line = $0
+      sub(/^[^:]*:[[:space:]]*/, "", line)
+      sub(/,[[:space:]]*$/, "", line)
+      if (line ~ /^"/) {
+        sub(/^"/, "", line)
+        sub(/"$/, "", line)
+        print line
+      }
+      exit
+    }
+  ' "$json_file" 2>/dev/null || true
+}
+
+supervisor_file_mtime() {
+  local file_path="$1"
+  stat -f %m "$file_path" 2>/dev/null || stat -c %Y "$file_path" 2>/dev/null || echo "0"
+}
+
+supervisor_log_token() {
+  local value="${1:-unknown}"
+  local cleaned
+  if [[ -z "$value" ]]; then
+    value="unknown"
   fi
-  devin_cmd=("${_resolved_test_backend_cmd[@]}")
-else
-  resolve_backend_binary
-  if [[ ! -x "$_backend_binary" ]]; then
-    echo "Error: $backend binary not found: ${_backend_binary:-not in PATH}" >&2
-    exit 1
+  cleaned="$(printf '%s' "$value" | tr '[:space:]' '_' | tr -cd '[:print:]')"
+  printf '%s' "${cleaned:0:300}"
+}
+
+_supervisor_outcome=""
+_supervisor_reason=""
+_supervisor_phase=""
+_supervisor_repo=""
+_supervisor_log_file=""
+
+supervisor_classify_status_file() {
+  local watched_status_file="$1"
+  local now status_mtime status_age stale_after
+
+  _supervisor_outcome="healthy"
+  _supervisor_reason="fresh_status"
+  _supervisor_phase=""
+  _supervisor_repo="$repo"
+  _supervisor_log_file=""
+
+  if [[ ! -e "$watched_status_file" ]]; then
+    _supervisor_outcome="stuck"
+    _supervisor_reason="missing_status"
+    _supervisor_phase="missing"
+    return 0
   fi
-  devin_cmd=("$_backend_binary")
+  if [[ ! -f "$watched_status_file" ]]; then
+    _supervisor_outcome="stuck"
+    _supervisor_reason="invalid_status_file"
+    _supervisor_phase="invalid"
+    return 0
+  fi
+
+  _supervisor_phase="$(supervisor_json_string_field "$watched_status_file" "current_phase")"
+  _supervisor_repo="$(supervisor_json_string_field "$watched_status_file" "repo")"
+  _supervisor_log_file="$(supervisor_json_string_field "$watched_status_file" "log_file")"
+  if [[ -z "$_supervisor_repo" ]]; then
+    _supervisor_repo="$repo"
+  fi
+
+  if [[ -z "$_supervisor_phase" ]]; then
+    _supervisor_outcome="stuck"
+    _supervisor_reason="missing_phase"
+    _supervisor_phase="unknown"
+    return 0
+  fi
+
+  case "$_supervisor_phase" in
+    failed)
+      _supervisor_outcome="stuck"
+      _supervisor_reason="failed_phase"
+      return 0
+      ;;
+    complete|queue_empty|all_tasks_blocked|deadline_expired|audit_focus_blocked)
+      _supervisor_outcome="healthy"
+      _supervisor_reason="terminal_${_supervisor_phase}"
+      return 0
+      ;;
+  esac
+
+  stale_after="${DVB_SUPERVISOR_STALE_SECONDS:-900}"
+  if [[ "$stale_after" =~ ^[0-9]+$ && "$stale_after" -gt 0 ]]; then
+    now=$(date +%s)
+    status_mtime="$(supervisor_file_mtime "$watched_status_file")"
+    if [[ "$status_mtime" =~ ^[0-9]+$ ]]; then
+      status_age=$((now - status_mtime))
+      if [[ "$status_age" -gt "$stale_after" ]]; then
+        _supervisor_outcome="stuck"
+        _supervisor_reason="stale_${_supervisor_phase}"
+        return 0
+      fi
+    fi
+  fi
+
+  _supervisor_outcome="healthy"
+  _supervisor_reason="progressing_${_supervisor_phase}"
+}
+
+supervisor_repair_prompt() {
+  local watched_status_file="$1"
+  local watched_repo="$2"
+  local watched_log_file="$3"
+  local stuck_reason="$4"
+  local watched_phase="$5"
+  local prompt_text
+
+  prompt_text="Run the $skill skill."
+  prompt_text+=" SUPERVISOR_REPAIR: Another taskgrind run appears stuck. Inspect the watched run and make one scoped repair that lets it proceed."
+  prompt_text+=" Watched status: $watched_status_file."
+  prompt_text+=" Watched repo: $watched_repo."
+  prompt_text+=" Watched phase: $watched_phase."
+  prompt_text+=" Detected reason: $stuck_reason."
+  if [[ -n "$watched_log_file" ]]; then
+    prompt_text+=" Watched log: $watched_log_file."
+  fi
+  prompt_text+=" Do not kill the watched taskgrind process, rewrite its history, or delete its status/lock files blindly. Prefer fixing concrete repo, preflight, backend, or queue blockers and committing through the normal workflow."
+
+  if [[ "$no_push" == "1" ]]; then
+    prompt_text+=" COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. NO-PUBLISH MODE: commit locally only. Do NOT push to any remote. Do NOT create pull requests. Do NOT merge pull requests. Do NOT use 'gh pr create', 'gh pr merge', 'git push', or any tool that publishes to origin. Remove the completed task block from TASKS.md and commit locally — that is the entire publish step. The operator will review and push manually after the grind exits."
+  else
+    prompt_text+=" COMPLETION PROTOCOL: When you finish a task, you MUST remove its entire block (checkbox + all metadata lines) from TASKS.md and commit. This is how taskgrind tracks progress — if the task line stays in TASKS.md, it counts as zero work done, even if you committed code. Do NOT merge pull requests, force-push branches, bypass pre-push hooks with --no-verify, or submit PRs without explicit operator approval in this session. If you committed directly to main, just remove the task. A session that commits code but doesn't remove the task from TASKS.md is a failed session."
+  fi
+  prompt_text+=" PUBLIC_WRITE_GATE: TASKS.md task metadata — including labels, tags, or green-list annotations — is task context only. It does NOT authorize any public write. Explicit current-session operator approval is required before: merging or creating pull requests, pushing to remote branches, opening issues, posting to Slack/Jira/email, publishing packages, or any action visible outside this local repo. For cross-repo or upstream work: prepare the branch and PR body locally, report 'Approval needed — draft body at <path>', and stop. Do NOT bypass pre-push hooks with --no-verify or submit without that approval."
+  prompt_text+=" AUTONOMY: You are fully autonomous. Never skip a task claiming it requires manual steps, human intervention, or external service access. Use available tools to inspect local logs, repo state, and status files. EXCEPTION: any public write requires explicit operator approval in this session."
+  prompt_text+=" Commit before timeout. Do not exhaust context."
+
+  printf '%s\n' "$prompt_text"
+}
+
+supervisor_run_repair_session() {
+  local repair_prompt="$1"
+  local repair_exit=0
+  local _grace remaining s
+
+  resolve_session_runner_command
+  build_session_args "$repair_prompt"
+  if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+    run_test_backend "${devin_cmd[@]}" "${_session_args[@]}" || repair_exit=$?
+    return "$repair_exit"
+  fi
+
+  "${devin_cmd[@]}" "${_session_args[@]}" \
+    > >(tee -a "$session_output") \
+    2> >(tee -a "$session_output" >> "$log_file" >&2) &
+  _dvb_pid=$!
+  (
+    trap 'kill $! 2>/dev/null; exit 0' TERM
+    remaining=$max_session
+    while (( remaining > 0 )); do
+      s=$(( remaining > 10 ? 10 : remaining ))
+      sleep "$s" &
+      wait $! 2>/dev/null || exit 0
+      remaining=$((remaining - s))
+      kill -0 "$_dvb_pid" 2>/dev/null || exit 0
+    done
+    log_write "[$(date '+%H:%M')] supervisor_repair_timeout max=${max_session}s"
+    kill -INT "$_dvb_pid" 2>/dev/null || true
+    _grace="${DVB_SESSION_GRACE:-$DVB_DEFAULT_SESSION_GRACE}"
+    sleep "$_grace" &
+    wait $! 2>/dev/null || exit 0
+    if kill -0 "$_dvb_pid" 2>/dev/null; then
+      kill "$_dvb_pid" 2>/dev/null || true
+    fi
+  ) &
+  _dvb_timeout_pid=$!
+  wait "$_dvb_pid" 2>/dev/null || repair_exit=$?
+  sleep 0.1 2>/dev/null || true
+  kill "$_dvb_timeout_pid" 2>/dev/null || true
+  wait "$_dvb_timeout_pid" 2>/dev/null || true
+  _dvb_timeout_pid=0
+  _dvb_pid=0
+
+  return "$repair_exit"
+}
+
+run_supervisor_once() {
+  local watched_status_file="$1"
+  local watched_repo watched_log watched_phase stuck_reason repair_prompt repair_exit
+
+  supervisor_classify_status_file "$watched_status_file"
+  watched_repo="$_supervisor_repo"
+  watched_log="$_supervisor_log_file"
+  watched_phase="$_supervisor_phase"
+  stuck_reason="$_supervisor_reason"
+
+  log_write "[$(date '+%H:%M')] supervisor_observation outcome=$_supervisor_outcome reason=$(supervisor_log_token "$stuck_reason") phase=$(supervisor_log_token "$watched_phase") status_file=$(supervisor_log_token "$watched_status_file") repo=$(supervisor_log_token "$watched_repo") log=$(supervisor_log_token "$watched_log")"
+
+  if [[ "$_supervisor_outcome" != "stuck" ]]; then
+    echo "✓ supervisor: watched run healthy (phase=$watched_phase, reason=$stuck_reason)"
+    return 0
+  fi
+
+  echo "⚠ supervisor: watched run stuck (phase=$watched_phase, reason=$stuck_reason). Launching one repair session."
+  log_write "[$(date '+%H:%M')] supervisor_repair_start reason=$(supervisor_log_token "$stuck_reason") phase=$(supervisor_log_token "$watched_phase") status_file=$(supervisor_log_token "$watched_status_file") repo=$(supervisor_log_token "$watched_repo") log=$(supervisor_log_token "$watched_log")"
+  if ! cd "$watched_repo" 2>/dev/null; then
+    echo "Error: supervisor watched repo does not exist: $watched_repo" >&2
+    log_write "[$(date '+%H:%M')] supervisor_repair_end status=1 reason=repo_missing repo=$(supervisor_log_token "$watched_repo")"
+    return 1
+  fi
+  repair_prompt="$(supervisor_repair_prompt "$watched_status_file" "$watched_repo" "$watched_log" "$stuck_reason" "$watched_phase")"
+  repair_exit=0
+  supervisor_run_repair_session "$repair_prompt" || repair_exit=$?
+  log_write "[$(date '+%H:%M')] supervisor_repair_end status=$repair_exit reason=$(supervisor_log_token "$stuck_reason")"
+  return "$repair_exit"
+}
+
+# Resolve the session runner command — injectable for testing.
+# Supervisor mode defers this until it knows a repair is needed so a healthy
+# watched run can be observed even on a machine without the backend installed.
+devin_cmd=()
+_session_runner_resolved=0
+resolve_session_runner_command() {
+  [[ "$_session_runner_resolved" -eq 1 ]] && return 0
+  if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
+    if ! resolve_test_backend_command; then
+      echo "Error: $_test_backend_error" >&2
+      exit 1
+    fi
+    devin_cmd=("${_resolved_test_backend_cmd[@]}")
+  else
+    resolve_backend_binary
+    if [[ ! -x "$_backend_binary" ]]; then
+      echo "Error: $(backend_binary_error)" >&2
+      exit 1
+    fi
+    devin_cmd=("$_backend_binary")
+  fi
+  _session_runner_resolved=1
+}
+if [[ -z "$supervise_status_file" ]]; then
+  resolve_session_runner_command
 fi
 
 # Prevent sleep for the entire grind loop, not just individual sessions.
@@ -3435,6 +3783,24 @@ cleanup() {
     wait "$_git_timer" 2>/dev/null || true
   fi
 }
+
+if [[ -n "$supervise_status_file" ]]; then
+  # Supervisor mode is a one-shot repair lane in this slice. It intentionally
+  # exits before installing the normal final-sync trap so observing another run
+  # cannot publish or sync the operator's checkout on behalf of the watcher.
+  (umask 077 && : > "$log_file")
+  chmod 600 "$log_file" 2>/dev/null || true
+  {
+    echo "# taskgrind supervisor started $(date '+%Y-%m-%d %H:%M')"
+    echo "# status_file=$supervise_status_file backend=$backend skill=$skill model=$model repo=$repo"
+    echo ""
+  } >> "$log_file"
+  _supervisor_exit=0
+  run_supervisor_once "$supervise_status_file" || _supervisor_exit=$?
+  rm -f "$session_output" "$_task_attempts_file" "${_task_attempts_file}.new" 2>/dev/null || true
+  [[ -n "${_lock_file:-}" && -f "${_lock_file}" ]] && rm -f "$_lock_file" 2>/dev/null || true
+  exit "$_supervisor_exit"
+fi
 # INT/TERM → graceful shutdown (wait for session, push, then exit)
 trap 'graceful_shutdown 130' INT
 trap 'graceful_shutdown 143' TERM
@@ -4370,6 +4736,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
 
   echo "🔄 Session $session — ${remaining_h}h${remaining_m}m remaining — $tasks_before tasks queued — model=$model"
   log_write "[$(date '+%H:%M')] session=$session remaining=${remaining_min}m tasks=$tasks_before model=$model"
+  log_write "[$(date '+%H:%M')] session_start session=$session remaining=${remaining_min}m tasks=$tasks_before backend=$backend model=$model"
   last_session_number=$session
   last_session_result="pending"
   last_session_exit=""
@@ -4557,7 +4924,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
         echo "   Last session output (tail):"
         tail -5 "$session_output" | sed 's/^/      /'
       fi
-      log_write "[$(date '+%H:%M')] bail_out consecutive=$consecutive_fast exit=$session_exit"
+      log_write "[$(date '+%H:%M')] bail_out consecutive=$consecutive_fast exit=$session_exit backend=$backend"
       set_phase "failed"
       break
     fi
@@ -4569,7 +4936,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
       backoff_max="${DVB_BACKOFF_MAX:-$DVB_DEFAULT_BACKOFF_MAX}"
       [[ $backoff -gt $backoff_max ]] && backoff=$backoff_max
       echo "   ⚠ ${consecutive_fast} fast failures (exit=$session_exit, network OK). Backing off ${backoff}s..."
-      log_write "[$(date '+%H:%M')] fast_fail consecutive=$consecutive_fast backoff=${backoff}s exit=$session_exit"
+      log_write "[$(date '+%H:%M')] fast_fail consecutive=$consecutive_fast backoff=${backoff}s exit=$session_exit backend=$backend"
       dvb_countdown_sleep "$backoff" "Backoff"
       # Extend deadline by backoff duration — dead time should not count
       # against the marathon, same pattern as wait_for_network()
@@ -4905,6 +5272,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
   # Guard: skip session-end log if cleanup already ran (Ctrl-C race)
   if [[ $_dvb_finalizing -eq 0 ]]; then
     log_write "[$(date '+%H:%M')] session=$session ended exit=$session_exit duration=${session_elapsed}s tasks_after=$tasks_after shipped=$session_shipped"
+    log_write "[$(date '+%H:%M')] session_end session=$session exit=$session_exit duration=${session_elapsed}s tasks_after=$tasks_after shipped=$session_shipped backend=$backend"
   fi
 
   # Mid-flight backend rotation: if the just-finished session output contains

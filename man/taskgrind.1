@@ -3,7 +3,7 @@
 taskgrind \- autonomous multi-session grind tool
 .SH SYNOPSIS
 .B taskgrind
-[\fIhours\fR] [\fIrepo\fR] [\fB\-\-model\fR \fIname\fR] [\fB\-\-skill\fR \fIname\fR] [\fB\-\-backend\fR \fIname\fR] [\fB\-\-prompt\fR \fItext\fR] [\fB\-\-target\-repo\fR \fIpath\fR]... [\fB\-\-from\-prompt\fR \fItext\fR] [\fB\-\-dry\-run\fR] [\fB\-\-preflight\fR] [\fB\-\-resume\fR] [\fB\-\-no\-push\fR] [\fB\-\-help\fR] [\fB\-\-version\fR]
+[\fIhours\fR] [\fIrepo\fR] [\fB\-\-model\fR \fIname\fR] [\fB\-\-skill\fR \fIname\fR] [\fB\-\-backend\fR \fIname\fR] [\fB\-\-prompt\fR \fItext\fR] [\fB\-\-target\-repo\fR \fIpath\fR]... [\fB\-\-from\-prompt\fR \fItext\fR] [\fB\-\-dry\-run\fR] [\fB\-\-preflight\fR] [\fB\-\-resume\fR] [\fB\-\-no\-push\fR] [\fB\-\-supervise\fR \fIstatus-file\fR] [\fB\-\-help\fR] [\fB\-\-version\fR]
 .SH DESCRIPTION
 Runs sequential AI coding sessions against a TASKS.md repo until a deadline.
 Each session starts with full context, picks a task from TASKS.md, implements
@@ -123,6 +123,17 @@ and
 .B TG_PUBLIC_WRITE_TOKEN
 is set. Without the token, taskgrind writes a draft PR body to a temp file and
 falls through to manual recovery.
+.TP
+.BR \-\-supervise " " \fIstatus-file\fR
+Inspect another Taskgrind run's
+.B TG_STATUS_FILE
+JSON once. Healthy/progressing watched phases exit without invoking a
+backend; failed or stale watched phases launch one bounded repair session in
+the watched repo. The repair prompt includes the status path, watched log path,
+stuck reason, normal completion protocol,
+.B TG_NO_PUSH
+semantics, and the public-write gate. This is the first supervisor/fixer slice;
+continuous polling and richer repair heuristics are follow-up work.
 .TP
 .BR \-\-help ", " \-h
 Show usage and environment variables.
@@ -387,6 +398,14 @@ after installing a backend. Preflight checks the backend binary, validates the
 requested model before session 1, verifies that the selected backend can see
 the requested skill, and reports the most actionable setup failure before a
 long grind starts.
+.PP
+To run Claude Code as the primary lane, use the same preflight, env-default,
+rotation, and resume shapes as the other supported backends:
+.nf
+taskgrind \-\-preflight \-\-backend claude\-code \-\-model claude\-sonnet\-4.6 ~/apps/myrepo
+TG_BACKEND=claude\-code TG_MODEL=sonnet taskgrind ~/apps/myrepo 8
+taskgrind \-\-rotate\-backends devin,claude\-code,codex ~/apps/myrepo 8
+.fi
 .TP
 .B devin
 Binary detection uses
@@ -422,6 +441,19 @@ when the Claude Code CLI is not installed or not on
 and
 .B Model rejected by claude\-code before starting
 when the selected Claude model is not available to that install or account.
+Install or repair Claude Code with
+.B npm install \-g @anthropic\-ai/claude\-code
+and confirm
+.B claude \-\-version
+prints output. If preflight reports
+.B Backend binary is not executable (claude\-code)
+or the startup probe reports a silent stub after
+.BR \-\-version ,
+fix the
+.B claude
+binary on
+.B PATH
+before retrying.
 .TP
 .B codex
 Binary detection uses
@@ -647,6 +679,10 @@ Repo path being ground.
 .B pid
 Process ID of the current taskgrind run.
 .TP
+.B log_file
+Primary log path for the current run. Supervisor mode includes this watched log
+path in repair prompts when present.
+.TP
 .B slot
 Claimed concurrency slot for this repo.
 .TP
@@ -723,6 +759,7 @@ Lifecycle example:
 {
   "repo": "/Users/alex/apps/myrepo",
   "pid": 48122,
+  "log_file": "/tmp/taskgrind-myrepo.log",
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
@@ -753,6 +790,27 @@ from queue_empty, all_tasks_blocked, deadline_expired, or audit_focus_blocked,
 that reason remains in
 .B terminal_reason
 for slower monitors. Startup or runtime errors finish as failed.
+.PP
+To run one Taskgrind as a one-shot fixer for another, point
+.BR \-\-supervise
+at the watched run's status file:
+.PP
+.nf
+taskgrind \-\-supervise /tmp/taskgrind-status.json 1 ~/apps/myrepo
+.fi
+.PP
+Supervisor mode writes
+.BR supervisor_observation
+for every inspection. Healthy/progressing phases do not launch a backend.
+Failed or stale watched status logs
+.BR supervisor_repair_start
+and
+.BR supervisor_repair_end
+around a single repair session. Pass
+.BR \-\-no\-push
+or set
+.BR TG_NO_PUSH=1
+on the supervisor command when repair commits must stay local for review.
 .PP
 Supervisors should treat
 .BR startup ,
@@ -800,6 +858,10 @@ taskgrind \-\-model opus 8          # alias resolves to claude-opus-4-7-max
 taskgrind \-\-skill pipeline\-ops ~/apps/bosun 10
                                    # custom installed skill
 taskgrind \-\-backend claude\-code 8  # use Claude Code backend
+TG_BACKEND=claude\-code TG_MODEL=sonnet taskgrind ~/apps/myrepo 8
+                                   # reusable Claude Code defaults
+taskgrind \-\-rotate\-backends devin,claude\-code,codex ~/apps/myrepo 8
+                                   # override backend rotation
 taskgrind \-\-prompt "focus on test coverage" 8
 taskgrind \-\-dry\-run 8 ~/apps/myrepo
                                    # print config without running
@@ -807,6 +869,10 @@ taskgrind \-\-preflight ~/apps/myrepo
                                    # run health checks only
 taskgrind \-\-resume ~/apps/myrepo
                                    # resume an interrupted grind
+taskgrind \-\-resume \-\-backend claude\-code \-\-model sonnet ~/apps/myrepo
+                                   # resume with saved Claude Code choices
+taskgrind \-\-supervise /tmp/taskgrind-status.json 1 ~/apps/myrepo
+                                   # inspect another run once and repair if stuck
 taskgrind \-\-help / \-h            # show usage and environment variables
 taskgrind \-\-version / \-V         # print version
 TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8
@@ -845,6 +911,12 @@ skill, and baseline prompt overrides to match; changing those inputs turns the
 resume into a different grind and is rejected. See
 .I docs/resume-state.md
 for the current field contract and validation rules.
+.PP
+For example, a Claude Code grind that started with explicit backend/model
+choices should be resumed with the same startup choices:
+.nf
+taskgrind \-\-resume \-\-backend claude\-code \-\-model sonnet ~/apps/myrepo
+.fi
 .SH TROUBLESHOOTING
 When an unattended grind looks stuck, start with the JSON status file named by
 .B TG_STATUS_FILE
@@ -862,6 +934,21 @@ If the phase is one of the wait states, leave the process running and refill or
 unblock
 .I TASKS.md
 instead of restarting immediately.
+.TP
+.B TASKS.md is not a regular file
+If preflight reports that
+.I TASKS.md
+exists but is not a regular file, verify that you passed the real repo path.
+On macOS case-insensitive filesystems, a sibling directory such as
+.I tasks.md/
+can satisfy the
+.I TASKS.md
+path lookup when you meant to point at a specific repo instead of a
+parent-of-repos directory. Pass the concrete repo, use
+.BR \-\-target\-repo
+for workspace mode, or rerun with
+.BR \-\-from\-prompt
+if you do not remember the flags.
 .TP
 .B Slot contention
 Run
@@ -896,6 +983,24 @@ task keeps hitting the cap, split it into smaller IDs or mark it
 so the grind waits in
 .B blocked_wait
 instead of chewing attempts.
+.TP
+.B Claude Code preflight/session startup failure
+Run
+.B taskgrind \-\-preflight \-\-backend claude\-code \-\-model claude\-sonnet\-4.6 ~/apps/myrepo
+and inspect stderr plus the session log for
+.BR "Backend binary not found (claude\-code)" ,
+.BR "Backend binary is not executable (claude\-code)" ,
+or
+.BR "Model rejected by claude\-code before starting" .
+Install or repair
+.B @anthropic\-ai/claude\-code ,
+confirm
+.B claude \-\-version
+prints output, choose a Claude model the account can use, and rerun the same
+preflight before starting or resuming. If the failed run has an active
+.I .taskgrind\-state ,
+resume with the same saved backend/model/skill/prompt choices, for example
+.BR "taskgrind \-\-resume \-\-backend claude\-code \-\-model sonnet ~/apps/myrepo" .
 .TP
 .B Network wait
 Inspect

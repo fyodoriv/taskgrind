@@ -40,7 +40,7 @@ binary, model, and network assumptions for the backend you chose.
 | Backend | Binary taskgrind looks for | Model validation before session 1 | Most actionable setup failures |
 |---------|----------------------------|-----------------------------------|--------------------------------|
 | `devin` | `devin` from `PATH`, or `TG_DEVIN_PATH` if you override it | Validates the requested model by running `devin --model "$TG_MODEL" --help` during preflight | `Backend binary not found (devin)` means the CLI is missing or `TG_DEVIN_PATH` points at the wrong file. `Model rejected by devin before starting` means the model string is wrong for your Devin install. If the startup probe says the binary is a stub or broken after `--version`, reinstall or roll back the Devin CLI before retrying. |
-| `claude-code` | `claude` from `PATH` | Validates the requested model by running `claude --model "$TG_MODEL" --help` during preflight | `Backend binary not found (claude-code)` usually means `@anthropic-ai/claude-code` is not installed globally or `claude` is not on `PATH`. `Model rejected by claude-code before starting` means the selected Claude model is unavailable to that install or account. |
+| `claude-code` | `claude` from `PATH` | Validates the requested model by running `claude --model "$TG_MODEL" --help` during preflight | `Backend binary not found (claude-code)` usually means `@anthropic-ai/claude-code` is not installed globally or `claude` is not on `PATH`; run `npm install -g @anthropic-ai/claude-code` and confirm `claude --version` prints output. `Backend binary is not executable (claude-code)` means a `claude` file was found but cannot run. `Model rejected by claude-code before starting` means the selected Claude model is unavailable to that install or account. If the startup probe says the binary is a stub or broken after `--version`, reinstall Claude Code and retry. |
 | `codex` | `codex` from `PATH` | Validates the requested model by running `codex --model "$TG_MODEL" --help` during preflight | `Backend binary not found (codex)` means the Codex CLI is missing from `PATH`. If you explicitly choose a Claude model while using `--backend codex`, taskgrind warns before launch because Codex expects an OpenAI model such as `o3` or `gpt-5.5`. A later `Model rejected by codex before starting` failure means the chosen OpenAI model name is not accepted by your local Codex install. |
 
 Practical examples:
@@ -50,6 +50,22 @@ taskgrind --preflight ~/apps/myrepo
 taskgrind --preflight --backend claude-code --model claude-sonnet-4.6 ~/apps/myrepo
 taskgrind --preflight --backend codex --model o3 ~/apps/myrepo
 ```
+
+Claude Code is a first-class backend, not a special case. A typical Claude Code
+lane looks like:
+
+```bash
+taskgrind --preflight --backend claude-code --model claude-sonnet-4.6 ~/apps/myrepo
+TG_BACKEND=claude-code TG_MODEL=sonnet taskgrind ~/apps/myrepo 8
+taskgrind --rotate-backends devin,claude-code,codex ~/apps/myrepo 8
+taskgrind --resume --backend claude-code --model sonnet ~/apps/myrepo
+```
+
+If preflight reports `Backend binary not found (claude-code)`,
+`Backend binary is not executable (claude-code)`, or
+`Model rejected by claude-code before starting`, fix the local `claude`
+installation/model first, then rerun the same preflight command before starting
+or resuming the grind.
 
 ## Install
 
@@ -98,10 +114,11 @@ taskgrind --preflight ~/apps/myrepo    # run health checks only
 taskgrind --resume ~/apps/myrepo       # resume an interrupted grind
 taskgrind --no-push 8 ~/apps/myrepo    # commit locally, never auto-push to origin
 taskgrind --no-pr-fallback 8 ~/apps/myrepo  # on protected-branch push rejection, skip auto-PR fallback
+taskgrind --supervise /tmp/taskgrind-status.json 1 ~/apps/myrepo  # inspect another run once and repair if stuck
 taskgrind --help / -h                  # show usage and environment variables
 taskgrind --version / -V               # print version (commit hash + date)
 TG_MODEL=sonnet taskgrind 8            # pick a model alias without changing shell history
-TG_BACKEND=codex taskgrind 8           # make a wrapper or terminal default use Codex
+TG_BACKEND=claude-code taskgrind 8     # make a wrapper or terminal default use Claude Code
 TG_MAX_INSTANCES=3 taskgrind ~/apps/myrepo 8  # allow three concurrent grinds per repo
 TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8  # write machine-readable status snapshots
 TG_TARGET_REPOS=~/apps/frontend:~/apps/backend taskgrind ~/apps/control 8  # workspace mode via env (colon-separated)
@@ -175,6 +192,7 @@ Use `**Blocked by**` only when another task or external dependency truly prevent
 - **Preflight checks** — validates the backend, selected skill visibility, network, repo, disk, queue, and optional watchdog setup before launch, plus active slot reporting. `network-watchdog` is optional; if missing, taskgrind falls back to `curl` for connectivity checks.
 - **Pipeline-rate cross-check** — for skills that require bosun pipelines (`fleet-grind`, `full-sweep`, `bosun*`, `pipeline-*`, etc.), taskgrind captures a baseline of bosun's completed/waiting-for-merge pipeline count at preflight and compares to the end-of-session count at cleanup. The primary signal is **session-scoped**: when `BOSUN_GRIND_SESSION_ID` is set, the verifier queries `GET /api/v1/pipelines?grindSessionId=<id>` and only counts pipelines tagged with this Taskgrind grind session, so an unrelated fleet pipeline finishing during the run cannot mask a session-local bypass. The fleet-wide (`global_*`) counts are still logged for debugging. The API probe uses `BOSUN_TOKEN` when set, otherwise `~/.orchestrator/auth-token`, matching Bosun's authenticated `/api/v1/pipelines` routes. If the session shipped tasks but bosun saw zero new pipeline completions for THIS grind session, or if any new non-markdown commit lacks Bosun pipeline attribution (the Apr 28-29 incident shape — agent direct-committed code instead of going through pipelines), taskgrind logs `pipeline_verify ANOMALY` / `DIRECT_CODE_BYPASS` and auto-files a TASKS.md investigation entry. Best-effort: silent no-op when bosun is unreachable, when the skill doesn't need bosun, or when no baseline was captured.
 - **Bosun grind-session lifecycle** — for the same Bosun-dependent skills, taskgrind registers a `bosun grind` session at preflight, posts heartbeats every `TG_BOSUN_HEARTBEAT_INTERVAL` seconds (default 60s, well under Bosun's 5-minute disconnect timeout) while the controller is running, and calls `bosun grind done --reason completed` on a normal exit / `--reason aborted` on a signal or error exit. Heartbeats keep `lastHeartbeatAt` advancing so multi-minute child sessions don't get marked `disconnected` mid-grind (the 2026-04-30 fleet-grind canary failure shape). Caller-provided sessions (operator already exported `BOSUN_GRIND_SESSION_ID` before launching taskgrind) are heartbeated but **never** deregistered — the caller owns the slot. Heartbeat failures are logged as warnings and don't crash the grind.
+- **One-shot supervisor repair** — `taskgrind --supervise <TG_STATUS_FILE path>` reads another run's status JSON, ignores healthy/progressing phases, and launches one bounded repair session when the watched run is failed or stale. The repair prompt carries the watched status path, log path, repo, stuck reason, normal completion protocol, `TG_NO_PUSH` semantics, and the public-write gate. Use this first slice for targeted unblockers; continuous polling and richer repair states are tracked as follow-up tasks.
 - **Self-copy protection** — copies itself to `$TMPDIR` before running, survives script edits mid-grind
 - **Slot-based per-repo locking** — `TG_MAX_INSTANCES` allows multiple concurrent grinds on the same repo; slot 0 owns between-session git sync, higher slots get conflict-avoidance prompt guidance
 - **Blocked-queue detection** — when every remaining task has `**Blocked by**:` metadata, taskgrind sets the status phase to `blocked_wait`, pauses the marathon timer for 600 s (capped at the remaining deadline) while an external event (CI, merged PR, another agent) can unblock work, extends the deadline by the wait duration so no time budget is lost, re-checks the queue, and only then exits with the `all_tasks_blocked` phase and terminal reason if nothing changed
@@ -265,7 +283,15 @@ TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8
 cat /tmp/taskgrind-status.json
 ```
 
-The status file updates atomically on startup, before and after each session, during empty-queue sweeps and wait windows, during network waits, around git-sync decisions, and on final completion or failure. It includes the repo, process ID, slot, backend, skill, model, current session, remaining minutes, current phase, and the most recent session result.
+The status file updates atomically on startup, before and after each session, during empty-queue sweeps and wait windows, during network waits, around git-sync decisions, and on final completion or failure. It includes the repo, process ID, log path, slot, backend, skill, model, current session, remaining minutes, current phase, and the most recent session result.
+
+To let one Taskgrind instance inspect another without growing a separate command family, point supervisor mode at the watched run's status file:
+
+```bash
+taskgrind --supervise /tmp/taskgrind-status.json 1 ~/apps/myrepo
+```
+
+The current supervisor slice is intentionally one-shot. It logs `supervisor_observation`, skips healthy/progressing watched phases, and logs `supervisor_repair_start` / `supervisor_repair_end` around a single repair session for failed or stale watched status. Keep `TG_NO_PUSH=1` or `--no-push` on the supervisor command when the repair branch must stay local for review.
 
 Supervisor example:
 
@@ -322,6 +348,7 @@ Status payload fields:
 |-------|------|---------|
 | `repo` | string | Absolute or user-supplied repo path being ground |
 | `pid` | number | Process ID of the current `taskgrind` run |
+| `log_file` | string | Primary log path for the current run; supervisor mode uses this to include watched-run context in repair prompts |
 | `slot` | number | Claimed concurrency slot for this repo (`0` owns git sync) |
 | `backend` | string | Active backend such as `devin`, `claude-code`, or `codex` |
 | `skill` | string | Skill prompt sent to each session |
@@ -344,6 +371,7 @@ Example lifecycle snapshots:
 {
   "repo": "/Users/alex/apps/myrepo",
   "pid": 48122,
+  "log_file": "/tmp/taskgrind-myrepo.log",
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
@@ -368,6 +396,7 @@ Example lifecycle snapshots:
 {
   "repo": "/Users/alex/apps/myrepo",
   "pid": 48122,
+  "log_file": "/tmp/taskgrind-myrepo.log",
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
@@ -391,6 +420,7 @@ Example lifecycle snapshots:
 {
   "repo": "/Users/alex/apps/myrepo",
   "pid": 48122,
+  "log_file": "/tmp/taskgrind-myrepo.log",
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
@@ -414,6 +444,7 @@ Example lifecycle snapshots:
 {
   "repo": "/Users/alex/apps/myrepo",
   "pid": 48122,
+  "log_file": "/tmp/taskgrind-myrepo.log",
   "slot": 0,
   "backend": "devin",
   "skill": "next-task",
@@ -596,6 +627,7 @@ story in the log named in the startup banner.
 | Another terminal says the repo is busy or a new worker will not start | `taskgrind --preflight ~/apps/myrepo` for `slots: N/M active`; the active-slot owner list in preflight output; `current_phase` in `TG_STATUS_FILE` for the active worker | Wait for a slot to free up, or raise `TG_MAX_INSTANCES` before starting another grind. Keep slot `0` as the sync owner; point higher slots at docs, audits, `TASKS.md` maintenance, or status-file supervision instead of overlapping code edits. |
 | Sessions keep ending with zero shipped tasks | `last_session.result`, `last_session.shipped`, and log markers such as `productive_zero_ship`, `shipped_inferred`, or repeated `tasks_after=` counts | Read the last few session summaries before killing the run. If the queue is churning under another agent, taskgrind may still be shipping work. If the same task is being retried without progress, tighten the prompt, split the task, or remove the blocker in `TASKS.md` before resuming. |
 | Same task retried for hours with no progress | `task_skip_threshold ids=<id>` in the log; the next session banner + prompt contains `SKIP these stuck tasks (attempted 3+ times): <id>` | Taskgrind automatically skips tasks after 3 unproductive sessions on them. Read the task itself: if it is genuinely ambiguous, split it into 2–3 sub-tasks (the smaller IDs start fresh counters). If it is actually blocked on an external event, add `**Blocked by**:` metadata so the grind uses `blocked_wait` instead of the skip list. Shipping or removing the task clears its counter. |
+| Claude Code fails before useful work starts | `taskgrind --preflight --backend claude-code --model claude-sonnet-4.6 ~/apps/myrepo`; stderr/log lines containing `Backend binary not found (claude-code)`, `Backend binary is not executable (claude-code)`, or `Model rejected by claude-code before starting` | Install or repair `@anthropic-ai/claude-code`, confirm `claude --version` prints output, and choose a Claude model the account can use. If the failed run was resumable, rerun `taskgrind --resume --backend claude-code --model sonnet ~/apps/myrepo` with the same startup backend/model/skill/prompt choices saved in `.taskgrind-state`. |
 | Network outages pause progress for too long | `current_phase=waiting_for_network`; log lines around connectivity retries and `network_restored` | Let taskgrind hold the deadline open during short outages. If the outage exceeds `TG_NET_MAX_WAIT`, restore connectivity first, then resume with the same repo plus the original startup overrides so the saved backend/model/skill/prompt contract still matches. |
 | `--resume` refuses to continue | The rejection message in stderr; `.taskgrind-state`; `docs/resume-state.md` for the saved field contract | Fix the mismatch the message calls out: rerun with the same repo plus the same `--backend`, `--model`, `--skill`, and baseline `--prompt` / `TG_PROMPT` inputs, restore the missing state file, or start a fresh grind if the deadline already expired. Do not copy stale state across repos. |
 | Final push or sync fails during shutdown | The final `git push` / `git pull --rebase` lines in the log; `git status --short`; `git log --oneline --decorate -5` | Resolve the git problem in the repo first, usually with `git pull --rebase` for incoming changes or by fixing the rejected push target. Then rerun resume with the same repo plus the original startup overrides if the interrupted run did not use pure defaults. |

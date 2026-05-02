@@ -167,6 +167,22 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [ -f "$DVB_GRIND_INVOKE_LOG" ] && grep -q -- '--dangerously-skip-permissions' "$DVB_GRIND_INVOKE_LOG"
 }
 
+@test "claude-code backend completes workload with lifecycle log and status parity" {
+  export DVB_STATUS_FILE="$TEST_DIR/status.json"
+
+  run_tiny_workload --backend claude-code 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"backend=claude-code"* ]]
+  grep -q -- '--dangerously-skip-permissions' "$DVB_GRIND_INVOKE_LOG"
+  grep -q 'backend=claude-code' "$TEST_LOG"
+  grep -qE 'session_start session=1 .*backend=claude-code' "$TEST_LOG"
+  grep -qE 'session_end session=1 .*backend=claude-code' "$TEST_LOG"
+  grep -q '"backend": "claude-code"' "$DVB_STATUS_FILE"
+  grep -q '"current_phase": "complete"' "$DVB_STATUS_FILE"
+  grep -q '"shipped": 1' "$DVB_STATUS_FILE"
+}
+
 @test "codex backend invokes with -q flag" {
   export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" --backend codex 1 "$TEST_REPO"
@@ -693,6 +709,8 @@ SCRIPT
   # prefix).
   local -a static_markers=(
     # Session lifecycle
+    "session_start"
+    "session_end"
     "session_timeout"
     "remaining="         # session=N remaining=Mm tasks=N model= ...
     " ended exit="       # session=N ended exit=N duration=Ns ...

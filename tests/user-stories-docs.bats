@@ -39,6 +39,33 @@
   [ "$status" -eq 0 ]
 }
 
+@test "operator docs present Claude Code as a first-class backend path" {
+  run grep -nF 'TG_BACKEND=claude-code TG_MODEL=sonnet taskgrind ~/apps/myrepo 8' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+  run grep -nF 'taskgrind --resume --backend claude-code --model sonnet ~/apps/myrepo' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+  run grep -nF 'taskgrind --rotate-backends devin,claude-code,codex ~/apps/myrepo 8' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+  run grep -nF 'Claude Code fails before useful work starts' "$BATS_TEST_DIRNAME/../README.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF '## 2b. Claude Code as the primary backend' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
+  [ "$status" -eq 0 ]
+  run grep -nF 'TG_BACKEND=claude-code TG_MODEL=sonnet taskgrind ~/apps/myproject 6' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
+  [ "$status" -eq 0 ]
+  run grep -nF 'taskgrind --resume --backend claude-code --model sonnet ~/apps/myproject' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
+  [ "$status" -eq 0 ]
+
+  run grep -nF 'TG_BACKEND=claude-code taskgrind 8' "$BATS_TEST_DIRNAME/../bin/taskgrind"
+  [ "$status" -eq 0 ]
+  run grep -nF 'TG_BACKEND=claude\-code TG_MODEL=sonnet taskgrind ~/apps/myrepo 8' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  [ "$status" -eq 0 ]
+  run grep -nF 'taskgrind \-\-resume \-\-backend claude\-code \-\-model sonnet ~/apps/myrepo' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  [ "$status" -eq 0 ]
+  run grep -nF 'Claude Code preflight/session startup failure' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  [ "$status" -eq 0 ]
+}
+
 
 @test "contributor docs mention the Bash 3.2 compatibility guard" {
   run grep -nF 'Taskgrind runtime files must stay compatible with `/bin/bash` 3.2' "$BATS_TEST_DIRNAME/../README.md"
