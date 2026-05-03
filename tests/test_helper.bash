@@ -38,6 +38,8 @@ taskgrind_test_setup() {
     || cp "$BATS_TEST_DIRNAME/../lib/constants.sh" "$TEST_DOTFILES/lib/"
   cp -c "$BATS_TEST_DIRNAME/../lib/fullpower.sh" "$TEST_DOTFILES/lib/" 2>/dev/null \
     || cp "$BATS_TEST_DIRNAME/../lib/fullpower.sh" "$TEST_DOTFILES/lib/"
+  cp -c "$BATS_TEST_DIRNAME/../lib/watchdog.sh" "$TEST_DOTFILES/lib/" 2>/dev/null \
+    || cp "$BATS_TEST_DIRNAME/../lib/watchdog.sh" "$TEST_DOTFILES/lib/"
   # Default TASKS.md with one task so sessions launch (tests override as needed)
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks

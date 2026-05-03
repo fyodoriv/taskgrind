@@ -13,7 +13,7 @@ empty :=
 space := $(empty) $(empty)
 
 # Files that affect test outcomes — used for git-based cache
-TEST_SHARED_DEPS = bin/taskgrind lib/constants.sh lib/fullpower.sh tests/test_helper.bash
+TEST_SHARED_DEPS = bin/taskgrind lib/constants.sh lib/fullpower.sh lib/watchdog.sh tests/test_helper.bash
 TEST_TARGET_KEY = $(subst $(space),_,$(subst /,_,$(subst *,_all_,$(TESTS))))
 TEST_CACHE = $(TEST_CACHE_BASENAME)-$(TEST_TARGET_KEY)
 RUN_BATS = ulimit -Su unlimited 2>/dev/null || true; run_tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/taskgrind-bats.XXXXXX") || exit 1; trap '. ./tests/test_helper.bash; remove_with_retries "$$run_tmp"' EXIT INT TERM; TMPDIR="$$run_tmp" bats --jobs $(TEST_JOBS) $(TESTS)
@@ -33,7 +33,7 @@ help:
 lint:
 	@echo "═══ Shellcheck ═══"
 	@cd bin && shellcheck -x taskgrind
-	@shellcheck lib/constants.sh lib/fullpower.sh
+	@shellcheck lib/constants.sh lib/fullpower.sh lib/watchdog.sh
 	@shellcheck install.sh
 	@echo "✓ All scripts pass shellcheck"
 

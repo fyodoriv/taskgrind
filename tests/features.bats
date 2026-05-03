@@ -1220,12 +1220,14 @@ SCRIPT
 
 @test "structural: sweep watchdog uses sweep_max_session, not max_session" {
   # Anchor the assertion on the comment-block plus the sweep-only
-  # watchdog assignment so a future refactor cannot silently fold
+  # watchdog invocation so a future refactor cannot silently fold
   # sweeps back under the productive-timeout-escalated grind cap.
   grep -q 'sweep_max_session, NOT max_session' "$DVB_GRIND"
-  # The sweep block runs `remaining=$sweep_max_session` inside the
-  # subshell timer. Pinpoint the exact line shape.
-  grep -q 'remaining=\$sweep_max_session' "$DVB_GRIND"
+  # The sweep watchdog must call dvb_watchdog_run with the sweep cap.
+  # The shared escalation helper (lib/watchdog.sh) takes the cap as
+  # its 2nd argument; pin the exact site so a future refactor cannot
+  # silently swap in $max_session here.
+  grep -q 'dvb_watchdog_run "sweep" "\$sweep_max_session" "\$_dvb_pid"' "$DVB_GRIND"
 }
 
 @test "structural: sweep_done log line includes the cap value" {

@@ -634,17 +634,35 @@ SCRIPT
 }
 
 @test "timeout watchdog uses kill-0 polling to detect session exit" {
-  grep -q 'kill -0 "$_dvb_pid"' "$DVB_GRIND"
+  grep -q 'kill -0 "$target_pid"' "$BATS_TEST_DIRNAME/../lib/watchdog.sh"
 }
 
 @test "timeout watchdog logs session_timeout on kill" {
-  grep -q 'session_timeout' "$DVB_GRIND"
+  # The legacy marker is now passed as the 4th argument to dvb_watchdog_run
+  # so the grind-log-analyze skill keeps grepping the same `session_timeout
+  # session=N max=Ms` line. The structural test stays — bin/taskgrind must
+  # construct the marker even though the emit lives in lib/watchdog.sh.
+  grep -q 'session_timeout session=' "$DVB_GRIND"
 }
 
-@test "timeout watchdog is killable via SIGTERM (trap + sleep &; wait)" {
-  grep -q "trap 'kill \$! 2>/dev/null; exit 0' TERM" "$DVB_GRIND"
-  grep -q 'sleep "$s" &' "$DVB_GRIND"
-  grep -q 'wait $!' "$DVB_GRIND"
+@test "timeout watchdog escalates SIGINT -> SIGTERM -> SIGKILL with wall-clock fallback" {
+  # Replaces the previous 'trap kill $!; exit 0 TERM' assertion that
+  # actually pinned the disarm-on-spurious-signal bug. The new contract:
+  # TERM/INT exit cleanly only when the backend is already dead (parent
+  # tear-down path), but are ignored when the backend is alive (so a
+  # spurious signal cannot disarm the cap), and the watchdog escalates
+  # through three signals with a wall-clock ceiling fallback. Source:
+  # `sweep-watchdog-escalate-to-sigkill` (TASKS.md), reproduced from the
+  # 2026-05-01 dotfiles grind log where a sweep ran 14.95x its cap.
+  local watchdog="$BATS_TEST_DIRNAME/../lib/watchdog.sh"
+  # Trap honors both states: clean exit when backend dead, ignore when alive.
+  grep -q "trap 'if ! kill -0 \"\$target_pid\" 2>/dev/null; then exit 0; fi' TERM INT" "$watchdog"
+  grep -q 'kill -INT "$target_pid"' "$watchdog"
+  grep -q 'kill "$target_pid"' "$watchdog"
+  grep -q 'kill -KILL "$target_pid"' "$watchdog"
+  grep -q 'pkill -KILL -P "$target_pid"' "$watchdog"
+  grep -q 'wall_cap=' "$watchdog"
+  grep -q 'escalation=SIGKILL' "$watchdog"
 }
 
 # ── Dry Run ───────────────────────────────────────────────────────────

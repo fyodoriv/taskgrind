@@ -96,6 +96,7 @@
 #        TG_EMPTY_QUEUE_WAIT — seconds to wait after an empty sweep (default: 600)
 #        TG_SHUTDOWN_GRACE — seconds to wait for current session on exit (default: 120)
 #        TG_SESSION_GRACE — seconds to wait after session SIGINT before SIGTERM (default: 15)
+#        TG_WATCHDOG_KILL_GRACE — seconds to wait after SIGTERM before SIGKILL escalation (default: 5)
 #        TG_STALL_EXIT  — when to auto-exit on the diminishing_returns
 #                         signal: 'never' (advisory only), 'first' (exit on
 #                         the first trip with `early_exit_stall`), or
@@ -217,6 +218,12 @@ trap '[[ -n "${_DVB_SELF_COPY:-}" && -f "${_DVB_SELF_COPY}" ]] && rm -f "$_DVB_S
 source "$TASKGRIND_DIR/lib/constants.sh"
 _dvb_is_tty="${_dvb_is_tty:-0}"
 
+# Watchdog escalation helper (SIGINT -> SIGTERM -> SIGKILL with wall-clock
+# fallback). Sourced after constants so DVB_DEFAULT_SESSION_GRACE and
+# DVB_DEFAULT_WATCHDOG_KILL_GRACE are visible.
+# shellcheck source=../lib/watchdog.sh
+source "$TASKGRIND_DIR/lib/watchdog.sh"
+
 # ── TG_ prefix resolution ─────────────────────────────────────────────
 # TG_ is the canonical prefix; DVB_ is kept for backward compat.
 # If TG_X is set, it takes precedence over DVB_X. Internal/test-only vars
@@ -229,7 +236,7 @@ for _tg_var in BACKEND BACKOFF_BASE BACKOFF_MAX COOL DEVIN_PATH \
                PUBLIC_WRITE_TOKEN \
                ROTATE_BACKENDS SELF_INVESTIGATE_ZERO_SHIP_STREAK SESSION_GRACE \
                SHUTDOWN_GRACE SKILL STALL_EXIT STATUS_FILE SWEEP_MAX SYNC_INTERVAL \
-               TARGET_REPOS TRUSTED_REPO; do
+               TARGET_REPOS TRUSTED_REPO WATCHDOG_KILL_GRACE; do
   _tg_ref="TG_${_tg_var}"
   if [[ -n "${!_tg_ref:-}" ]]; then
     export "DVB_${_tg_var}"="${!_tg_ref}"
@@ -706,6 +713,9 @@ if [[ -n "${DVB_SHUTDOWN_GRACE:-}" ]] && ! [[ "${DVB_SHUTDOWN_GRACE}" =~ ^[0-9]+
 fi
 if [[ -n "${DVB_SESSION_GRACE:-}" ]] && ! [[ "${DVB_SESSION_GRACE}" =~ ^[0-9]+$ ]]; then
   echo "Error: TG_SESSION_GRACE must be numeric, got '${DVB_SESSION_GRACE}'" >&2; exit 1
+fi
+if [[ -n "${DVB_WATCHDOG_KILL_GRACE:-}" ]] && ! [[ "${DVB_WATCHDOG_KILL_GRACE}" =~ ^[0-9]+$ ]]; then
+  echo "Error: TG_WATCHDOG_KILL_GRACE must be numeric, got '${DVB_WATCHDOG_KILL_GRACE}'" >&2; exit 1
 fi
 if [[ -n "${DVB_MIN_SESSION:-}" ]] && ! [[ "${DVB_MIN_SESSION}" =~ ^[0-9]+$ ]]; then
   echo "Error: TG_MIN_SESSION must be numeric, got '${DVB_MIN_SESSION}'" >&2; exit 1
@@ -3147,7 +3157,6 @@ supervisor_repair_prompt() {
 supervisor_run_repair_session() {
   local repair_prompt="$1"
   local repair_exit=0
-  local _grace remaining s
 
   resolve_session_runner_command
   build_session_args "$repair_prompt"
@@ -3160,25 +3169,11 @@ supervisor_run_repair_session() {
     > >(tee -a "$session_output") \
     2> >(tee -a "$session_output" >> "$log_file" >&2) &
   _dvb_pid=$!
-  (
-    trap 'kill $! 2>/dev/null; exit 0' TERM
-    remaining=$max_session
-    while (( remaining > 0 )); do
-      s=$(( remaining > 10 ? 10 : remaining ))
-      sleep "$s" &
-      wait $! 2>/dev/null || exit 0
-      remaining=$((remaining - s))
-      kill -0 "$_dvb_pid" 2>/dev/null || exit 0
-    done
-    log_write "[$(date '+%H:%M')] supervisor_repair_timeout max=${max_session}s"
-    kill -INT "$_dvb_pid" 2>/dev/null || true
-    _grace="${DVB_SESSION_GRACE:-$DVB_DEFAULT_SESSION_GRACE}"
-    sleep "$_grace" &
-    wait $! 2>/dev/null || exit 0
-    if kill -0 "$_dvb_pid" 2>/dev/null; then
-      kill "$_dvb_pid" 2>/dev/null || true
-    fi
-  ) &
+  # Watchdog (lib/watchdog.sh) escalates SIGINT -> SIGTERM -> SIGKILL with
+  # a wall-clock fallback so a wedged backend cannot run past max_session.
+  # Cannot be silently disarmed by spurious signals — the previous inlined
+  # body had a `trap '... exit 0' TERM` self-disarm bug.
+  ( dvb_watchdog_run "supervisor_repair" "$max_session" "$_dvb_pid" ) &
   _dvb_timeout_pid=$!
   wait "$_dvb_pid" 2>/dev/null || repair_exit=$?
   sleep 0.1 2>/dev/null || true
@@ -4665,28 +4660,22 @@ while [[ $(date +%s) -lt $deadline ]]; do
         > >(tee -a "$session_output") \
         2> >(tee -a "$session_output" >> "$log_file" >&2) &
       _dvb_pid=$!
-      (
-        trap 'kill $! 2>/dev/null; exit 0' TERM
-        # Sweep watchdog uses sweep_max_session, NOT max_session — a
-        # productive-timeout-escalated grind cap must not lengthen the
-        # backlog-discovery budget. Without this, mid-run sweeps could
-        # inherit a 7200 s ceiling and burn ~14 % of a 10 h grind on
-        # backlog discovery (observed 2026-04-24).
-        remaining=$sweep_max_session
-        while (( remaining > 0 )); do
-          s=$(( remaining > 10 ? 10 : remaining ))
-          sleep "$s" &
-          wait $! 2>/dev/null || exit 0
-          remaining=$((remaining - s))
-          kill -0 "$_dvb_pid" 2>/dev/null || exit 0
-        done
-        kill -INT "$_dvb_pid" 2>/dev/null || true
-        sleep 15 &
-        wait $! 2>/dev/null || exit 0
-        if kill -0 "$_dvb_pid" 2>/dev/null; then
-          kill "$_dvb_pid" 2>/dev/null || true
-        fi
-      ) &
+      # Sweep watchdog uses sweep_max_session, NOT max_session — a
+      # productive-timeout-escalated grind cap must not lengthen the
+      # backlog-discovery budget. Without this, mid-run sweeps could
+      # inherit a 7200 s ceiling and burn ~14 % of a 10 h grind on
+      # backlog discovery (observed 2026-04-24).
+      #
+      # Watchdog (lib/watchdog.sh) escalates SIGINT -> SIGTERM -> SIGKILL
+      # with a wall-clock fallback so a wedged backend cannot run past
+      # the cap. The 2026-05-01 dotfiles grind log saw a sweep run
+      # 26908s against a 1800s cap (14.95x overrun) because the previous
+      # inlined body stopped at SIGTERM and could be silently disarmed
+      # by spurious signals. The escalation marker
+      # `sweep_watchdog escalation=SIGKILL pid=N elapsed=Ns` is emitted
+      # only on the forced-kill path so post-mortems can prove the
+      # watchdog fired.
+      ( dvb_watchdog_run "sweep" "$sweep_max_session" "$_dvb_pid" ) &
       _dvb_timeout_pid=$!
       wait "$_dvb_pid" 2>/dev/null || session_exit=$?
       sleep 0.1 2>/dev/null || true  # let tee flush
@@ -4944,28 +4933,20 @@ while [[ $(date +%s) -lt $deadline ]]; do
       > >(tee -a "$session_output") \
       2> >(tee -a "$session_output" >> "$log_file" >&2) &
     _dvb_pid=$!
-    (
-      trap 'kill $! 2>/dev/null; exit 0' TERM
-      remaining=$max_session
-      while (( remaining > 0 )); do
-        s=$(( remaining > 10 ? 10 : remaining ))
-        sleep "$s" &
-        wait $! 2>/dev/null || exit 0
-        remaining=$((remaining - s))
-        kill -0 "$_dvb_pid" 2>/dev/null || exit 0
-      done
-      echo "   ⏰ Session $session hit ${max_session}s timeout — sending SIGINT for graceful shutdown"
-      log_write "[$(date '+%H:%M')] session_timeout session=$session max=${max_session}s"
-      kill -INT "$_dvb_pid" 2>/dev/null || true
-      # Grace period: let devin commit before force-killing
-      _grace="${DVB_SESSION_GRACE:-$DVB_DEFAULT_SESSION_GRACE}"
-      sleep "$_grace" &
-      wait $! 2>/dev/null || exit 0
-      if kill -0 "$_dvb_pid" 2>/dev/null; then
-        echo "   ⏰ Session $session still alive after ${_grace}s grace — sending SIGTERM"
-        kill "$_dvb_pid" 2>/dev/null || true
-      fi
-    ) &
+    # Per-session watchdog (lib/watchdog.sh): SIGINT -> SIGTERM -> SIGKILL
+    # escalation with a wall-clock fallback. Cannot be silently disarmed
+    # by spurious signals — the previous inlined body had a `trap '...
+    # exit 0' TERM` self-disarm bug. Emits the escalation log line
+    # `session_watchdog escalation=SIGKILL pid=N elapsed=Ns` on the
+    # forced-kill path so a wedged backend cannot run past max_session
+    # without leaving an audit trail.
+    #
+    # The 4th arg is the legacy marker — the helper emits this verbatim
+    # at the moment the cap fires (before SIGINT). Preserves the
+    # `session_timeout session=N max=Ms` log line that
+    # .devin/skills/grind-log-analyze/SKILL.md greps for.
+    ( dvb_watchdog_run "session" "$max_session" "$_dvb_pid" \
+        "session_timeout session=$session max=${max_session}s" ) &
     _dvb_timeout_pid=$!
     # Background elapsed timer — updates the terminal with session duration
     _dvb_timer_pid=0

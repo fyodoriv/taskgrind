@@ -11,6 +11,7 @@ taskgrind/
 ├── bin/taskgrind           Main script (runs AI sessions in a loop)
 ├── lib/constants.sh        Shared constants (model/backend/caffeinate + canonical TG_* defaults)
 ├── lib/fullpower.sh        Priority boosting (taskpolicy for macOS)
+├── lib/watchdog.sh         Session/sweep/repair watchdog (SIGINT→SIGTERM→SIGKILL escalation)
 ├── tests/*.bats            Focused bats suites by subsystem (basics, preflight, session, git-sync, logging, network, ...)
 ├── tests/preflight.bats    Preflight coverage for backend, repo, slot, and startup validation
 ├── tests/installer-output.bats  Install-script output coverage for local and PATH guidance

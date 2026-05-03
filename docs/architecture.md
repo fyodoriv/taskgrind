@@ -114,6 +114,35 @@ that is what the first session gets") while still letting long autonomous
 runs adapt to tasks that need more runway than the operator originally
 guessed.
 
+## Why the watchdog escalates SIGINT → SIGTERM → SIGKILL
+
+The per-session, sweep, and supervisor-repair watchdogs all share the
+same caps-must-be-hard contract: when the cap fires, the backend has to
+die. Earlier inlined watchdog bodies stopped at `SIGTERM` and could be
+silently disarmed by an external `SIGTERM` to the watchdog itself
+(`trap 'kill $! 2>/dev/null; exit 0' TERM`). That combination is what
+let a 2026-05-01 sweep run 26 908 s against a 1800 s `TG_SWEEP_MAX`
+cap (14.95× overrun): a Claude-Code retry loop ignored both `SIGINT`
+and `SIGTERM`, the watchdog had no further escalation, and at some
+point a spurious `SIGTERM` reached the watchdog process and made it
+exit cleanly while the wedged backend kept running.
+
+`lib/watchdog.sh` now owns the escalation. It runs in a backgrounded
+subshell, ignores `TERM`/`INT` so spurious signals cannot disarm it,
+and walks `SIGINT` → wait `TG_SESSION_GRACE` → `SIGTERM` (+ `pkill -P`)
+→ wait `TG_WATCHDOG_KILL_GRACE` → `SIGKILL` (+ `pkill -KILL -P`). A
+wall-clock ceiling (`cap + grace + kill_grace + 60 s`) is enforced
+on top of the per-phase accounting so even pathological clock-skew or
+signal-storm scenarios cannot leave the watchdog running unbounded.
+
+Each transition emits a `<context>_watchdog escalation=<signal>` log
+line so post-mortems can prove the watchdog fired. The legacy
+`session_timeout session=N max=Ms` marker is preserved by passing the
+exact line as the watchdog's optional 4th argument, so the
+`grind-log-analyze` skill keeps grepping the same token. Sweep and
+supervisor-repair contexts have no legacy marker because the previous
+inlined bodies never logged one.
+
 ## Why session boundaries are the context-budget guard
 
 Taskgrind assumes each AI run is a bounded unit of work: start with fresh

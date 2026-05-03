@@ -385,6 +385,17 @@ Seconds to wait for current session on exit (default: 120).
 .B TG_SESSION_GRACE
 Seconds to wait after session SIGINT before SIGTERM (default: 15).
 .TP
+.B TG_WATCHDOG_KILL_GRACE
+Seconds to wait after session/sweep SIGTERM before the final SIGKILL
+escalation (default: 5). The watchdog escalates
+.BR SIGINT " \(-> "
+.BR SIGTERM " \(-> "
+.BR SIGKILL
+so a wedged backend cannot run past the cap. See TROUBLESHOOTING for
+the
+.B sweep_watchdog escalation=SIGKILL
+log marker emitted on the forced-kill path.
+.TP
 .B TG_STALL_EXIT
 When to auto-exit on the
 .BR diminishing_returns
@@ -1058,6 +1069,38 @@ the outage exceeds
 restore connectivity and rerun
 .B taskgrind \-\-resume
 to keep the original deadline.
+.TP
+.B Sweep ran past TG_SWEEP_MAX
+Grep the log for
+.BR "sweep_watchdog escalation=SIGKILL"
+\(em the watchdog emits this marker only when a wedged backend ignored
+both
+.B SIGINT
+and
+.B SIGTERM
+and had to be force\-killed. Absence of the line on a sweep that
+exceeded its cap means the watchdog itself was disabled before the cap
+fired (file a bug). The watchdog ignores spurious
+.B TERM
+and
+.B INT
+signals so an external
+.B kill \-TERM
+on the watchdog process cannot disarm it; the
+.B sweep_watchdog escalation=SIGINT
+and
+.B sweep_watchdog escalation=SIGTERM
+markers fire in order before
+.B SIGKILL
+to make the escalation auditable. See
+.B TG_WATCHDOG_KILL_GRACE
+to tune the
+.B SIGTERM \(rA SIGKILL
+window. The same escalation contract applies to per\-session and
+supervisor\-repair watchdogs (markers
+.B session_watchdog
+and
+.B supervisor_repair_watchdog ).
 .TP
 .B Resume rejected
 Read the stderr reason, inspect

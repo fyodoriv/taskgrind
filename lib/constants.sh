@@ -57,6 +57,11 @@ DVB_DEFAULT_EMPTY_QUEUE_WAIT="600"
 DVB_DEFAULT_SHUTDOWN_GRACE="120"
 # TG_SESSION_GRACE=15: lets a timed-out backend handle SIGINT without losing the whole grind budget.
 DVB_DEFAULT_SESSION_GRACE="15"
+# TG_WATCHDOG_KILL_GRACE=5: window between SIGTERM and the final SIGKILL escalation in
+# the session/sweep/repair watchdog. Five seconds is enough for a cooperative tool
+# to finish flushing stdout/stderr after SIGTERM but small enough that a wedged
+# backend cannot burn a meaningful share of the cap on top of TG_SESSION_GRACE.
+DVB_DEFAULT_WATCHDOG_KILL_GRACE="5"
 # TG_SELF_INVESTIGATE_ZERO_SHIP_STREAK=3: three zero-ship sessions is enough evidence to rotate/investigate.
 DVB_DEFAULT_SELF_INVESTIGATE_ZERO_SHIP_STREAK="3"
 
