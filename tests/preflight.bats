@@ -206,6 +206,84 @@ SCRIPT
   [[ "$output" == *"merge in progress"* ]]
 }
 
+# ── Stale stash hygiene ──────────────────────────────────────────────
+
+# Helper: create N stashes in TEST_REPO. Each stash mutates a tracked
+# file then `git stash push`. The repo must be initialized first.
+_make_stashes() {
+  local count="$1"
+  local i
+  for ((i=1; i<=count; i++)); do
+    echo "wip $i" > "$TEST_REPO/wip.txt"
+    git -C "$TEST_REPO" add wip.txt
+    git -C "$TEST_REPO" commit -q -m "tracked-$i"
+    echo "wip $i.$(date +%N)" > "$TEST_REPO/wip.txt"
+    git -C "$TEST_REPO" stash push -q -m "wip-$i" >/dev/null
+  done
+}
+
+@test "preflight warns when stash count exceeds TG_STASH_WARN_THRESHOLD" {
+  _preflight_git_init
+  _make_stashes 6
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Stale stash count: 6"* ]]
+  [[ "$output" == *"git -C $TEST_REPO stash list"* ]]
+}
+
+@test "preflight does not warn when stash count is at or below threshold" {
+  _preflight_git_init
+  _make_stashes 5
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Stale stash count"* ]]
+}
+
+@test "preflight does not warn for repos with no stashes" {
+  _preflight_git_init
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Stale stash count"* ]]
+}
+
+@test "TG_STASH_WARN_THRESHOLD overrides the default threshold" {
+  _preflight_git_init
+  _make_stashes 3
+  export TG_STASH_WARN_THRESHOLD=2
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Stale stash count: 3"* ]]
+}
+
+@test "TG_STASH_WARN_THRESHOLD=0 disables the stash warning" {
+  _preflight_git_init
+  _make_stashes 8
+  export TG_STASH_WARN_THRESHOLD=0
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Stale stash count"* ]]
+}
+
+@test "DVB_STASH_WARN_THRESHOLD legacy alias still works" {
+  _preflight_git_init
+  _make_stashes 4
+  export DVB_STASH_WARN_THRESHOLD=3
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Stale stash count: 4"* ]]
+}
+
+@test "TG_STASH_WARN_THRESHOLD takes precedence over DVB_STASH_WARN_THRESHOLD" {
+  _preflight_git_init
+  _make_stashes 4
+  export DVB_STASH_WARN_THRESHOLD=10
+  export TG_STASH_WARN_THRESHOLD=2
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  # The TG_ value (2) wins over the DVB_ value (10), so 4 trips the warning.
+  [[ "$output" == *"Stale stash count: 4"* ]]
+}
+
 @test "preflight warns when TASKS.md is missing" {
   _preflight_git_init
   # Remove TASKS.md from repo (setup creates one by default)

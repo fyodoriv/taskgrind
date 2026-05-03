@@ -70,6 +70,10 @@ DVB_DEFAULT_SELF_INVESTIGATE_ZERO_SHIP_STREAK="3"
 # flush state; shorter than the normal TG_SHUTDOWN_GRACE (120s) because a 410 is a
 # mandatory stop — the session was already disowned by Bosun.
 DVB_DEFAULT_BOSUN_410_GRACE="30"
+# TG_STASH_WARN_THRESHOLD=5: preflight warns when `git stash list` exceeds this count.
+# Five is generous enough to skip the operator's normal in-flight stash but low enough
+# to catch repos where prior crashed runs left WIP behind. Set to 0 to disable.
+DVB_DEFAULT_STASH_WARN_THRESHOLD="5"
 
 dvb_default_model_for_backend() {
   case "$1" in

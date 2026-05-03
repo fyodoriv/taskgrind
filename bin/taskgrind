@@ -91,6 +91,10 @@
 #        TG_DEVIN_PATH  — override devin binary path (default: auto-detect from PATH)
 #        TG_GIT_SYNC_TIMEOUT — max seconds for between-session git sync
 #                         (default: 30; hangs need operator action)
+#        TG_STASH_WARN_THRESHOLD — preflight warns when `git stash list` shows
+#                         more than this many entries (default: 5). Helps
+#                         catch repos where prior failed runs left stale
+#                         WIP behind. Set to 0 to disable the warning.
 #        TG_SYNC_INTERVAL — git sync every N sessions (default: 5, 0=every
 #                         session; amortizes fetch/rebase overhead)
 #        TG_EMPTY_QUEUE_WAIT — seconds to wait after an empty sweep (default: 600)
@@ -241,7 +245,8 @@ for _tg_var in BACKEND BACKOFF_BASE BACKOFF_MAX COOL DEVIN_PATH \
                NET_RETRIES NET_RETRY_DELAY NET_WAIT NO_PUSH NO_STALL_EXIT NOTIFY PROMPT \
                PUBLIC_WRITE_TOKEN \
                ROTATE_BACKENDS SELF_INVESTIGATE_ZERO_SHIP_STREAK SESSION_GRACE \
-               SHUTDOWN_GRACE SKILL STALL_EXIT STATUS_FILE SWEEP_MAX SYNC_INTERVAL \
+               SHUTDOWN_GRACE SKILL STALL_EXIT STASH_WARN_THRESHOLD STATUS_FILE \
+               SWEEP_MAX SYNC_INTERVAL \
                TARGET_REPOS TRUSTED_REPO WATCHDOG_KILL_GRACE; do
   _tg_ref="TG_${_tg_var}"
   if [[ -n "${!_tg_ref:-}" ]]; then
@@ -2444,6 +2449,26 @@ preflight_check() {
     fi
     if [[ $git_clean -eq 1 ]]; then
       preflight_pass "Git state clean"
+    fi
+    # Stale-stash hygiene check — repos where prior crashed runs left WIP
+    # in `git stash` build up over time. The threshold is generous (5 by
+    # default) so a single in-flight stash from the operator never trips
+    # it; set TG_STASH_WARN_THRESHOLD=0 to opt out entirely. Warning only,
+    # never blocks launch — the operator may have intentional stashes.
+    local stash_warn_threshold
+    stash_warn_threshold="${DVB_STASH_WARN_THRESHOLD:-$DVB_DEFAULT_STASH_WARN_THRESHOLD}"
+    if [[ "$stash_warn_threshold" =~ ^[0-9]+$ ]] && [[ "$stash_warn_threshold" -gt 0 ]]; then
+      local stash_count stash_oldest
+      stash_count=$(git -C "$repo" stash list --max-count=20 2>/dev/null | wc -l | tr -d ' ')
+      stash_count="${stash_count:-0}"
+      if [[ "$stash_count" -gt "$stash_warn_threshold" ]]; then
+        stash_oldest=$(git -C "$repo" stash list --pretty='%ai' 2>/dev/null | tail -1)
+        if [[ -n "$stash_oldest" ]]; then
+          preflight_warn "Stale stash count: $stash_count (oldest: $stash_oldest). Inspect with: git -C $repo stash list --pretty='%gd %ai %gs'"
+        else
+          preflight_warn "Stale stash count: $stash_count. Inspect with: git -C $repo stash list --pretty='%gd %ai %gs'"
+        fi
+      fi
     fi
   fi
 

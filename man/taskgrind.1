@@ -408,6 +408,17 @@ the
 .B sweep_watchdog escalation=SIGKILL
 log marker emitted on the forced-kill path.
 .TP
+.B TG_STASH_WARN_THRESHOLD
+Preflight warns when
+.B "git stash list"
+shows more than this many entries (default: 5). Helps catch repos
+where prior crashed runs left WIP behind. The warning prints the
+count, the oldest stash's timestamp, and a copy\-pasteable
+.B "git stash list"
+inspect command. Set to
+.B 0
+to disable. Warning only \(em never blocks launch.
+.TP
 .B TG_STALL_EXIT
 When to auto-exit on the
 .BR diminishing_returns
