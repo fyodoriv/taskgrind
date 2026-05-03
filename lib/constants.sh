@@ -64,6 +64,12 @@ DVB_DEFAULT_SESSION_GRACE="15"
 DVB_DEFAULT_WATCHDOG_KILL_GRACE="5"
 # TG_SELF_INVESTIGATE_ZERO_SHIP_STREAK=3: three zero-ship sessions is enough evidence to rotate/investigate.
 DVB_DEFAULT_SELF_INVESTIGATE_ZERO_SHIP_STREAK="3"
+# TG_BOSUN_410_GRACE=30: when a Bosun heartbeat returns 410 EXIT_NOW (session no longer
+# active/paused), the controller has this many seconds to wrap up the running session
+# before it SIGTERMs the backend. 30s is enough for a cooperative backend to commit and
+# flush state; shorter than the normal TG_SHUTDOWN_GRACE (120s) because a 410 is a
+# mandatory stop — the session was already disowned by Bosun.
+DVB_DEFAULT_BOSUN_410_GRACE="30"
 
 dvb_default_model_for_backend() {
   case "$1" in

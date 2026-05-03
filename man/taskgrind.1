@@ -339,8 +339,7 @@ pushing directly to
 /
 .B master
 or any protected branch, force\-pushing, bypassing pre\-push hooks
-with
-.BR \-\-no\-verify ,
+with \fB\-\-no\-verify\fR,
 opening issues, posting to Slack/Jira/email, publishing packages,
 and any cross\-repo or upstream public write are still gated.
 TASKS.md task metadata (labels, tags, green\-list annotations) does
@@ -381,6 +380,19 @@ not set. Not compatible with
 .TP
 .B TG_SHUTDOWN_GRACE
 Seconds to wait for current session on exit (default: 120).
+.TP
+.B TG_BOSUN_410_GRACE
+Seconds to wait after a Bosun 410
+.B EXIT_NOW
+before SIGTERMing the active session (default: 30). Shorter than
+.B TG_SHUTDOWN_GRACE
+because Bosun has already disowned the session \(em the controller
+just needs time for the backend to flush and commit. See TROUBLESHOOTING
+for the
+.B bosun_heartbeat_410
+and
+.B "graceful_shutdown trigger=bosun-410-exit-now"
+log markers emitted on this path.
 .TP
 .B TG_SESSION_GRACE
 Seconds to wait after session SIGINT before SIGTERM (default: 15).
@@ -596,6 +608,32 @@ deregister it on exit \(em the caller owns the lifecycle. Heartbeat failures
 are logged as
 .B "bosun_heartbeat_failed"
 warnings and do not crash the grind.
+.PP
+When the heartbeat returns HTTP 410 (Bosun has marked the session no longer
+active/paused, e.g. after a status\-flip race) the CLI prints
+.B EXIT_NOW
+on stderr and exits 1. Taskgrind detects the marker, logs
+.BR "bosun_heartbeat_410 action=exit_requested grace=Ns" ,
+writes a sentinel file, and forwards
+.B SIGTERM
+to the controller. The
+.B graceful_shutdown
+trap then uses
+.B TG_BOSUN_410_GRACE
+(default 30 seconds) instead of
+.B TG_SHUTDOWN_GRACE
+as the time the active session has to commit and exit, marks
+.B current_phase
+as
+.B bosun-410-exit-now ,
+and writes
+.B "terminal_reason=bosun-410-exit-now"
+into both the
+.B grind_done
+log line and the status file. No new session is spawned after the 410 fires
+because
+.B graceful_shutdown
+terminates the controller directly.
 .SH FILES
 .TP
 .I TASKS.md
@@ -1101,6 +1139,27 @@ supervisor\-repair watchdogs (markers
 .B session_watchdog
 and
 .B supervisor_repair_watchdog ).
+.TP
+.B Bosun 410 EXIT_NOW aborted the grind early
+Grep the log for
+.B bosun_heartbeat_410
+\(em this marker fires when Bosun's heartbeat endpoint returns HTTP 410
+(session no longer active/paused). Taskgrind forwards
+.B SIGTERM
+to itself, shortens the shutdown grace to
+.B TG_BOSUN_410_GRACE
+seconds (default 30), and writes
+.B "terminal_reason=bosun-410-exit-now"
+on the
+.B grind_done
+line and in the status file. No new session is spawned after the 410.
+Check Bosun's session-state history or
+.B "bosun grind sessions"
+to confirm the session was already marked terminal upstream. A 410 that
+surprised the operator usually indicates a Bosun status\-flip race or an
+external
+.BR "bosun grind done"
+call made while this grind was still running.
 .TP
 .B Resume rejected
 Read the stderr reason, inspect

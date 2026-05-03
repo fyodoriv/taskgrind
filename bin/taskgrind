@@ -132,8 +132,8 @@
 #                         operator has already granted blanket approval for those
 #                         two actions. Merging PRs, pushing to main/master or any
 #                         protected branch, force-pushing, bypassing pre-push
-#                         hooks (`--no-verify`), opening issues, posting to
-#                         Slack/Jira/email, publishing packages, and any
+#                         hooks (the git no-verify flag), opening issues, posting
+#                         to Slack/Jira/email, publishing packages, and any
 #                         cross-repo or upstream public write still require
 #                         explicit current-session operator approval. TASKS.md
 #                         task metadata does not extend the trusted-repo grant
@@ -154,6 +154,12 @@
 #                         well under bosun's 5-min disconnect timeout). Lower
 #                         in tests to observe the loop; raise on bandwidth-
 #                         constrained networks.
+#        TG_BOSUN_410_GRACE — seconds to wait after a Bosun 410 EXIT_NOW
+#                         before SIGTERMing the active session (default: 30).
+#                         Shorter than TG_SHUTDOWN_GRACE because Bosun has
+#                         already disowned the session; the backend only
+#                         needs time to flush and commit. The grind then
+#                         exits with terminal_reason=bosun-410-exit-now.
 #
 #        DVB_ prefix is supported as a backward-compatible alias for all TG_ vars.
 #
@@ -1796,6 +1802,19 @@ _bosun_grind_done_called=0
 # Default reason is "completed" — the signal handlers and the EXIT trap
 # downgrade this to "aborted" before cleanup() reads it.
 _bosun_grind_done_reason="completed"
+# 410 EXIT_NOW sentinel — the heartbeat subshell cannot directly mutate
+# parent variables, so it writes this file when Bosun rejects a
+# heartbeat with HTTP 410 (EXIT_NOW marker on stderr). graceful_shutdown
+# and the session loop both check the file: grace window drops from
+# TG_SHUTDOWN_GRACE (120 s) to TG_BOSUN_410_GRACE (30 s) on the 410 path,
+# and cleanup() writes terminal_reason=bosun-410-exit-now so the
+# grind_done line records the cause.
+_bosun_410_flag_file=""
+# Inline the 30 s default so harness tests that source only this section of
+# the script (without lib/constants.sh) under `set -u` don't trip on an
+# unset DVB_DEFAULT_BOSUN_410_GRACE — same pattern as the heartbeat-interval
+# fallback above.
+_bosun_410_grace="${TG_BOSUN_410_GRACE:-${DVB_BOSUN_410_GRACE:-${DVB_DEFAULT_BOSUN_410_GRACE:-30}}}"
 
 _resolve_bosun_cli() {
   if [[ -n "${BOSUN_BIN:-}" && -x "$BOSUN_BIN" ]]; then
@@ -1881,6 +1900,8 @@ _ensure_bosun_grind_session() {
 # in older bash).
 _bosun_heartbeat_loop_body() {
   local bosun_bin="$1"
+  local parent_pid="$2"
+  local flag_file="$3"
   # Don't inherit traps from the parent — the loop should exit cleanly
   # on SIGTERM without re-running graceful_shutdown.
   local sleep_pid=""
@@ -1901,9 +1922,25 @@ _bosun_heartbeat_loop_body() {
     ) && hb_status=0 || hb_status=$?
     if [[ "$hb_status" -eq 0 ]]; then
       log_write "[$(date '+%H:%M')] bosun_heartbeat session=${BOSUN_GRIND_SESSION_ID} cycle=${session:-1} ships=${tasks_shipped:-0}"
-    else
-      log_write "[$(date '+%H:%M')] bosun_heartbeat_failed session=${BOSUN_GRIND_SESSION_ID} status=$hb_status detail=$(printf '%s' "$hb_out" | head -1)"
+      continue
     fi
+    # The CLI writes `EXIT_NOW` on stderr when the API returns HTTP 410
+    # (the session is no longer active/paused — Bosun wants us to stop).
+    # Detect it, drop a sentinel file so the parent can pick up the
+    # cause in graceful_shutdown/cleanup, send SIGTERM to the parent
+    # controller, and exit — the parent's trap will run the shortened
+    # TG_BOSUN_410_GRACE shutdown instead of the usual 120 s one.
+    if printf '%s\n' "$hb_out" | grep -q '^EXIT_NOW$'; then
+      log_write "[$(date '+%H:%M')] bosun_heartbeat_410 session=${BOSUN_GRIND_SESSION_ID} action=exit_requested grace=${_bosun_410_grace}s"
+      if [[ -n "$flag_file" ]]; then
+        printf '%s\n' "$(date +%s)" > "$flag_file" 2>/dev/null || true
+      fi
+      if [[ "$parent_pid" -gt 0 ]] && kill -0 "$parent_pid" 2>/dev/null; then
+        kill -TERM "$parent_pid" 2>/dev/null || true
+      fi
+      exit 0
+    fi
+    log_write "[$(date '+%H:%M')] bosun_heartbeat_failed session=${BOSUN_GRIND_SESSION_ID} status=$hb_status detail=$(printf '%s' "$hb_out" | head -1)"
   done
 }
 
@@ -1929,11 +1966,20 @@ _start_bosun_heartbeat_loop() {
     log_write "[$(date '+%H:%M')] bosun_heartbeat skipped reason=no_cli session=${BOSUN_GRIND_SESSION_ID}"
     return 0
   fi
+  # Allocate the 410 flag file lazily — first start of the loop creates
+  # it, subsequent starts reuse. Kept next to other session-scoped temp
+  # files so the cleanup path deletes it along with the rest.
+  if [[ -z "$_bosun_410_flag_file" ]]; then
+    _bosun_410_flag_file="$_dvb_tmp/taskgrind-bosun-410-$$.flag"
+    rm -f "$_bosun_410_flag_file" 2>/dev/null || true
+  fi
   # The loop is intentionally simple: sleep, post, repeat. Each post is a
   # best-effort no-throw — heartbeat failures (e.g. transient bosun
   # restart, network blip) are logged as warnings and the loop keeps
-  # running. Exit happens via SIGTERM from _stop_bosun_heartbeat_loop.
-  _bosun_heartbeat_loop_body "$bosun_bin" &
+  # running. Exit happens via SIGTERM from _stop_bosun_heartbeat_loop,
+  # or on a 410 EXIT_NOW from Bosun (in which case the subshell first
+  # SIGTERMs the parent controller before exiting cleanly).
+  _bosun_heartbeat_loop_body "$bosun_bin" "$$" "$_bosun_410_flag_file" &
   _bosun_heartbeat_pid=$!
   log_write "[$(date '+%H:%M')] bosun_heartbeat_started pid=$_bosun_heartbeat_pid interval=${_bosun_heartbeat_interval}s session=${BOSUN_GRIND_SESSION_ID}"
 }
@@ -3678,6 +3724,18 @@ graceful_shutdown() {
   # mark the Bosun grind session as `aborted` so the dashboard sees
   # the difference between a clean shutdown and a controller kill.
   _bosun_grind_done_reason="aborted"
+  # If the SIGTERM came from the heartbeat loop after a 410 EXIT_NOW,
+  # the shorter TG_BOSUN_410_GRACE applies (the session was already
+  # disowned by Bosun — no point giving it the full 120 s). Override
+  # the global _shutdown_grace in place so the wait loop below uses
+  # the shorter window without growing a second variable. The flag
+  # also propagates into cleanup() so terminal_reason reflects the
+  # cause in grind_done and the status file.
+  if [[ -n "$_bosun_410_flag_file" && -f "$_bosun_410_flag_file" ]]; then
+    _shutdown_grace="$_bosun_410_grace"
+    set_phase "bosun-410-exit-now"
+    log_write "[$(date '+%H:%M')] graceful_shutdown trigger=bosun-410-exit-now grace=${_shutdown_grace}s"
+  fi
   # If a session is running, give it time to commit and exit
   if [[ $_dvb_pid -gt 0 ]] && kill -0 "$_dvb_pid" 2>/dev/null; then
     echo ""
@@ -3754,7 +3812,7 @@ cleanup() {
   _dvb_cleaned=1
   _dvb_finalizing=1
   case "$current_phase" in
-    queue_empty|all_tasks_blocked|deadline_expired|audit_focus_blocked)
+    queue_empty|all_tasks_blocked|deadline_expired|audit_focus_blocked|bosun-410-exit-now)
       terminal_reason="$current_phase"
       ;;
     *)
@@ -3810,6 +3868,9 @@ cleanup() {
   echo "──────────────────────────────────────────"
   local _done_line
   _done_line="[pid=$$] [$(date '+%H:%M')] grind_done sessions=$session shipped=$tasks_shipped remaining=$tasks_remaining_snapshot ship_rate=$ship_rate avg_session=$avg_session elapsed=${elapsed}s duration=$duration rate=${rate}/h sessions_zero_ship=$sessions_zero_ship tasks_starting=$tasks_starting tasks_added=$tasks_added_total sweeps=$_sweep_count sweep_seconds=$_sweep_seconds"
+  if [[ -n "${terminal_reason:-}" ]]; then
+    _done_line+=" terminal_reason=$terminal_reason"
+  fi
   if [[ -n "${extra_prompt:-}" ]]; then
     _done_line+=" prompt=$extra_prompt"
   fi
@@ -3850,6 +3911,7 @@ cleanup() {
   # Remove temp files
   [[ -n "${_DVB_SELF_COPY:-}" && -f "${_DVB_SELF_COPY}" ]] && rm -f "$_DVB_SELF_COPY"
   [[ -n "${_lock_file:-}" && -f "${_lock_file}" ]] && rm -f "$_lock_file"
+  [[ -n "${_bosun_410_flag_file:-}" && -f "$_bosun_410_flag_file" ]] && rm -f "$_bosun_410_flag_file" 2>/dev/null || true
   rm -f "$session_output"
   rm -f "$_task_attempts_file"
   rm -f "${_task_attempts_file}.new" 2>/dev/null || true
