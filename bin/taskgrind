@@ -96,13 +96,13 @@
 #        TG_EMPTY_QUEUE_WAIT — seconds to wait after an empty sweep (default: 600)
 #        TG_SHUTDOWN_GRACE — seconds to wait for current session on exit (default: 120)
 #        TG_SESSION_GRACE — seconds to wait after session SIGINT before SIGTERM (default: 15)
-#        TG_EARLY_EXIT_ON_STALL — exit on the FIRST diminishing_returns trip
-#                         (default: 0; backward-compat alias for TG_EXIT_ON_STALL)
-#        TG_EXIT_ON_STALL — exit on the FIRST diminishing_returns trip
-#                         (default: 0; default behavior is to exit on the
-#                         SECOND consecutive trip without any flag set)
-#        TG_NO_STALL_EXIT — never auto-exit on diminishing_returns; log
-#                         advisory only (default: 0)
+#        TG_STALL_EXIT  — when to auto-exit on the diminishing_returns
+#                         signal: 'never' (advisory only), 'first' (exit on
+#                         the first trip with `early_exit_stall`), or
+#                         'second' (default — exit on the second consecutive
+#                         trip with `diminishing_returns_exit`). Replaces
+#                         three legacy stall-exit env vars; they still work
+#                         with a one-shot deprecation notice — see man page.
 #        TG_MAX_INSTANCES — max concurrent instances per repo (default: 2;
 #                         one sync owner plus one conflict-avoiding worker)
 #        TG_NO_PUSH     — 1 = never auto-push commits to origin; agent prompt
@@ -228,7 +228,7 @@ for _tg_var in BACKEND BACKOFF_BASE BACKOFF_MAX COOL DEVIN_PATH \
                NET_RETRIES NET_RETRY_DELAY NET_WAIT NO_PUSH NO_STALL_EXIT NOTIFY PROMPT \
                PUBLIC_WRITE_TOKEN \
                ROTATE_BACKENDS SELF_INVESTIGATE_ZERO_SHIP_STREAK SESSION_GRACE \
-               SHUTDOWN_GRACE SKILL STATUS_FILE SWEEP_MAX SYNC_INTERVAL \
+               SHUTDOWN_GRACE SKILL STALL_EXIT STATUS_FILE SWEEP_MAX SYNC_INTERVAL \
                TARGET_REPOS TRUSTED_REPO; do
   _tg_ref="TG_${_tg_var}"
   if [[ -n "${!_tg_ref:-}" ]]; then
@@ -748,6 +748,57 @@ if [[ -n "${DVB_EXIT_ON_STALL:-}" ]] && ! [[ "${DVB_EXIT_ON_STALL}" =~ ^[01]$ ]]
 fi
 if [[ -n "${DVB_NO_STALL_EXIT:-}" ]] && ! [[ "${DVB_NO_STALL_EXIT}" =~ ^[01]$ ]]; then
   echo "Error: TG_NO_STALL_EXIT must be 0 or 1, got '${DVB_NO_STALL_EXIT}'" >&2; exit 1
+fi
+# ── Stall-exit policy resolution ─────────────────────────────────────
+# TG_STALL_EXIT is the canonical knob (never|first|second). The three
+# legacy vars (TG_EARLY_EXIT_ON_STALL, TG_EXIT_ON_STALL, TG_NO_STALL_EXIT)
+# still translate to a policy for one deprecation window, but combinations
+# that contradict each other are rejected up front rather than silently
+# resolved by a precedence quirk.
+_legacy_no_stall_exit=0
+_legacy_first_trip=0
+[[ "${DVB_NO_STALL_EXIT:-0}" == "1" ]] && _legacy_no_stall_exit=1
+[[ "${DVB_EARLY_EXIT_ON_STALL:-0}" == "1" || "${DVB_EXIT_ON_STALL:-0}" == "1" ]] && _legacy_first_trip=1
+if [[ "$_legacy_no_stall_exit" -eq 1 && "$_legacy_first_trip" -eq 1 ]]; then
+  echo "Error: TG_EARLY_EXIT_ON_STALL/TG_EXIT_ON_STALL and TG_NO_STALL_EXIT are mutually exclusive. Use TG_STALL_EXIT=first|never|second instead." >&2
+  exit 1
+fi
+# Default policy is 'second' (exit on the second consecutive trip).
+stall_exit_policy="second"
+if [[ -n "${DVB_STALL_EXIT:-}" ]]; then
+  case "$DVB_STALL_EXIT" in
+    never|first|second) stall_exit_policy="$DVB_STALL_EXIT" ;;
+    *) echo "Error: TG_STALL_EXIT must be never|first|second, got '${DVB_STALL_EXIT}'" >&2; exit 1 ;;
+  esac
+elif [[ "$_legacy_no_stall_exit" -eq 1 ]]; then
+  stall_exit_policy="never"
+elif [[ "$_legacy_first_trip" -eq 1 ]]; then
+  stall_exit_policy="first"
+fi
+# One-shot deprecation notice when a legacy var was used (suppressed in
+# test mode where DVB_GRIND_CMD is set, to keep the bats output clean).
+# The notice fires once per process — multiple legacy vars set at once
+# still produce a single line that names them all.
+if [[ -z "${DVB_GRIND_CMD:-}" ]] && [[ -z "${_DVB_STALL_DEPRECATION_NOTED:-}" ]]; then
+  _legacy_msg=""
+  if [[ "$_legacy_no_stall_exit" -eq 1 ]]; then
+    _legacy_msg="TG_NO_STALL_EXIT"
+  fi
+  if [[ "$_legacy_first_trip" -eq 1 ]]; then
+    if [[ -n "${DVB_EARLY_EXIT_ON_STALL:-}" && "${DVB_EARLY_EXIT_ON_STALL}" == "1" ]]; then
+      [[ -n "$_legacy_msg" ]] && _legacy_msg="${_legacy_msg}, "
+      _legacy_msg="${_legacy_msg}TG_EARLY_EXIT_ON_STALL"
+    fi
+    if [[ -n "${DVB_EXIT_ON_STALL:-}" && "${DVB_EXIT_ON_STALL}" == "1" ]]; then
+      [[ -n "$_legacy_msg" ]] && _legacy_msg="${_legacy_msg}, "
+      _legacy_msg="${_legacy_msg}TG_EXIT_ON_STALL"
+    fi
+  fi
+  if [[ -n "$_legacy_msg" ]]; then
+    echo "Note: ${_legacy_msg} is deprecated; use TG_STALL_EXIT=${stall_exit_policy} instead." >&2
+    export _DVB_STALL_DEPRECATION_NOTED=1
+  fi
+  unset _legacy_msg
 fi
 if [[ -n "${DVB_NOTIFY:-}" ]] && ! [[ "${DVB_NOTIFY}" =~ ^[01]$ ]]; then
   echo "Error: TG_NOTIFY must be 0 or 1, got '${DVB_NOTIFY}'" >&2; exit 1
@@ -2652,14 +2703,7 @@ if [[ "$dry_run" -eq 1 ]]; then
   echo "  notify:   ${DVB_NOTIFY:-1}"
   echo "  max_session: ${max_session}s"
   echo "  sweep_max:   ${sweep_max_session}s"
-  echo "  early_exit_on_stall: ${DVB_EARLY_EXIT_ON_STALL:-0}"
-  if [[ "${DVB_NO_STALL_EXIT:-0}" == "1" ]]; then
-    echo "  stall_exit_policy: advisory_only (TG_NO_STALL_EXIT=1)"
-  elif [[ "${DVB_EARLY_EXIT_ON_STALL:-0}" == "1" ]] || [[ "${DVB_EXIT_ON_STALL:-0}" == "1" ]]; then
-    echo "  stall_exit_policy: strict_first_trip (TG_EXIT_ON_STALL=1)"
-  else
-    echo "  stall_exit_policy: default_2x_consecutive"
-  fi
+  echo "  stall_exit_policy: ${stall_exit_policy}"
   echo "  no_push:  $no_push"
   echo "  trusted_repo: $trusted_repo"
   if [[ "$max_instances" -gt 1 ]]; then
@@ -5281,23 +5325,19 @@ while [[ $(date +%s) -lt $deadline ]]; do
   # ── Diminishing returns detection ──────────────────────────────────
   # Track shipped counts in a rolling window. When the window total
   # drops below 2 (and we have a full window), the detector fires.
-  #
-  # Exit policy is three-tier:
-  #   1. TG_NO_STALL_EXIT=1 → log advisory only, never auto-exit. Useful
-  #      for audit/discovery lanes that legitimately have low ship rates.
-  #   2. (default) → exit on the SECOND consecutive trip with
-  #      `diminishing_returns_exit consecutive=N reason=default-2x`.
-  #      One trip might be a slow patch in a long marathon; two
-  #      consecutive trips means the queue is dead. Exiting after the
-  #      second trip protects the budget without over-reacting to a
-  #      single bad window.
-  #   3. TG_EXIT_ON_STALL=1 (or TG_EARLY_EXIT_ON_STALL=1, kept as a
-  #      backward-compat alias) → exit on the FIRST trip with the
-  #      historical `early_exit_stall` log line.
-  #
+  # `stall_exit_policy` (resolved at startup from TG_STALL_EXIT and the
+  # legacy TG_EARLY_EXIT_ON_STALL/TG_EXIT_ON_STALL/TG_NO_STALL_EXIT vars)
+  # decides what happens next:
+  #   never  → log advisory only; never auto-exit. Useful for
+  #            audit/discovery lanes with legitimately low ship rates.
+  #   first  → exit on the FIRST trip with the historical
+  #            `early_exit_stall` log line.
+  #   second → exit on the SECOND consecutive trip with
+  #            `diminishing_returns_exit consecutive=N reason=default-2x`
+  #            (default — protects the budget without over-reacting).
   # The consecutive counter resets to zero whenever a session ships >= 1
   # task, so a single productive session unwinds prior trips and the
-  # default-2x clock starts over.
+  # second-trip clock starts over.
   if [[ "$session_shipped" -ge 1 ]]; then
     _consecutive_diminishing_returns=0
   fi
@@ -5312,19 +5352,25 @@ while [[ $(date +%s) -lt $deadline ]]; do
       _consecutive_diminishing_returns=$((_consecutive_diminishing_returns + 1))
       echo "   ⚠ Low throughput: ${_window_total} tasks shipped in last ${_window} sessions (consecutive_trips=${_consecutive_diminishing_returns})."
       log_write "[$(date '+%H:%M')] diminishing_returns window=$_window shipped=$_window_total consecutive=$_consecutive_diminishing_returns"
-      if [[ "${DVB_NO_STALL_EXIT:-0}" == "1" ]]; then
-        : # Advisory only — operator opted out of any auto-exit.
-      elif [[ "${DVB_EARLY_EXIT_ON_STALL:-0}" == "1" ]] || [[ "${DVB_EXIT_ON_STALL:-0}" == "1" ]]; then
-        echo "   ⚠ TG_EARLY_EXIT_ON_STALL=1 — exiting early to save time budget."
-        log_write "[$(date '+%H:%M')] early_exit_stall"
-        set_phase "failed"
-        break
-      elif [[ "$_consecutive_diminishing_returns" -ge 2 ]]; then
-        echo "   ⚠ Diminishing returns detector tripped ${_consecutive_diminishing_returns} sessions in a row — exiting to save time budget. Set TG_NO_STALL_EXIT=1 to disable."
-        log_write "[$(date '+%H:%M')] diminishing_returns_exit consecutive=$_consecutive_diminishing_returns reason=default-2x"
-        set_phase "failed"
-        break
-      fi
+      case "$stall_exit_policy" in
+        never)
+          : # Advisory only — operator opted out of any auto-exit.
+          ;;
+        first)
+          echo "   ⚠ TG_STALL_EXIT=first — exiting early to save time budget."
+          log_write "[$(date '+%H:%M')] early_exit_stall"
+          set_phase "failed"
+          break
+          ;;
+        second)
+          if [[ "$_consecutive_diminishing_returns" -ge 2 ]]; then
+            echo "   ⚠ Diminishing returns detector tripped ${_consecutive_diminishing_returns} sessions in a row — exiting to save time budget. Set TG_STALL_EXIT=never to disable."
+            log_write "[$(date '+%H:%M')] diminishing_returns_exit consecutive=$_consecutive_diminishing_returns reason=default-2x"
+            set_phase "failed"
+            break
+          fi
+          ;;
+      esac
     fi
   fi
 

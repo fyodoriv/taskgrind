@@ -294,7 +294,7 @@ taskgrind --dry-run
   status:   disabled
   notify:   1
   max_session: 5400s
-  early_exit_on_stall: 0
+  stall_exit_policy: second
 ```
 
 Preflight output:
@@ -409,7 +409,7 @@ Recovery cheat sheet:
 | Slot contention | `slots: N/M active` plus slot owners in `--preflight` | Wait for a free slot or raise `TG_MAX_INSTANCES`; keep higher slots on non-overlapping work |
 | Repeated zero-ship sessions | `last_session.shipped`, `productive_zero_ship`, `shipped_inferred` in the log | Check whether another agent changed `TASKS.md`; split or unblock the task before resuming |
 | Productive sessions still hitting the clock | `productive_timeout session=N shipped=X timeout=Ys new_timeout=Zs` in the log | No action required — taskgrind already bumps `TG_MAX_SESSION` by 1800 s (cap 7200 s) so the next session gets more runway. If the log shows `(at cap)` and tasks still time out, split the task instead of raising the budget further. |
-| Low throughput warning late in a grind | `diminishing_returns window=5 shipped=N` in the log; stdout line `⚠ Low throughput:` | Advisory by default. Inspect whether the remaining queue is blocked, overstuffed, or architecturally hard. Set `TG_EARLY_EXIT_ON_STALL=1` in advance if you want taskgrind to exit the loop (log marker `early_exit_stall`, status phase `failed`) when the same window fires again. |
+| Low throughput warning late in a grind | `diminishing_returns window=5 shipped=N` in the log; stdout line `⚠ Low throughput:` | Default policy (`TG_STALL_EXIT=second`) exits on the second consecutive trip with `diminishing_returns_exit consecutive=2 reason=default-2x`. Set `TG_STALL_EXIT=never` to keep the warning advisory, or `TG_STALL_EXIT=first` to exit on the first trip (log marker `early_exit_stall`, status phase `failed`). The legacy `TG_EARLY_EXIT_ON_STALL` / `TG_EXIT_ON_STALL` / `TG_NO_STALL_EXIT` vars still translate but emit a one-shot deprecation notice. |
 | Resume rejected | `taskgrind --resume` stderr | Re-run with the original `--backend`, `--model`, `--skill`, and baseline `--prompt` / `TG_PROMPT` inputs, or start a fresh grind if the deadline expired |
 | Final push rejected | Last `git push` line in the log | Repair the branch with `git pull --rebase`, then rerun `--resume` with the original startup overrides if the interrupted grind did not use pure defaults |
 

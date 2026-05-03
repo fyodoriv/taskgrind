@@ -56,15 +56,26 @@ operators tailing the log see the event. The `session >= 5` gate is why new
 grinds do not trigger the warning on session 1-4 even if those sessions all
 return zero — there simply is not enough history yet to call that a regression.
 
-`TG_EARLY_EXIT_ON_STALL` controls what happens next. Unset or `0` (the default)
-keeps the warning advisory so operators can investigate without losing the
-remainder of the marathon budget. Set to `1`, the grind also logs
-`early_exit_stall`, flips the status phase to `failed`, and exits the loop. The
-trade-off is that advisory mode wastes time if the queue really is broken, but
-early-exit mode can fire on a genuine lull (e.g., a few hard tasks that each
-need a full session to complete). The window parameters (5 sessions, 2-task
-threshold) are conservative on purpose so operators who enable `early_exit_stall`
-do not get false positives on architectural work that deserves the time.
+`TG_STALL_EXIT` controls what happens next: `never` keeps the warning advisory
+so operators can investigate without losing the remainder of the marathon
+budget; `first` exits on the FIRST trip with `early_exit_stall`, the `failed`
+status phase, and an immediate loop break; `second` (the default) exits on
+the SECOND consecutive trip with `diminishing_returns_exit consecutive=2
+reason=default-2x`. A single productive session resets the consecutive counter,
+so `second` only fires when the queue truly stalls. The trade-off is that
+advisory mode wastes time if the queue really is broken, but early-exit mode
+can fire on a genuine lull (e.g., a few hard tasks that each need a full
+session to complete). The window parameters (5 sessions, 2-task threshold) are
+conservative on purpose so operators who enable `first` do not get false
+positives on architectural work that deserves the time.
+
+The legacy `TG_NO_STALL_EXIT=1`, `TG_EXIT_ON_STALL=1`, and
+`TG_EARLY_EXIT_ON_STALL=1` env vars still translate to the matching
+`TG_STALL_EXIT` policy, but each prints a one-shot deprecation notice to stderr
+on startup. Combining `TG_NO_STALL_EXIT` with either of the strict-mode aliases
+used to be silently resolved by precedence; it is now rejected at startup with
+a clear message so operators see the conflict instead of guessing which knob
+won.
 
 Rolling counts live only in memory for the current taskgrind process. Resuming
 a grind starts the window over — another reason the guard is deliberately slow

@@ -385,41 +385,59 @@ Seconds to wait for current session on exit (default: 120).
 .B TG_SESSION_GRACE
 Seconds to wait after session SIGINT before SIGTERM (default: 15).
 .TP
-.B TG_EARLY_EXIT_ON_STALL
-Strict-mode alias for
-.BR TG_EXIT_ON_STALL
-(default: 0). Set to 1 to exit on the FIRST
+.B TG_STALL_EXIT
+When to auto-exit on the
 .BR diminishing_returns
-trip with the historical
-.BR early_exit_stall
-marker. Kept as a backward-compat name alongside
-.BR TG_EXIT_ON_STALL .
-.TP
-.B TG_EXIT_ON_STALL
-Exit on the FIRST
-.BR diminishing_returns
-trip (default: 0, 1 to enable). Taskgrind tracks shipped counts in a 5-session
-rolling window; once session >= 5 and fewer than 2 tasks have shipped across
-the window, taskgrind logs
+signal: one of
+.BR never ,
+.BR first ,
+or
+.BR second
+(default:
+.BR second ).
+Taskgrind tracks shipped counts in a 5-session rolling window; once
+session >= 5 and fewer than 2 tasks have shipped across the window,
+taskgrind logs
 .BR "diminishing_returns window=5 shipped=N consecutive=N"
-and prints a low-throughput warning. When
-.BR TG_EXIT_ON_STALL=1
-(or its
-.BR TG_EARLY_EXIT_ON_STALL
-alias), the grind exits with an
+and prints a low-throughput warning.
+.BR second
+(default) exits on the SECOND consecutive trip with
+.BR "diminishing_returns_exit consecutive=2 reason=default-2x"
+and sets the status phase to
+.BR failed .
+.BR first
+exits on the FIRST trip with the historical
 .BR early_exit_stall
-marker and sets the status phase to
-.BR failed
-on the first trip. Without this flag, the grind exits on the SECOND
-consecutive trip with
-.BR "diminishing_returns_exit consecutive=2 reason=default-2x" .
-.TP
-.B TG_NO_STALL_EXIT
-Never auto-exit on
-.BR diminishing_returns
-trips (default: 0, 1 to enable). The detector still logs every trip but
-the grind keeps running regardless of how many consecutive trips fire.
-Useful for audit/discovery lanes where low ship rates are expected.
+marker.
+.BR never
+keeps the warning advisory; the grind keeps running regardless of how
+many consecutive trips fire — useful for audit/discovery lanes where
+low ship rates are expected.
+.PP
+.B "Deprecated stall-exit aliases."
+The legacy
+.BR TG_EARLY_EXIT_ON_STALL=1 ,
+.BR TG_EXIT_ON_STALL=1 ,
+and
+.BR TG_NO_STALL_EXIT=1
+vars still translate to
+.BR TG_STALL_EXIT=first ,
+.BR TG_STALL_EXIT=first ,
+and
+.BR TG_STALL_EXIT=never
+respectively, but each emits a one-shot deprecation notice on stderr.
+Setting both a
+.BR never -mapping
+and a
+.BR first -mapping
+legacy var at once is a hard error: prior versions silently let
+.BR TG_NO_STALL_EXIT
+win by precedence, which is now rejected with a startup message that
+points operators at
+.BR TG_STALL_EXIT
+instead. Migrate to
+.BR TG_STALL_EXIT
+to silence the notice.
 .SH BACKEND SETUP
 Run
 .B taskgrind \-\-preflight

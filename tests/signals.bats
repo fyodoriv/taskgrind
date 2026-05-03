@@ -1329,7 +1329,7 @@ TASKS
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'early_exit_stall' "$TEST_LOG"
-  [[ "$output" == *"TG_EARLY_EXIT_ON_STALL=1"* ]]
+  [[ "$output" == *"TG_STALL_EXIT=first"* ]]
 }
 
 @test "DVB_EARLY_EXIT_ON_STALL=0 does not exit early" {
@@ -1360,7 +1360,7 @@ TASKS
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   grep -q 'early_exit_stall' "$TEST_LOG"
-  [[ "$output" == *"TG_EARLY_EXIT_ON_STALL=1"* ]]
+  [[ "$output" == *"TG_STALL_EXIT=first"* ]]
 }
 
 @test "early exit stops the grind loop (no more sessions)" {

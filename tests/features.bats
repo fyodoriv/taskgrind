@@ -86,17 +86,17 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [[ "$output" == *"backend:  codex"* ]]
 }
 
-@test "--dry-run shows early_exit_on_stall disabled by default" {
+@test "--dry-run shows stall_exit_policy second by default" {
   run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"early_exit_on_stall: 0"* ]]
+  [[ "$output" == *"stall_exit_policy: second"* ]]
 }
 
-@test "--dry-run shows early_exit_on_stall enabled when DVB_EARLY_EXIT_ON_STALL=1" {
+@test "--dry-run shows stall_exit_policy first when DVB_EARLY_EXIT_ON_STALL=1" {
   export DVB_EARLY_EXIT_ON_STALL=1
   run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"early_exit_on_stall: 1"* ]]
+  [[ "$output" == *"stall_exit_policy: first"* ]]
 }
 
 @test "--dry-run log path includes repo basename" {
@@ -1300,31 +1300,135 @@ SCRIPT
 #   - default-2x exit is the new fallback when neither of the above is
 #     set: bail when the consecutive trips counter reaches 2.
 
-@test "--dry-run shows stall_exit_policy default_2x_consecutive by default" {
+@test "--dry-run shows stall_exit_policy second when TG_STALL_EXIT=second (default)" {
+  export TG_STALL_EXIT=second
   run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"stall_exit_policy: default_2x_consecutive"* ]]
+  [[ "$output" == *"stall_exit_policy: second"* ]]
 }
 
-@test "--dry-run shows stall_exit_policy advisory_only when TG_NO_STALL_EXIT=1" {
-  export TG_NO_STALL_EXIT=1
+@test "--dry-run shows stall_exit_policy never when TG_STALL_EXIT=never" {
+  export TG_STALL_EXIT=never
   run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"stall_exit_policy: advisory_only"* ]]
+  [[ "$output" == *"stall_exit_policy: never"* ]]
 }
 
-@test "--dry-run shows stall_exit_policy strict_first_trip when TG_EXIT_ON_STALL=1" {
-  export TG_EXIT_ON_STALL=1
+@test "--dry-run shows stall_exit_policy first when TG_STALL_EXIT=first" {
+  export TG_STALL_EXIT=first
   run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"stall_exit_policy: strict_first_trip"* ]]
+  [[ "$output" == *"stall_exit_policy: first"* ]]
 }
 
-@test "TG_EXIT_ON_STALL=1 and TG_EARLY_EXIT_ON_STALL=1 both flip strict mode" {
+@test "TG_STALL_EXIT rejects unknown values at startup" {
+  export TG_STALL_EXIT=foo
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"TG_STALL_EXIT must be never|first|second"* ]]
+  [[ "$output" == *"got 'foo'"* ]]
+}
+
+@test "TG_STALL_EXIT takes precedence over legacy TG_EARLY_EXIT_ON_STALL" {
+  export TG_STALL_EXIT=never
   export TG_EARLY_EXIT_ON_STALL=1
   run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"stall_exit_policy: strict_first_trip"* ]]
+  [[ "$output" == *"stall_exit_policy: never"* ]]
+}
+
+@test "legacy TG_NO_STALL_EXIT=1 maps to stall_exit_policy: never" {
+  export TG_NO_STALL_EXIT=1
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"stall_exit_policy: never"* ]]
+}
+
+@test "legacy TG_EXIT_ON_STALL=1 maps to stall_exit_policy: first" {
+  export TG_EXIT_ON_STALL=1
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"stall_exit_policy: first"* ]]
+}
+
+@test "legacy TG_EARLY_EXIT_ON_STALL=1 maps to stall_exit_policy: first" {
+  export TG_EARLY_EXIT_ON_STALL=1
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"stall_exit_policy: first"* ]]
+}
+
+@test "TG_NO_STALL_EXIT=1 + TG_EXIT_ON_STALL=1 fails with mutual-exclusion error" {
+  export TG_NO_STALL_EXIT=1
+  export TG_EXIT_ON_STALL=1
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"mutually exclusive"* ]]
+  [[ "$output" == *"TG_STALL_EXIT=first|never|second"* ]]
+}
+
+@test "TG_NO_STALL_EXIT=1 + TG_EARLY_EXIT_ON_STALL=1 fails with mutual-exclusion error" {
+  export TG_NO_STALL_EXIT=1
+  export TG_EARLY_EXIT_ON_STALL=1
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"mutually exclusive"* ]]
+}
+
+@test "legacy stall-exit vars do NOT print deprecation notice in test mode (DVB_GRIND_CMD set)" {
+  # The bats suite always runs with DVB_GRIND_CMD set so the deprecation
+  # notice stays out of test output. Confirm that explicitly so future
+  # changes that move the suppression don't drown the suite in noise.
+  export TG_NO_STALL_EXIT=1
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  ! [[ "$output" == *"deprecated"* ]]
+}
+
+@test "TG_STALL_EXIT=first exits early on low throughput with the new marker" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stubborn task
+TASKS
+  export DVB_DEADLINE_OFFSET=15
+  export DVB_MAX_ZERO_SHIP=20
+  export TG_STALL_EXIT=first
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  grep -q 'early_exit_stall' "$TEST_LOG"
+  [[ "$output" == *"TG_STALL_EXIT=first"* ]]
+}
+
+@test "TG_STALL_EXIT=never keeps the grind running past consecutive trips" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stubborn task
+TASKS
+  export DVB_DEADLINE_OFFSET=15
+  export DVB_MAX_ZERO_SHIP=20
+  export TG_STALL_EXIT=never
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  ! grep -q 'diminishing_returns_exit' "$TEST_LOG"
+  ! grep -q 'early_exit_stall' "$TEST_LOG"
+  grep -q 'diminishing_returns window=5' "$TEST_LOG"
+}
+
+@test "TG_STALL_EXIT=second fires diminishing_returns_exit on the second consecutive trip" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stubborn task
+TASKS
+  export DVB_DEADLINE_OFFSET=30
+  export DVB_MAX_ZERO_SHIP=20
+  export TG_STALL_EXIT=second
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  grep -q 'diminishing_returns_exit consecutive=2 reason=default-2x' "$TEST_LOG"
+  ! grep -q 'early_exit_stall' "$TEST_LOG"
 }
 
 @test "TG_NO_STALL_EXIT rejects non-boolean values at startup" {
@@ -1452,17 +1556,15 @@ SCRIPT
     || grep -q 'diminishing_returns window=5 shipped=1' "$TEST_LOG"
 }
 
-@test "operator docs name TG_NO_STALL_EXIT and TG_EXIT_ON_STALL alongside the existing gates" {
+@test "operator docs name TG_STALL_EXIT alongside the existing gates" {
   local readme="$BATS_TEST_DIRNAME/../README.md"
   local man="$BATS_TEST_DIRNAME/../man/taskgrind.1"
   local skill="$BATS_TEST_DIRNAME/../.devin/skills/grind-log-analyze/SKILL.md"
 
-  grep -q 'TG_NO_STALL_EXIT' "$readme"
-  grep -q 'TG_EXIT_ON_STALL' "$readme"
+  grep -q 'TG_STALL_EXIT' "$readme"
   grep -q 'diminishing_returns_exit consecutive=2 reason=default-2x' "$readme"
 
-  grep -q 'TG_NO_STALL_EXIT' "$man"
-  grep -q 'TG_EXIT_ON_STALL' "$man"
+  grep -q 'TG_STALL_EXIT' "$man"
   grep -q 'diminishing_returns_exit consecutive=2 reason=default-2x' "$man"
 
   grep -q 'diminishing_returns_exit' "$skill"
