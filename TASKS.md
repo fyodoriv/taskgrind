@@ -144,7 +144,7 @@
     - The 4.32× overrun observed in the source log cannot recur — a regression test asserts max session runtime is bounded at `cap + 30 s` even when the backend ignores both polite signals
     - `man/taskgrind.1` documents the `session_watchdog escalation=SIGKILL` marker and the new `TG_SESSION_KILL_GRACE` env var
     - `make check` passes; the new tests stay under +5 s on the `make test` budget; PR description includes a before/after measurement: ratio of `max_session_observed / TG_MAX_SESSION` in the reproduction (target: ≤1.05× after the fix; the source log shows 4.32× before)
-- [ ] Honor Bosun 410 EXIT_NOW from atomic heartbeat
+- [ ] Honor Bosun 410 EXIT_NOW from atomic heartbeat (@devin-session-10)
   - **ID**: bosun-410-honor-exit-now
   - **Tags**: bosun-integration, heartbeat, lifecycle
   - **Source**: 2026-05-02 fleet-grind sessions (0e8f1657 → c247638c). After Bosun PR #1581 (atomic heartbeat) the heartbeat handler returns 410 EXIT_NOW more aggressively whenever the session is no longer in `active`/`paused` (status-flip race + recency window). Taskgrind's heartbeat loop currently treats 410 the same as 200 — logs it and continues. The agent keeps spawning sessions and committing after Bosun has marked the session over, which is exactly the leak path the bypass investigation tracked.
