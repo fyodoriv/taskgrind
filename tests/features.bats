@@ -1070,6 +1070,102 @@ SCRIPT
   grep -q 'TG_PUBLIC_WRITE_TOKEN' "$man"
 }
 
+# ── Trusted-repo mode (taskgrind-trusted-repo-mode) ───────────────────
+#
+# `TG_TRUSTED_REPO=1` is for personal/side-project repos where the
+# operator has already granted blanket approval for feature-branch push
+# and `gh pr create`. The session prompt's PUBLIC_WRITE_GATE flips
+# accordingly so the agent doesn't stop at the standard approval gate
+# for those two actions. Merging PRs, pushing to main/master or any
+# protected branch, force-pushing, bypassing pre-push hooks, opening
+# issues, posting to Slack/Jira/email, publishing packages, and any
+# cross-repo or upstream public write are still gated. NO-PUBLISH MODE
+# (`TG_NO_PUSH=1`) wins — its COMPLETION PROTOCOL forbids any push,
+# so the trusted-repo grant is suppressed in the gate prompt to avoid
+# contradicting it.
+#
+# Acceptance:
+# (a) default --dry-run reports trusted_repo=0 with the standard gate
+# (b) TG_TRUSTED_REPO=1 reports trusted_repo=1 with the trusted gate
+# (c) TG_NO_PUSH=1 + TG_TRUSTED_REPO=1: NO-PUBLISH wins, standard gate
+# (d) invalid value rejected at startup with actionable error
+# (e) DVB_TRUSTED_REPO=1 is honoured as the legacy alias
+# (f) operator docs (README, man) name TG_TRUSTED_REPO
+
+@test "--dry-run defaults to trusted_repo=0 with the standard PUBLIC_WRITE_GATE" {
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"trusted_repo: 0"* ]]
+  [[ "$output" != *"TG_TRUSTED_REPO=1"* ]]
+  [[ "$output" == *"does NOT authorize any public write"* ]]
+}
+
+@test "TG_TRUSTED_REPO=1 flips trusted_repo and rewrites the PUBLIC_WRITE_GATE" {
+  export TG_TRUSTED_REPO=1
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"trusted_repo: 1"* ]]
+  [[ "$output" == *"This repo is configured as a trusted repo (TG_TRUSTED_REPO=1)"* ]]
+  [[ "$output" == *"pre-authorized for the task you are working on"* ]]
+  # Still gates merging, protected pushes, force-push, --no-verify
+  [[ "$output" == *"merging pull requests"* ]]
+  [[ "$output" == *"main/master or any protected branch"* ]]
+  [[ "$output" == *"force-pushing"* ]]
+  [[ "$output" == *"--no-verify"* ]]
+  # Standard gate text NOT present (replaced by trusted-repo wording)
+  [[ "$output" != *"does NOT authorize any public write"* ]]
+}
+
+@test "DVB_TRUSTED_REPO=1 is honoured as the legacy alias" {
+  export DVB_TRUSTED_REPO=1
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"trusted_repo: 1"* ]]
+  [[ "$output" == *"TG_TRUSTED_REPO=1"* ]]
+}
+
+@test "TG_NO_PUSH=1 wins over TG_TRUSTED_REPO=1 (NO-PUBLISH MODE precedence)" {
+  # NO-PUBLISH MODE explicitly forbids any push/PR — the trusted-repo
+  # grant must not contradict that. The gate falls back to the standard
+  # text so the agent isn't told two opposite things at once.
+  export TG_NO_PUSH=1
+  export TG_TRUSTED_REPO=1
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no_push:  1"* ]]
+  [[ "$output" == *"trusted_repo: 1"* ]]
+  [[ "$output" == *"NO-PUBLISH MODE"* ]]
+  # Trusted-repo gate text NOT present when NO-PUBLISH wins
+  [[ "$output" != *"This repo is configured as a trusted repo"* ]]
+  # Standard gate text IS present
+  [[ "$output" == *"does NOT authorize any public write"* ]]
+}
+
+@test "TG_TRUSTED_REPO rejects non-boolean values at startup" {
+  export TG_TRUSTED_REPO=yes
+  run "$DVB_GRIND" --dry-run 8 "$TEST_REPO"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"TG_TRUSTED_REPO must be 0 or 1"* ]]
+}
+
+@test "structural: trusted-repo gate wording lives in dry-run, supervisor, and live session prompts" {
+  # The trusted-repo branch must appear in each of the three prompt
+  # construction sites: --dry-run echo, supervisor_repair_prompt, and
+  # the live session prompt. Anchor on the unique opening clause.
+  local trusted_count
+  trusted_count=$(grep -c 'configured as a trusted repo (TG_TRUSTED_REPO=1)' "$DVB_GRIND" 2>/dev/null) || trusted_count=0
+  [ "$trusted_count" -ge 3 ]
+}
+
+@test "operator docs name TG_TRUSTED_REPO alongside the other gates" {
+  # Doc-drift guard: any rename or scope change to the trusted-repo
+  # gate must update operator-facing references in lockstep.
+  local readme="$BATS_TEST_DIRNAME/../README.md"
+  local man="$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  grep -q 'TG_TRUSTED_REPO' "$readme"
+  grep -q 'TG_TRUSTED_REPO' "$man"
+}
+
 # ── Sweep ceiling and efficiency marker ───────────────────────────────
 #
 # Sweeps used to inherit `max_session`, which the productive-timeout

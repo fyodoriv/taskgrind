@@ -321,6 +321,35 @@ TASKS.md task metadata (labels, tags, green\-list annotations) is
 task context only and does NOT authorize any public write.
 Set once per grind run to authorize the specific PR.
 .TP
+.B TG_TRUSTED_REPO
+Set to 1 for personal/side\-project repos where the operator has
+already granted blanket approval for feature\-branch
+.B git push
+and
+.BR "gh pr create" .
+The session prompt's
+.B PUBLIC_WRITE_GATE
+flips so the agent does not stop at the standard approval gate
+for those two actions, letting it ship local commits via a PR
+without a per\-session approval round\-trip.
+Merging PRs (including
+.BR "gh pr merge" ),
+pushing directly to
+.B main
+/
+.B master
+or any protected branch, force\-pushing, bypassing pre\-push hooks
+with
+.BR \-\-no\-verify ,
+opening issues, posting to Slack/Jira/email, publishing packages,
+and any cross\-repo or upstream public write are still gated.
+TASKS.md task metadata (labels, tags, green\-list annotations) does
+NOT extend the trusted\-repo grant to those gated actions.
+Has no effect when
+.BR TG_NO_PUSH=1 :
+NO\-PUBLISH MODE wins so the agent is not told two opposite things
+at once. Default 0.
+.TP
 .B TG_DEVIN_PATH
 Override devin binary path (default: auto\-detect from PATH).
 .TP
