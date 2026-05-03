@@ -75,9 +75,17 @@
     - [ ] Make the man page the complete env-var reference for hidden tuning knobs
     - [ ] Update doc-drift tests and verify the trimmed surface
 
-- [ ] Sweep watchdog must escalate to `SIGKILL` so a wedged backend cannot run 15× past `TG_SWEEP_MAX`
+- [ ] Sweep watchdog must escalate to `SIGKILL` so a wedged backend cannot run 15× past `TG_SWEEP_MAX` (@devin-session-4)
   - **ID**: sweep-watchdog-escalate-to-sigkill
   - **Tags**: sweep, watchdog, deadline, signals, backend-resilience, AIFN-720-not-applicable
+  - **Plan**:
+    - [ ] Extend sweep watchdog with SIGINT → SIGTERM → SIGKILL escalation sequence
+    - [ ] Add wall-clock hard fallback (`_sweep_start_epoch` + `cap + 60s` cutoff)
+    - [ ] Self-heal `wait $! 2>/dev/null || exit 0` so a stray SIGTERM does not disarm the watchdog
+    - [ ] Emit `sweep_watchdog escalation=SIGKILL pid=N elapsed=Ns` log marker on the forced-kill path
+    - [ ] Add `_FAKE_DEVIN_IGNORE_TERM=1` knob to the fake-backend fixture so tests can simulate the wedged case
+    - [ ] Add three regression tests (wedged backend bounded; spurious watchdog SIGTERM; escalation marker emitted)
+    - [ ] Update man page TROUBLESHOOTING and docs/architecture.md with the new escalation contract
   - **Source**: `taskgrind-2026-05-01-2245-dotfiles-37908.log` — after `backend_rotated from=devin to=claude-code reason=zero_ship_streak` at 03:56, the launched sweep ran until 11:24 with `sweep_done exit=143 elapsed=26908s cap=1800s`. The cap was 1800 s (30 min); the sweep ran 26 908 s (7 h 28 m), 14.95× over its budget, before something else (apparently the operator) sent `SIGTERM`. The watchdog never fired, so 7 hours of remaining grind budget were burned on a single wedged sweep.
   - **Details**: The sweep watchdog at `bin/taskgrind:4312-4334` has two correctness gaps that combine into the observed 15× overrun:
     1. **No `SIGKILL` escalation**. After the cap expires, the watchdog sends `kill -INT $_dvb_pid`, sleeps 15 s, then sends `kill $_dvb_pid` (default `SIGTERM`). A backend (or any subprocess group) that ignores both signals — claude-code stuck inside an unresponsive HTTP retry loop is one observed case — keeps running, and the watchdog has no further recourse. There is no `kill -KILL` after the `SIGTERM` grace.
