@@ -9,3 +9,6 @@
 .taskgrind-state
 .test-cache
 .test-cache-*
+
+# Orchestrator pipeline artifacts
+.orchestrator/
