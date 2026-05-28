@@ -821,13 +821,6 @@
   - **Files**: `Makefile`, `tests/test_helper.bash`, `AGENTS.md` if the workflow guidance changes
   - **Acceptance**: during a full `make check`, a long-running Bats file emits at least one progress/heartbeat line every 60 seconds without breaking TAP parsing or the existing cached-test behavior; the normal success output remains readable and ordered; `make test-force TESTS='tests/features.bats tests/git-sync.bats' TEST_JOBS=2` demonstrates the progress behavior; `make check` passes
 
-- [ ] Prevent accidental semver-named root artifacts from polluting repo status
-  - **ID**: prevent-semver-root-artifacts
-  - **Tags**: developer-experience, repo-hygiene, tooling
-  - **Source**: 2026-04-30 README/CI cleanup noticed pre-existing untracked files named `=1.11.0`, `=2.32.4`, and `=5.5.0` in the repo root; `=5.5.0` contains pip install output, which suggests a misquoted dependency/version command redirected stdout into a filename instead of a log.
-  - **Details**: Root-level files whose names are only a version comparator suffix are almost certainly command-artifact trash, but they currently show up as ordinary untracked files and make every agent start by wondering whether they are user work. Add a small guard so this shape is either ignored intentionally or detected with a clear cleanup hint. Prefer a targeted rule over broad ignores: the repo should not hide arbitrary generated output, only the known accidental `=<version>` filename pattern if that is the right call after checking how the files were created.
-  - **Files**: `.gitignore`, `Makefile`, `tests/makefile-cleanup.bats`, docs only if the chosen guard needs an operator note
-  - **Acceptance**: a fresh `git status --short` after the guard no longer distracts agents with accidental `=<semver>` artifacts; the guard does not ignore legitimate source/docs files; a regression test or lint/audit check proves the chosen behavior; existing pre-existing artifacts are handled explicitly by the operator rather than silently deleted by an agent; `make check` passes
 
 - [ ] Extract a deadline-path test helper that disables all stall exits
   - **ID**: deadline-status-test-stall-exit-helper

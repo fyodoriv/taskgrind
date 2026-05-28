@@ -51,3 +51,25 @@ SCRIPT
   grep -q 'attempt=2' "$TASKGRIND_RM_LOG"
   export PATH="$original_path"
 }
+
+@test "gitignore ignores accidental root =<version> artifacts" {
+  local gitignore="$BATS_TEST_DIRNAME/../.gitignore"
+  local pattern_line
+  pattern_line=$(grep -n '^/=\*$' "$gitignore" || true)
+  [ -n "$pattern_line" ]
+
+  local repo_root
+  repo_root="$BATS_TEST_DIRNAME/.."
+
+  run git -C "$repo_root" check-ignore -v =1.11.0
+  [ "$status" -eq 0 ]
+
+  run git -C "$repo_root" check-ignore -v =2.32.4
+  [ "$status" -eq 0 ]
+
+  run git -C "$repo_root" check-ignore -v lib/foo=bar
+  [ "$status" -ne 0 ]
+
+  run git -C "$repo_root" check-ignore -v Makefile
+  [ "$status" -ne 0 ]
+}
