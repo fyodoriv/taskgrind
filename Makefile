@@ -63,6 +63,8 @@ audit:
 	@grep -RInE 'TODO:|FIXME:' bin lib docs README.md CONTRIBUTING.md SECURITY.md AGENTS.md Agentfile.yaml man/taskgrind.1 .devin/skills/*/SKILL.md 2>/dev/null || true
 	@echo "═══ Audit: shellcheck ═══"
 	@$(MAKE) lint
+	@echo "═══ Audit: repo-local skill frontmatter ═══"
+	@python3 scripts/validate-skills.py
 	@echo "═══ Audit: TASKS.md spec ═══"
 	@if [ ! -f $(TASKS_MD) ]; then \
 		echo "(no $(TASKS_MD) to lint)"; \
