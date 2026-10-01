@@ -1,0 +1,5 @@
+# Agentfile.yaml
+mcp:
+  - context7          # live docs
+  - tasks-mcp         # TASKS.md integration
+  - github            # GitHub repo

@@ -1,0 +1,183 @@
+# Resumable Grind State
+
+## TL;DR
+
+Taskgrind persists a small `key=value` snapshot in the repo so `--resume` can
+continue the same grind instead of starting over after a crash or reboot. The
+resume contract is deliberately strict: if the repo, deadline, or schema does
+not match, taskgrind refuses to resume rather than blending two different runs.
+
+This document describes the resume contract that `bin/taskgrind` implements
+today. The goal is to keep the on-disk format small, human-readable, and easy
+to validate in tests.
+
+`--resume` only restores the persisted grind state. It cannot recover
+uncommitted edits from a session that crashed after its context filled up, so
+the operational rule is still to keep each session small enough to commit and
+exit cleanly.
+
+## Goals
+
+- Preserve enough state to continue the same grind after an interruption.
+- Reject stale or ambiguous state instead of silently mixing two different runs.
+- Keep the file inspectable with plain shell tools.
+
+## State file location and format
+
+By default taskgrind writes resume state to:
+
+- `<repo>/.taskgrind-state`
+
+Tests can override the path with `DVB_STATE_FILE`.
+
+The file is a flat `key=value` document, not JSON. Taskgrind rewrites the whole
+file via a temporary file plus `mv`, so readers should treat it as a complete
+snapshot rather than an append-only log.
+
+Current keys:
+
+- `version` — schema version, currently `1`
+- `repo` — absolute repo path that owns the state
+- `status` — resumability marker; `--resume` currently accepts only `running`
+- `deadline` — absolute deadline epoch seconds
+- `session` — completed session counter at the time of the write
+- `tasks_shipped` — total shipped tasks so far
+- `sessions_zero_ship` — total zero-ship sessions so far
+- `consecutive_zero_ship` — current live zero-ship streak
+- `backend` — saved backend name
+- `skill` — saved skill name
+- `model` — active model to resume with
+- `startup_model` — original startup model baseline shown to the operator
+- `startup_prompt` — original `--prompt` / `TG_PROMPT` baseline for resumed focus
+- `no_push` — `0` or `1`, mirroring whether the original run was launched with
+  `--no-push` / `TG_NO_PUSH=1`. State files written before this field existed
+  are read as `0` (the historical default).
+
+Example:
+
+```text
+version=1
+repo=/Users/alice/apps/myrepo
+status=running
+deadline=1760000000
+session=3
+tasks_shipped=2
+sessions_zero_ship=1
+consecutive_zero_ship=0
+backend=devin
+skill=next-task
+model=claude-opus-4-7-max
+startup_model=claude-opus-4-7-max
+startup_prompt=focus on reliability
+no_push=0
+```
+
+## What `--resume` restores
+
+When validation succeeds, taskgrind restores:
+
+- the saved deadline
+- the session counter
+- shipped-task counters
+- zero-ship counters
+- backend
+- skill
+- model
+- startup model baseline
+- startup focus prompt baseline
+- no-publish mode (the saved `no_push` value, unless an explicit
+  `--no-push` flag on the resume CLI overrides it; the saved value
+  cannot be lowered from `1` to `0` via env var alone, only by passing
+  a fresh CLI invocation without `--no-push` and without `TG_NO_PUSH=1`
+  on a brand-new state file)
+
+Resume does not restore every startup flag. In particular, taskgrind does not
+persist git-sync cadence or retry maps in the state file. Repo-local
+`.taskgrind-prompt` edits also remain live-only: taskgrind restores the saved
+startup prompt baseline, then re-reads `.taskgrind-prompt` before each resumed
+session so operators can keep steering the run without mutating the original
+focus context.
+
+## Validation rules
+
+`taskgrind --resume <repo>` rejects the file unless all of these checks pass:
+
+- the state file exists
+- `version` matches the supported schema version
+- `repo` matches the current absolute repo path
+- `status=running`
+- `deadline`, `session`, `tasks_shipped`, `sessions_zero_ship`, and
+  `consecutive_zero_ship` are all present and numeric
+- the saved deadline is still in the future
+- any explicit `--backend` override matches the saved backend
+- any explicit `--model` override matches the saved model
+- any explicit `--prompt` / `TG_PROMPT` override matches the saved startup
+  prompt
+- the requested skill matches the saved skill
+
+Current rejection reasons surfaced to the operator:
+
+- `version mismatch`
+- `repo mismatch`
+- `state is not resumable (status=<value>)`
+- `state file is malformed`
+- `deadline expired`
+- `backend override does not match saved state`
+- `model override does not match saved state`
+- `prompt override does not match saved state`
+- `skill does not match saved state`
+
+When the deadline is expired, taskgrind also suggests starting a fresh grind.
+
+## When taskgrind writes or clears state
+
+Taskgrind writes the state file:
+
+- before the first session starts
+- after each completed session updates the counters
+- after network recovery extends the deadline
+
+Taskgrind removes the file on clean completion, including:
+
+- empty-queue completion
+- all-tasks-blocked completion
+- audit-focus-blocked completion
+- deadline completion
+
+The file is intentionally left behind for interrupted runs so `--resume` can
+continue them.
+
+Separately from the resume file itself, taskgrind also repairs interrupted git
+state before the next session starts. If a prior run died during a rebase or
+merge, the next loop aborts that in-progress operation first; normal
+between-session sync also auto-resolves `TASKS.md`-only rebase conflicts so
+routine queue churn does not strand the repo in recovery mode.
+
+## Operator flow
+
+Fresh run:
+
+1. `taskgrind ~/apps/myrepo 8`
+2. Taskgrind creates or refreshes `~/apps/myrepo/.taskgrind-state` while the
+   grind is active.
+3. If the grind completes cleanly, taskgrind deletes the file.
+
+Resumed run:
+
+1. `taskgrind --resume ~/apps/myrepo`
+2. If the interrupted run started with explicit `--backend`, `--model`,
+   `--skill`, or baseline `--prompt` / `TG_PROMPT` overrides, rerun `--resume`
+   with those same choices instead of relying on today's shell defaults.
+3. Taskgrind loads the saved `key=value` state, validates it, and restores the
+   saved counters and runtime choices.
+4. If validation fails, taskgrind exits with a clear incompatibility reason.
+
+## Testing implications
+
+The executable contract is covered in `tests/resume.bats`. At minimum, resume
+behavior should keep covering:
+
+- state-file creation for interrupted runs
+- restoring counters on a resumed run
+- rejecting incompatible schema versions
+- rejecting expired deadlines

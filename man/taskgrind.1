@@ -1,0 +1,1290 @@
+.TH TASKGRIND 1 "2026-04-09" "taskgrind" "User Commands"
+.SH NAME
+taskgrind \- autonomous multi-session grind tool
+.SH SYNOPSIS
+.B taskgrind
+[\fIhours\fR] [\fIrepo\fR] [\fB\-\-model\fR \fIname\fR] [\fB\-\-skill\fR \fIname\fR] [\fB\-\-backend\fR \fIname\fR] [\fB\-\-prompt\fR \fItext\fR] [\fB\-\-target\-repo\fR \fIpath\fR]... [\fB\-\-from\-prompt\fR \fItext\fR] [\fB\-\-dry\-run\fR] [\fB\-\-preflight\fR] [\fB\-\-resume\fR] [\fB\-\-no\-push\fR] [\fB\-\-supervise\fR \fIstatus-file\fR] [\fB\-\-help\fR] [\fB\-\-version\fR]
+.SH DESCRIPTION
+Runs sequential AI coding sessions against a TASKS.md repo until a deadline.
+Each session starts with full context, picks a task from TASKS.md, implements
+it, commits, removes it from TASKS.md, and exits. Between sessions: cooldown,
+optional git sync. Exits when the queue empties, the deadline is reached, or
+stall is detected.
+.PP
+Sessions should exit before context fills; context exhaustion can crash the
+process and lose uncommitted work.
+.PP
+If a session crashes from context exhaustion, the next run can resume from git
+and TASKS.md, but any uncommitted work from the crashed session is lost.
+.PP
+When
+.BR \-\-skill " " fleet\-grind
+is active, taskgrind injects a
+.B CONTEXT_BUDGET
+prompt guard. The GPT\-5.5/default standard profile asks the session to keep to
+one merge/fill/fix cycle plus at most one narrow sweep and to checkpoint before
+expanding scope. The Opus 4.7 alias gets a large\-context profile, while still
+preferring clean session boundaries over filling context.
+.PP
+Arguments can appear in any order. Hours is any bare integer (1\-24, default: 10).
+.SH OPTIONS
+.TP
+.BR \-\-skill " " \fIname\fR
+Skill to run each session (default: next\-task). Accepts any skill installed for
+the selected backend, including repo\-local lanes such as
+standing\-audit\-gap\-loop.
+.TP
+.BR \-\-backend " " \fIname\fR
+AI backend: devin, claude\-code, codex (default: devin).
+.TP
+.BR \-\-rotate\-backends " " \fIlist\fR
+Override the auto\-detected comma\-separated list of backends to cycle
+through when the active backend's session output contains rate\-limit,
+quota, or throttle patterns. After each session, taskgrind scans the
+just\-finished output for those patterns; on match, the next session
+launches with the next backend in the list (cycling). Independent of
+.BR \-\-backend ,
+which sets the starting backend; the rotation list controls only the
+swap target. Same effect as setting
+.BR TG_ROTATE_BACKENDS .
+.TP
+.BR \-\-model " " \fIname\fR
+AI model to use (default: "gpt\-5\-5\-xhigh\-priority"; "gpt\-5.5" for codex). Overrides TG_MODEL env var. Short aliases such as
+\fBopus\fR, \fBsonnet\fR, \fBhaiku\fR, \fBgpt\fR, \fBcodex\fR, and \fBswe\fR resolve to the
+current preferred model IDs. Quote multi-word model names, for example
+\fB\-\-model "gpt\-5.5 XHigh thinking fast"\fR.
+.TP
+.BR \-\-prompt " " \fItext\fR
+Focus prompt prepended to every session.
+.TP
+.BR \-\-target\-repo " " \fIpath\fR
+Workspace mode: add a target repo the agent has read/write access to in
+addition to the control repo (the positional arg, which holds TASKS.md
+and the slot lock). Repeat for multiple targets, or set
+.BR TG_TARGET_REPOS
+to a colon\-separated list. Slot 0 syncs and pushes each target on the
+normal sync interval. Preserved across
+.BR \-\-resume .
+.TP
+.BR \-\-from\-prompt " " \fItext\fR
+Natural\-language config brief. Taskgrind asks the configured AI backend
+to translate the text into KEY=VALUE config lines (hours, repo,
+target_repos, model, backend, skill, focus, no_push) before launching.
+Explicit CLI flags and
+.BR TG_*
+env vars always win; the translation fills only the slots the user did
+not set. Same effect as setting
+.BR TG_FROM_PROMPT .
+Not compatible with
+.BR \-\-resume .
+.TP
+.BR \-\-dry\-run
+Print configuration and exit without running sessions.
+.TP
+.BR \-\-preflight
+Run health checks and exit.
+.TP
+.BR \-\-resume
+Resume an interrupted grind from the saved state in the target repo.
+.TP
+.BR \-\-no\-push
+Commit locally only \(em never auto\-push to origin. Equivalent to setting
+.BR TG_NO_PUSH=1 .
+The agent prompt is rewritten to forbid
+.BR "git push" ,
+.BR "gh pr create" ,
+and
+.BR "gh pr merge" ,
+and the final\-sync step logs
+.BR "final_sync would_push commits=N head=<sha>"
+instead of pushing. Operators review and push manually after the grind
+exits. Preserved across
+.BR \-\-resume .
+.TP
+.BR \-\-no\-pr\-fallback
+Disable the auto\-PR fallback that triggers when
+.B final_sync
+push to the default branch is rejected by branch protection (GH006 /
+required\-status\-check). Equivalent to setting
+.BR TG_NO_PR_FALLBACK=1 .
+With this flag, taskgrind classifies the failure as
+.B push_protected_branch
+but skips the PR\-creation step \(em commits stay on the local default branch
+for manual handling. Without this flag (default), taskgrind pushes
+the local commits to a unique
+.B taskgrind\-ship\-<UTC>
+branch and runs
+.BR "gh pr create"
+when
+.B gh
+is on
+.BR PATH
+and
+.B TG_PUBLIC_WRITE_TOKEN
+is set. Without the token, taskgrind writes a draft PR body to a temp file and
+falls through to manual recovery.
+.TP
+.BR \-\-supervise " " \fIstatus-file\fR
+Inspect another Taskgrind run's
+.B TG_STATUS_FILE
+JSON once. Healthy/progressing watched phases exit without invoking a
+backend; failed or stale watched phases launch one bounded repair session in
+the watched repo. The repair prompt includes the status path, watched log path,
+stuck reason, normal completion protocol,
+.B TG_NO_PUSH
+semantics, and the public-write gate. This is the first supervisor/fixer slice;
+continuous polling and richer repair heuristics are follow-up work.
+.TP
+.BR \-\-help ", " \-h
+Show usage and environment variables.
+.TP
+.BR \-\-version ", " \-V
+Print version (commit hash + date) and exit.
+.SH ENVIRONMENT
+TG_ is the canonical prefix. DVB_ is supported as a backward\-compatible alias.
+.TP
+.B TG_BACKEND
+AI backend (default: devin).
+.TP
+.B TG_ROTATE_BACKENDS
+Comma\-separated list overriding the auto\-detected backend rotation list.
+By default, taskgrind enables rotation automatically when 2+ supported
+backend binaries are installed. Set a single backend to disable cycling.
+Same effect as
+.BR \-\-rotate\-backends .
+.TP
+.B TG_MODEL
+AI model (default: "gpt\-5\-5\-xhigh\-priority"; "gpt\-5.5" for codex).
+.TP
+.B TG_SKILL
+Skill to run (default: next\-task).
+.TP
+.B TG_PROMPT
+Extra focus prompt for every session.
+.TP
+.B TG_COOL
+Seconds between sessions (default: 5).
+.TP
+.B TG_MAX_SESSION
+Max seconds per session before timeout (default: 5400, was 3600 before
+2026-04-29). The bump reflects bosun PR #1548 enforcing "code commits via
+pipelines only" \(em sessions are now an orchestrator role (launch +
+monitor + merge) and pipelines take 20\(en45 min each, so 90 min lets the
+agent batch 2\(en3 pipeline cycles per session vs ~1 in the old direct-
+edit model. When a session ships work but hits this timeout, taskgrind
+logs a
+.BR productive_timeout
+marker and adds 1800 seconds (30 minutes) to the next session's budget, up to
+a hard cap of 7200 seconds (2 hours). Operators who need a strict time budget
+should plan around the 7200 s cap rather than the initial value.
+.TP
+.B TG_SWEEP_MAX
+Max seconds for a backlog-discovery sweep session (default: 1800).
+Independent of
+.BR TG_MAX_SESSION
+so the productive-timeout escalation cannot lengthen sweeps; a sweep that
+needs more than 30 minutes should be split into smaller audit passes.
+Each completed sweep emits
+.BR "sweep_efficiency tasks=N elapsed=Ns tasks_per_min=N.NN"
+so post-mortems can spot a degrading sweep without summing every
+.BR sweep_done
+line by hand.
+.TP
+.B TG_MIN_SESSION
+Fast\-failure threshold in seconds (default: 30); shorter runs are treated as
+startup or network failures rather than real work.
+.TP
+.B TG_MAX_FAST
+Max consecutive fast failures before bail (default: 20); high enough to collect
+diagnostics while bounding broken backend loops.
+.TP
+.B TG_MAX_ZERO_SHIP
+Max consecutive zero\-ship sessions before bail (default: 6), aligned to the
+5-session diminishing-returns window plus one confirmation trip.
+.TP
+.B TG_SELF_INVESTIGATE_ZERO_SHIP_STREAK
+Consecutive zero\-ship sessions before stall-warning prompts, mid-run
+self-investigation, and backend rotation (default: 3).
+.TP
+.B TG_BACKOFF_BASE
+Base seconds for fast\-failure backoff (default: 15); slows crash loops after
+diagnostics start.
+.TP
+.B TG_BACKOFF_MAX
+Cap for fast\-failure backoff in seconds (default: 120); keeps recovery checks
+at least every 2 minutes.
+.TP
+.B TG_NET_WAIT
+Network polling interval in seconds (default: 30); responsive for Wi-Fi
+recovery without log spam.
+.TP
+.B TG_NET_MAX_WAIT
+Max time to wait for network recovery in seconds (default: 3600, 1h);
+longer outages should be resumed explicitly after connectivity returns.
+.TP
+.B TG_NET_RETRIES
+Network check retry attempts before declaring down (default: 3); filters
+transient DNS/HTTP blips.
+.TP
+.B TG_NET_RETRY_DELAY
+Seconds between network check retries (default: 2); keeps false-negative probes
+under 10 seconds.
+.TP
+.B TG_NET_CHECK_URL
+Override the fallback curl connectivity check URL when
+.B network-watchdog
+is unavailable (default: https://connectivitycheck.gstatic.com/generate_204).
+.TP
+.B TG_SYNC_INTERVAL
+Git sync every N sessions (default: 5, 0=every); amortizes fetch/rebase
+overhead while keeping long grinds fresh.
+.TP
+.B TG_EMPTY_QUEUE_WAIT
+Seconds to wait after an empty sweep before exiting (default: 600); gives
+external agents time to inject follow-up work.
+.TP
+.B TG_MAX_INSTANCES
+Max concurrent taskgrind instances allowed per repo (default: 2); one sync owner
+plus one conflict-avoiding worker.
+.TP
+.B TG_GIT_SYNC_TIMEOUT
+Max seconds for between\-session git sync (default: 30); longer hangs need
+operator recovery.
+.TP
+.B TG_LOG
+Override log file path.
+.TP
+.B TG_STATUS_FILE
+Write machine\-readable runtime status JSON to this path.
+.TP
+.B TG_NOTIFY
+Desktop notification on completion (default: 1, 0 to disable).
+.TP
+.B TG_NO_PUSH
+Set to 1 to commit locally only \(em
+.B final_sync
+logs
+.BR "final_sync would_push commits=N head=<sha>"
+instead of pushing, and the session prompt forbids
+.BR "git push" ,
+.BR "gh pr create" ,
+and
+.BR "gh pr merge"
+(default: 0). Equivalent to passing
+.BR \-\-no\-push ;
+preserved across
+.BR \-\-resume .
+.TP
+.B TG_NO_PR_FALLBACK
+Set to 1 to disable the auto\-PR fallback that runs when
+.B final_sync
+push to the default branch is rejected by branch protection (GH006 /
+.RB \(lq "protected branch hook declined" \(rq /
+required\-status\-check). Default 0 (auto\-PR enabled when
+.BR gh
+is on
+.BR PATH ,
+.B TG_NO_PUSH
+is not set, and
+.B TG_PUBLIC_WRITE_TOKEN
+is set): taskgrind pushes the local commits to a unique
+.B taskgrind\-ship\-<UTC>
+branch and runs
+.BR "gh pr create" ,
+logging
+.BR "final_sync pr_created url=<url> commits=N branch=..." .
+With
+.BR TG_NO_PR_FALLBACK=1 ,
+taskgrind logs
+.BR "final_sync push_protected_branch_pr_fallback_disabled"
+followed by
+.BR "final_sync push_protected_branch_manual_recovery_needed"
+and exits with the local commits intact for manual handling.
+Equivalent to passing
+.BR \-\-no\-pr\-fallback .
+.TP
+.B TG_PUBLIC_WRITE_TOKEN
+Approval token that authorizes
+.BR final_sync 's
+auto\-PR creation. When set to any non\-empty string (e.g.
+.BR "session\-2026\-05\-01" ),
+taskgrind may push a feature branch and open a PR via
+.B gh pr create
+when the direct push is blocked by branch protection.
+When unset (default), auto\-PR creation is blocked: taskgrind
+writes the draft PR body to a temp file, prints
+.BR "Approval needed \(em draft body at: <path>" ,
+and falls through to
+.BR "final_sync push_protected_branch_manual_recovery_needed" .
+This prevents unapproved public writes from agent sessions \(em
+TASKS.md task metadata (labels, tags, green\-list annotations) is
+task context only and does NOT authorize any public write.
+Set once per grind run to authorize the specific PR.
+.TP
+.B TG_TRUSTED_REPO
+Set to 1 for personal/side\-project repos where the operator has
+already granted blanket approval for feature\-branch
+.B git push
+and
+.BR "gh pr create" .
+The session prompt's
+.B PUBLIC_WRITE_GATE
+flips so the agent does not stop at the standard approval gate
+for those two actions, letting it ship local commits via a PR
+without a per\-session approval round\-trip.
+Merging PRs (including
+.BR "gh pr merge" ),
+pushing directly to
+.B main
+/
+.B master
+or any protected branch, force\-pushing, bypassing pre\-push hooks
+with \fB\-\-no\-verify\fR,
+opening issues, posting to Slack/Jira/email, publishing packages,
+and any cross\-repo or upstream public write are still gated.
+TASKS.md task metadata (labels, tags, green\-list annotations) does
+NOT extend the trusted\-repo grant to those gated actions.
+Has no effect when
+.BR TG_NO_PUSH=1 :
+NO\-PUBLISH MODE wins so the agent is not told two opposite things
+at once. Default 0.
+.TP
+.B TG_DEVIN_PATH
+Override devin binary path (default: auto\-detect from PATH).
+.TP
+.B TG_TARGET_REPOS
+Colon\-separated workspace target repo paths. Same effect as repeating
+.BR \-\-target\-repo " " \fIpath\fR
+on the command line. The control repo (positional arg) holds TASKS.md and
+the slot lock; targets get
+.B fetch
++
+.B rebase
+between sessions and a
+.B push
+from
+.B final_sync
+on slot 0. Preserved across
+.BR \-\-resume .
+.TP
+.B TG_FROM_PROMPT
+Natural\-language config brief that the configured AI backend translates
+into KEY=VALUE config lines (hours, repo, target_repos, model, backend,
+skill, focus, no_push) before launch. Same effect as
+.BR \-\-from\-prompt " " \fItext\fR.
+Explicit CLI flags and other
+.B TG_*
+env vars take precedence; the translation only fills slots the user did
+not set. Not compatible with
+.BR \-\-resume .
+.TP
+.B TG_SHUTDOWN_GRACE
+Seconds to wait for current session on exit (default: 120).
+.TP
+.B TG_BOSUN_410_GRACE
+Seconds to wait after a Bosun 410
+.B EXIT_NOW
+before SIGTERMing the active session (default: 30). Shorter than
+.B TG_SHUTDOWN_GRACE
+because Bosun has already disowned the session \(em the controller
+just needs time for the backend to flush and commit. See TROUBLESHOOTING
+for the
+.B bosun_heartbeat_410
+and
+.B "graceful_shutdown trigger=bosun-410-exit-now"
+log markers emitted on this path.
+.TP
+.B TG_SESSION_GRACE
+Seconds to wait after session SIGINT before SIGTERM (default: 15).
+.TP
+.B TG_WATCHDOG_KILL_GRACE
+Seconds to wait after session/sweep SIGTERM before the final SIGKILL
+escalation (default: 5). The watchdog escalates
+.BR SIGINT " \(-> "
+.BR SIGTERM " \(-> "
+.BR SIGKILL
+so a wedged backend cannot run past the cap. See TROUBLESHOOTING for
+the
+.B sweep_watchdog escalation=SIGKILL
+log marker emitted on the forced-kill path.
+.TP
+.B TG_STASH_WARN_THRESHOLD
+Preflight warns when
+.B "git stash list"
+shows more than this many entries (default: 5). Helps catch repos
+where prior crashed runs left WIP behind. The warning prints the
+count, the oldest stash's timestamp, and a copy\-pasteable
+.B "git stash list"
+inspect command. Set to
+.B 0
+to disable. Warning only \(em never blocks launch.
+.TP
+.B TG_STALL_EXIT
+When to auto-exit on the
+.BR diminishing_returns
+signal: one of
+.BR never ,
+.BR first ,
+or
+.BR second
+(default:
+.BR second ).
+Taskgrind tracks shipped counts in a 5-session rolling window; once
+session >= 5 and fewer than 2 tasks have shipped across the window,
+taskgrind logs
+.BR "diminishing_returns window=5 shipped=N consecutive=N"
+and prints a low-throughput warning.
+.BR second
+(default) exits on the SECOND consecutive trip with
+.BR "diminishing_returns_exit consecutive=2 reason=default-2x"
+and sets the status phase to
+.BR failed .
+.BR first
+exits on the FIRST trip with the historical
+.BR early_exit_stall
+marker.
+.BR never
+keeps the warning advisory; the grind keeps running regardless of how
+many consecutive trips fire — useful for audit/discovery lanes where
+low ship rates are expected.
+.PP
+.B "Deprecated stall-exit aliases."
+The legacy
+.BR TG_EARLY_EXIT_ON_STALL=1 ,
+.BR TG_EXIT_ON_STALL=1 ,
+and
+.BR TG_NO_STALL_EXIT=1
+vars still translate to
+.BR TG_STALL_EXIT=first ,
+.BR TG_STALL_EXIT=first ,
+and
+.BR TG_STALL_EXIT=never
+respectively, but each emits a one-shot deprecation notice on stderr.
+Setting both a
+.BR never -mapping
+and a
+.BR first -mapping
+legacy var at once is a hard error: prior versions silently let
+.BR TG_NO_STALL_EXIT
+win by precedence, which is now rejected with a startup message that
+points operators at
+.BR TG_STALL_EXIT
+instead. Migrate to
+.BR TG_STALL_EXIT
+to silence the notice.
+.SH BACKEND SETUP
+Run
+.B taskgrind \-\-preflight
+after installing a backend. Preflight checks the backend binary, validates the
+requested model before session 1, verifies that the selected backend can see
+the requested skill, and reports the most actionable setup failure before a
+long grind starts.
+.PP
+To run Claude Code as the primary lane, use the same preflight, env-default,
+rotation, and resume shapes as the other supported backends:
+.nf
+taskgrind \-\-preflight \-\-backend claude\-code \-\-model claude\-sonnet\-4.6 ~/apps/myrepo
+TG_BACKEND=claude\-code TG_MODEL=sonnet taskgrind ~/apps/myrepo 8
+taskgrind \-\-rotate\-backends devin,claude\-code,codex ~/apps/myrepo 8
+.fi
+.TP
+.B devin
+Binary detection uses
+.B devin
+from
+.BR PATH ,
+or
+.B TG_DEVIN_PATH
+if set. Model validation runs
+.B devin \-\-model <name> \-\-help
+before launch. Common setup failures are
+.B Backend binary not found (devin)
+for a missing CLI or bad
+.BR TG_DEVIN_PATH ,
+and
+.B Model rejected by devin before starting
+for an unsupported model string. When the optional startup probe reports that
+the backend is a stub or broken after
+.BR \-\-version ,
+reinstall or roll back the Devin CLI before retrying.
+.TP
+.B claude\-code
+Binary detection uses
+.B claude
+from
+.BR PATH .
+Model validation runs
+.B claude \-\-model <name> \-\-help
+before launch. Common setup failures are
+.B Backend binary not found (claude\-code)
+when the Claude Code CLI is not installed or not on
+.BR PATH ,
+and
+.B Model rejected by claude\-code before starting
+when the selected Claude model is not available to that install or account.
+Install or repair Claude Code with
+.B npm install \-g @anthropic\-ai/claude\-code
+and confirm
+.B claude \-\-version
+prints output. If preflight reports
+.B Backend binary is not executable (claude\-code)
+or the startup probe reports a silent stub after
+.BR \-\-version ,
+fix the
+.B claude
+binary on
+.B PATH
+before retrying.
+.TP
+.B codex
+Binary detection uses
+.B codex
+from
+.BR PATH .
+Model validation runs
+.B codex \-\-model <name> \-\-help
+before launch. Common setup failures are
+.B Backend binary not found (codex)
+for a missing CLI and
+.B Model rejected by codex before starting
+for an unsupported OpenAI model name. If the selected model still looks like a
+Claude model, taskgrind warns before launch and tells the operator to switch to
+an OpenAI model such as
+.B o3
+or
+.BR gpt\-5.5 .
+.SH BOSUN PIPELINE CHECKS
+For skills that require bosun pipelines (for example
+.BR fleet\-grind ,
+.BR full\-sweep ,
+.BR bosun* ,
+and
+.BR pipeline-* ),
+taskgrind captures a preflight completed/waiting-for-merge pipeline-count baseline from
+.BR /api/v1/pipelines
+and compares it to the cleanup count. The primary signal is
+.B session-scoped:
+when
+.B BOSUN_GRIND_SESSION_ID
+is set (after a successful
+.BR "bosun grind register" ),
+taskgrind queries
+.BR /api/v1/pipelines?grindSessionId=<id>
+so the delta only counts pipelines tagged with this Taskgrind grind session.
+This keeps an unrelated fleet pipeline finishing during the run from masking a
+session-local bypass. The fleet-wide count is still queried alongside and
+written to the log as
+.BR global_start ,
+.BR global_end ,
+and
+.BR global_delta
+for debugging only \(em it is never the pass condition.
+.PP
+The request sends
+.BR "Authorization: Bearer <token>"
+using
+.B BOSUN_TOKEN
+when set, otherwise the first line of
+.BR ~/.orchestrator/auth-token .
+If a session ships tasks but no new bosun pipelines complete for this grind
+session, taskgrind logs
+.BR "pipeline_verify ANOMALY"
+and auto-files a TASKS.md investigation entry. If a new non-markdown commit
+lacks Bosun pipeline attribution, taskgrind logs
+.BR "pipeline_verify DIRECT_CODE_BYPASS"
+and fails the run even when other pipelines completed concurrently.
+.PP
+For the same Bosun-dependent skills, taskgrind also manages the full
+.B grind session
+lifecycle: registration at preflight (via
+.BR "bosun grind register" ),
+periodic heartbeats every
+.B TG_BOSUN_HEARTBEAT_INTERVAL
+seconds (default 60) while the controller is running, and a
+.B "bosun grind done"
+call at exit with reason
+.B completed
+on a normal exit or
+.B aborted
+on a signal/error exit. Heartbeats keep Bosun's
+.B lastHeartbeatAt
+advancing so multi-minute child sessions don't get marked
+.B disconnected
+mid-grind. If the operator exported
+.B BOSUN_GRIND_SESSION_ID
+before launching taskgrind (caller-provided session), taskgrind heartbeats
+that slot to keep it active but does
+.B not
+deregister it on exit \(em the caller owns the lifecycle. Heartbeat failures
+are logged as
+.B "bosun_heartbeat_failed"
+warnings and do not crash the grind.
+.PP
+When the heartbeat returns HTTP 410 (Bosun has marked the session no longer
+active/paused, e.g. after a status\-flip race) the CLI prints
+.B EXIT_NOW
+on stderr and exits 1. Taskgrind detects the marker, logs
+.BR "bosun_heartbeat_410 action=exit_requested grace=Ns" ,
+writes a sentinel file, and forwards
+.B SIGTERM
+to the controller. The
+.B graceful_shutdown
+trap then uses
+.B TG_BOSUN_410_GRACE
+(default 30 seconds) instead of
+.B TG_SHUTDOWN_GRACE
+as the time the active session has to commit and exit, marks
+.B current_phase
+as
+.B bosun-410-exit-now ,
+and writes
+.B "terminal_reason=bosun-410-exit-now"
+into both the
+.B grind_done
+log line and the status file. No new session is spawned after the 410 fires
+because
+.B graceful_shutdown
+terminates the controller directly.
+.SH FILES
+.TP
+.I TASKS.md
+Task queue file in the target repo. Uses the tasks.md spec: checkbox tasks
+under priority headings with required metadata such as
+.B ID ,
+.B Tags ,
+.B Details ,
+.B Files ,
+and
+.B Acceptance .
+Use
+.B Blocked by
+only for real dependencies. Completed tasks are removed from the file instead
+of being checked off.
+.TP
+.I .taskgrind\-prompt
+Optional file in the target repo. Content is injected into every session prompt.
+Re\-read before each session, so changes take effect live. Combine with \-\-prompt.
+Files larger than 10KB are skipped.
+Oversize prompt files emit a warning and do not affect the current or next
+session prompt.
+.TP
+.I .taskgrind\-model
+Optional file in the target repo. Content overrides the model for subsequent
+sessions. Re\-read before each session. Overrides \-\-model and TG_MODEL when
+present. Short aliases resolve the same way they do for \-\-model and TG_MODEL.
+Delete the file to revert to the original startup model. Files larger than 1KB
+are skipped.
+Oversize model files emit a warning and leave the startup model in place.
+.SS LIVE OVERRIDE FILES
+Both repo-local override files are checked between sessions, not during an
+active session. The current session keeps running with its original prompt and
+model, and the next session picks up any file changes.
+.PP
+.B .taskgrind\-prompt
+extends the startup \-\-prompt text for later sessions. Use it for temporary
+focus shifts such as a flaky test, production issue, or audit note without
+restarting the grind. Delete the file to stop injecting those extra
+instructions.
+If the file exceeds 10KB, taskgrind logs a warning and skips it.
+.PP
+.B .taskgrind\-model
+overrides the startup model chosen by \-\-model or TG_MODEL for later sessions.
+This lets operators start with a stronger model, then switch to a faster one as
+the remaining work gets simpler. Delete the file to fall back to the startup
+model. If the file exceeds 1KB, taskgrind logs a warning and skips it.
+.SS PER-TASK RETRY CAP
+Taskgrind tracks per-task attempt counts by
+.B **ID**:
+value from
+.IR TASKS.md .
+After every session, each task ID still present in the queue has its counter
+incremented by one. When a task is removed from
+.I TASKS.md
+(the way shipping a task is recorded), its counter is cleared at the next
+prune cycle.
+.PP
+Once a task crosses 3 attempts, taskgrind logs
+.B task_skip_threshold ids=<id>
+once and prepends
+.RS
+.nf
+SKIP these stuck tasks (attempted 3+ times): <id>. Work on other tasks instead.
+.fi
+.RE
+to every subsequent session prompt until the task ships or is removed. The
+3-attempt threshold is a built-in constant today (not an environment
+variable). If the skip list keeps firing on the same task, split it into
+smaller IDs or mark it
+.B **Blocked by**:
+so the grind uses the
+.B blocked_wait
+path instead.
+.PP
+By default, taskgrind allows two concurrent grinds on the same repo. Set
+.B TG_MAX_INSTANCES
+above 2 to allow more. Each running grind claims the lowest free slot. Slot 0 owns the between\-session git sync;
+higher slots skip that sync and receive conflict\-avoidance prompt guidance so multiple terminals do not run competing fetch/rebase loops in the same repo.
+.PP
+Example with three allowed slots:
+.RS
+.nf
+TG_MAX_INSTANCES=3 taskgrind ~/apps/myrepo 8
+TG_MAX_INSTANCES=3 taskgrind \-\-preflight ~/apps/myrepo
+.fi
+.RE
+.PP
+When those first two grinds are already running, the preflight header reports
+\fBslots:    2/3 active\fR. Slot 0 is the only instance that performs the
+between\-session fetch/rebase sync. Higher slots should prefer non\-overlapping
+tasks such as audits, docs, or queue maintenance, and rebase immediately before
+committing to absorb slot\-0 changes.
+For a durable discovery lane, back the higher slot with a standardized
+\fBstanding\-loop\fR task in
+\fITASKS.md\fR instead of a sacrificial one-off audit item. The recommended
+shape is a task such as \fBdiscovery\-standing\-loop\fR tagged with
+\fBstanding\-loop, audit, queue\fR so the lane can keep replenishing normal
+removable work while its own definition stays in the queue for the next pass.
+Use
+.B taskgrind \-\-preflight
+to see how many slots are currently active before starting another grind.
+.PP
+Taskgrind exports \fBTG_INSTANCE_ID=\fR\fIslot\fR into every child process
+(the AI backend, skills, hooks, wrapper scripts) so they can branch on the
+running slot. The variable is \fBtaskgrind\-set, not user\-set\fR \(em
+assigning it on the command line has no effect; taskgrind overwrites it
+after the slot is claimed. Its value equals the lowest free slot the run
+claimed (\fB0\fR, \fB1\fR, \fI...\fR); slot \fB0\fR owns the
+between\-session git sync, slots \fB1\fR and above skip that sync and
+prefer non\-overlapping work. Skills, hooks, and supervisor scripts can
+read it to coordinate without re\-running
+.BR \-\-preflight ;
+for example, a discovery skill can gate extra
+.BR "git pull \-\-rebase"
+calls on
+.BR "[ \\"${TG_INSTANCE_ID:-0}\\" \-ge 1 ]" .
+The variable is intentionally absent from the
+.B ENVIRONMENT
+section and from
+.BR "taskgrind \-\-help"
+because it is not a knob \(em listing it there would imply users can set
+it, which would race with the slot\-locking logic.
+.TP
+.I ${TMPDIR:\-/tmp}/taskgrind\-*.log
+Session logs (one per grind invocation).
+.TP
+.I path set by TG_STATUS_FILE
+Optional JSON status file updated atomically on startup, before and after each
+session, during empty-queue waits and sweeps, around git sync decisions, during
+network waits, and on final completion or failure.
+.PP
+Payload fields:
+.RS
+.TP
+.B repo
+Repo path being ground.
+.TP
+.B pid
+Process ID of the current taskgrind run.
+.TP
+.B log_file
+Primary log path for the current run. Supervisor mode includes this watched log
+path in repair prompts when present.
+.TP
+.B slot
+Claimed concurrency slot for this repo.
+.TP
+.B backend
+Active backend such as devin, claude\-code, or codex.
+.TP
+.B skill
+Skill prompt sent to each session.
+.TP
+.B model
+Resolved model name currently in use.
+.TP
+.B session
+Session counter for the current grind run.
+.TP
+.B remaining_minutes
+Whole minutes remaining until the deadline, floored at 0.
+.TP
+.B current_phase
+Lifecycle phase such as startup, preflight, running_session,
+running_sweep, queue_refilled, session_complete, cooldown, git_sync,
+git_sync_skipped, queue_empty_wait, queue_empty, blocked_wait,
+all_tasks_blocked, waiting_for_network, network_restored,
+deadline_expired, audit_focus_blocked, complete, or failed.
+.TP
+.B terminal_reason
+Why a clean run stopped before
+.B current_phase
+rolled to
+.BR complete ;
+null during active work and normal success snapshots, or a stop reason such as
+.BR queue_empty ,
+.BR all_tasks_blocked ,
+.BR deadline_expired ,
+or
+.BR audit_focus_blocked .
+.TP
+.B updated_at
+Last write timestamp in the local %Y\-%m\-%dT%H:%M:%S%z format.
+.TP
+.B last_session.number
+Most recently finished session number, or 0 before any session completes.
+.TP
+.B last_session.result
+Exactly one of
+.BR pending
+(initial value before the first session completes, and re-set at the
+start of every session),
+.BR success
+(most recent backend exit was 0),
+.BR failure
+(most recent backend exit was non-zero), or
+.BR blocked
+(audit-only focus refused because TASKS.md lacked a discovery-lane
+standing-loop task).
+.TP
+.B last_session.exit_code
+Backend exit code for the most recent session, or null before the first
+completed session.
+.TP
+.B last_session.shipped
+Tasks shipped by the most recent session.
+.TP
+.B last_session.duration_seconds
+Runtime of the most recent session in seconds.
+.TP
+.B last_session.completed_at
+Completion timestamp for the most recent session, or an empty string before any
+session completes.
+.RE
+.PP
+Lifecycle example:
+.nf
+{
+  "repo": "/Users/alex/apps/myrepo",
+  "pid": 48122,
+  "log_file": "/tmp/taskgrind-myrepo.log",
+  "slot": 0,
+  "backend": "devin",
+  "skill": "next-task",
+  "model": "claude-opus-4-7-max",
+  "session": 3,
+  "remaining_minutes": 451,
+  "current_phase": "running_session",
+  "terminal_reason": null,
+  "updated_at": "2026-04-11T18:33:44-0700",
+  "last_session": {
+    "number": 2,
+    "result": "success",
+    "exit_code": 0,
+    "shipped": 1,
+    "duration_seconds": 742,
+    "completed_at": "2026-04-11T18:32:58-0700"
+  }
+}
+.fi
+.PP
+The file starts at startup/preflight, moves through active phases such as
+running_sweep or running_session, then transitions through queue_refilled,
+session_complete, cooldown, git_sync, git_sync_skipped, queue_empty_wait,
+queue_empty, blocked_wait, all_tasks_blocked, waiting_for_network,
+network_restored, deadline_expired, or audit_focus_blocked as needed. A
+successful shutdown writes one final complete state; if the clean stop came
+from queue_empty, all_tasks_blocked, deadline_expired, or audit_focus_blocked,
+that reason remains in
+.B terminal_reason
+for slower monitors. Startup or runtime errors finish as failed.
+.PP
+To run one Taskgrind as a one-shot fixer for another, point
+.BR \-\-supervise
+at the watched run's status file:
+.PP
+.nf
+taskgrind \-\-supervise /tmp/taskgrind-status.json 1 ~/apps/myrepo
+.fi
+.PP
+Supervisor mode writes
+.BR supervisor_observation
+for every inspection. Healthy/progressing phases do not launch a backend.
+Failed or stale watched status logs
+.BR supervisor_repair_start
+and
+.BR supervisor_repair_end
+around a single repair session. Pass
+.BR \-\-no\-push
+or set
+.BR TG_NO_PUSH=1
+on the supervisor command when repair commits must stay local for review.
+.PP
+Supervisors should treat
+.BR startup ,
+.BR preflight ,
+.BR running_session ,
+.BR running_sweep ,
+.BR queue_refilled ,
+.BR session_complete ,
+.BR cooldown ,
+.BR git_sync ,
+.BR git_sync_skipped ,
+and
+.BR network_restored
+as healthy progress states.
+.BR queue_empty_wait
+and
+.BR blocked_wait
+mean the process is intentionally idle while it waits for queue changes.
+.BR queue_empty ,
+.BR all_tasks_blocked ,
+.BR deadline_expired ,
+and
+.BR audit_focus_blocked
+remain available in
+.B terminal_reason
+after the final
+.B complete
+snapshot so a poller can still tell why the grind stopped cleanly.
+.BR waiting_for_network
+means degraded-but-recoverable operation with the deadline held open.
+Only
+.BR complete
+and
+.BR failed
+are terminal states for the current process.
+.SH EXAMPLES
+.nf
+taskgrind                           # 10h grind, current dir
+taskgrind ~/apps/myrepo 10         # 10h grind in specific repo
+taskgrind \-\-model gpt\-5\-5\-xhigh\-priority 8
+                                   # use specific model
+taskgrind \-\-model "gpt\-5.5 XHigh thinking fast" 8
+                                   # quote multi\-word model names
+taskgrind \-\-model opus 8          # alias resolves to claude-opus-4-7-max
+taskgrind \-\-skill pipeline\-ops ~/apps/bosun 10
+                                   # custom installed skill
+taskgrind \-\-backend claude\-code 8  # use Claude Code backend
+TG_BACKEND=claude\-code TG_MODEL=sonnet taskgrind ~/apps/myrepo 8
+                                   # reusable Claude Code defaults
+taskgrind \-\-rotate\-backends devin,claude\-code,codex ~/apps/myrepo 8
+                                   # override backend rotation
+taskgrind \-\-prompt "focus on test coverage" 8
+taskgrind \-\-dry\-run 8 ~/apps/myrepo
+                                   # print config without running
+taskgrind \-\-preflight ~/apps/myrepo
+                                   # run health checks only
+taskgrind \-\-resume ~/apps/myrepo
+                                   # resume an interrupted grind
+taskgrind \-\-resume \-\-backend claude\-code \-\-model sonnet ~/apps/myrepo
+                                   # resume with saved Claude Code choices
+taskgrind \-\-supervise /tmp/taskgrind-status.json 1 ~/apps/myrepo
+                                   # inspect another run once and repair if stuck
+taskgrind \-\-help / \-h            # show usage and environment variables
+taskgrind \-\-version / \-V         # print version
+TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8
+                                   # write machine-readable status snapshots
+TG_MODEL=sonnet taskgrind 8        # alias resolves to claude-sonnet-4.6
+echo "claude\-sonnet\-4.6" > .taskgrind\-model  # switch model mid\-grind
+.fi
+.SH EXIT STATUS
+.TP
+.B 0
+Normal completion (deadline reached or queue empty).
+.TP
+.B 1
+Error (invalid args, missing binary, preflight failure).
+.TP
+.B 130
+Interrupted by SIGINT (Ctrl\-C). Waits for running session, pushes commits.
+.TP
+.B 143
+Terminated by SIGTERM. Waits for running session, pushes commits.
+.SH RESUME
+Use
+.B taskgrind \-\-resume
+in the same repo after an unexpected interruption such as a terminal crash or
+machine reboot. The saved
+.I .taskgrind\-state
+file is a flat
+.I key=value
+snapshot that restores the original deadline, session counters, shipped-task
+counters, backend, skill, model, and startup model. Start a fresh
+.B taskgrind
+run instead when you want a new deadline or different runtime settings. If the
+saved deadline already expired, taskgrind rejects the stale state and tells you
+to start a fresh grind. Resume also requires the original backend, model,
+skill, and baseline prompt overrides to match; changing those inputs turns the
+resume into a different grind and is rejected. See
+.I docs/resume-state.md
+for the current field contract and validation rules.
+.PP
+For example, a Claude Code grind that started with explicit backend/model
+choices should be resumed with the same startup choices:
+.nf
+taskgrind \-\-resume \-\-backend claude\-code \-\-model sonnet ~/apps/myrepo
+.fi
+.SH TROUBLESHOOTING
+When an unattended grind looks stuck, start with the JSON status file named by
+.B TG_STATUS_FILE
+if you enabled it, then confirm the same state in the taskgrind log.
+.TP
+.B Queue appears stuck
+Inspect
+.B current_phase
+for
+.BR queue_empty_wait ,
+.BR blocked_wait ,
+or
+.BR running_sweep .
+If the phase is one of the wait states, leave the process running and refill or
+unblock
+.I TASKS.md
+instead of restarting immediately.
+.TP
+.B TASKS.md is not a regular file
+If preflight reports that
+.I TASKS.md
+exists but is not a regular file, verify that you passed the real repo path.
+On macOS case-insensitive filesystems, a sibling directory such as
+.I tasks.md/
+can satisfy the
+.I TASKS.md
+path lookup when you meant to point at a specific repo instead of a
+parent-of-repos directory. Pass the concrete repo, use
+.BR \-\-target\-repo
+for workspace mode, or rerun with
+.BR \-\-from\-prompt
+if you do not remember the flags.
+.TP
+.B Slot contention
+Run
+.B taskgrind \-\-preflight ~/apps/myrepo
+and inspect the
+.B slots:
+header plus the active owner list. Wait for a free slot or raise
+.BR TG_MAX_INSTANCES .
+Slot 0 remains the between-session sync owner; higher slots should stay on
+docs, audits, status-file supervision, or other non-overlapping work.
+.TP
+.B Repeated zero-ship sessions
+Check
+.BR last_session.result ,
+.BR last_session.shipped ,
+and log markers such as
+.BR productive_zero_ship
+or
+.BR shipped_inferred .
+If the queue is changing under another worker, the session may still have
+shipped useful work. Otherwise split or unblock the task before resuming.
+.TP
+.B Same task failing repeatedly
+Look for
+.B task_skip_threshold ids=<id>
+in the log and a
+.B SKIP these stuck tasks (attempted 3+ times)
+line in the next session prompt. Taskgrind auto-skips tasks after 3
+unproductive attempts; shipping or removing the task clears its counter. If a
+task keeps hitting the cap, split it into smaller IDs or mark it
+.B **Blocked by**:
+so the grind waits in
+.B blocked_wait
+instead of chewing attempts.
+.TP
+.B Claude Code preflight/session startup failure
+Run
+.B taskgrind \-\-preflight \-\-backend claude\-code \-\-model claude\-sonnet\-4.6 ~/apps/myrepo
+and inspect stderr plus the session log for
+.BR "Backend binary not found (claude\-code)" ,
+.BR "Backend binary is not executable (claude\-code)" ,
+or
+.BR "Model rejected by claude\-code before starting" .
+Install or repair
+.B @anthropic\-ai/claude\-code ,
+confirm
+.B claude \-\-version
+prints output, choose a Claude model the account can use, and rerun the same
+preflight before starting or resuming. If the failed run has an active
+.I .taskgrind\-state ,
+resume with the same saved backend/model/skill/prompt choices, for example
+.BR "taskgrind \-\-resume \-\-backend claude\-code \-\-model sonnet ~/apps/myrepo" .
+.TP
+.B Network wait
+Inspect
+.BR current_phase=waiting_for_network
+and the matching connectivity log lines. Let short outages recover normally; if
+the outage exceeds
+.BR TG_NET_MAX_WAIT ,
+restore connectivity and rerun
+.B taskgrind \-\-resume
+to keep the original deadline.
+.TP
+.B Sweep ran past TG_SWEEP_MAX
+Grep the log for
+.BR "sweep_watchdog escalation=SIGKILL"
+\(em the watchdog emits this marker only when a wedged backend ignored
+both
+.B SIGINT
+and
+.B SIGTERM
+and had to be force\-killed. Absence of the line on a sweep that
+exceeded its cap means the watchdog itself was disabled before the cap
+fired (file a bug). The watchdog ignores spurious
+.B TERM
+and
+.B INT
+signals so an external
+.B kill \-TERM
+on the watchdog process cannot disarm it; the
+.B sweep_watchdog escalation=SIGINT
+and
+.B sweep_watchdog escalation=SIGTERM
+markers fire in order before
+.B SIGKILL
+to make the escalation auditable. See
+.B TG_WATCHDOG_KILL_GRACE
+to tune the
+.B SIGTERM \(rA SIGKILL
+window. The same escalation contract applies to per\-session and
+supervisor\-repair watchdogs (markers
+.B session_watchdog
+and
+.B supervisor_repair_watchdog ).
+.TP
+.B Bosun 410 EXIT_NOW aborted the grind early
+Grep the log for
+.B bosun_heartbeat_410
+\(em this marker fires when Bosun's heartbeat endpoint returns HTTP 410
+(session no longer active/paused). Taskgrind forwards
+.B SIGTERM
+to itself, shortens the shutdown grace to
+.B TG_BOSUN_410_GRACE
+seconds (default 30), and writes
+.B "terminal_reason=bosun-410-exit-now"
+on the
+.B grind_done
+line and in the status file. No new session is spawned after the 410.
+Check Bosun's session-state history or
+.B "bosun grind sessions"
+to confirm the session was already marked terminal upstream. A 410 that
+surprised the operator usually indicates a Bosun status\-flip race or an
+external
+.BR "bosun grind done"
+call made while this grind was still running.
+.TP
+.B Resume rejected
+Read the stderr reason, inspect
+.I .taskgrind\-state ,
+and compare it with
+.I docs/resume-state.md .
+Use the same repo, backend, model, skill, and baseline prompt inputs with the
+active state file, or start fresh when the saved deadline has already expired.
+.TP
+.B Final push or sync failure
+Read the last git lines in the log, inspect
+.B git status --short
+and
+.B git log --oneline \-\-decorate \-5
+in the repo, fix the push or rebase problem, then rerun
+.B taskgrind \-\-resume
+if the grind was interrupted mid-shutdown.
+For non-fast-forward push rejections (the common case when a concurrent PR
+squash-merged the same content under a different SHA),
+.B final_sync
+attempts an automatic
+.B git pull --rebase --autostash
+recovery and retries the push. The log shows
+.B final_sync rebase_recovered
+followed by
+.B final_sync push_ok
+when this succeeds. If the rebase encounters a real conflict it is aborted,
+the working tree is left clean, and the existing
+.B final_sync push_failed
+path runs \[em] manual recovery is only required when the rebase itself fails.
+.TP
+.B Final push rejected by branch protection (GH006)
+When the remote rejects the push because the default branch is protected
+(GitHub Enterprise emits
+.BR "GH006: Protected branch update failed" ,
+required\-status\-check policies, etc.),
+.B final_sync
+classifies the failure as
+.B push_protected_branch
+and \(em when
+.B gh
+is on
+.BR PATH ,
+.B TG_NO_PUSH
+is unset,
+.B TG_NO_PR_FALLBACK
+is unset, and
+.B TG_PUBLIC_WRITE_TOKEN
+is set \(em pushes the commits to a unique
+.B taskgrind\-ship\-<UTC>
+branch and opens a pull request via
+.BR "gh pr create" ,
+logging
+.BR "final_sync pr_created url=<url> commits=N branch=..." .
+The PR body includes a
+.B "Why this is needed"
+section and the canonical agent footer.
+The PR is never auto\-merged \(em branch protection requires
+human review or whatever the protection rule actually wants. When the
+auto\-PR path is unavailable (no
+.BR gh ,
+.B TG_NO_PUSH=1 ,
+.BR \-\-no\-pr\-fallback ,
+.BR TG_NO_PR_FALLBACK=1 ,
+or
+.B TG_PUBLIC_WRITE_TOKEN
+is not set) or fails, taskgrind logs
+.B final_sync push_protected_branch_manual_recovery_needed
+and exits with the local commits intact for manual handling.
+When blocked by the missing token, taskgrind additionally writes the
+draft PR body to a temp file and prints
+.BR "Approval needed \(em draft body at: <path>" .
+.SH DEVELOPMENT
+For repo maintenance, the standard local workflow is:
+.RS
+.TP
+.B make lint
+Run shellcheck across the shipped scripts.
+.TP
+.B make test
+Run the bats suite with caching enabled, using the repo's default parallelism.
+.TP
+.B make test-force
+Re-run the selected bats suite from scratch without using the cached result.
+.TP
+.B "make test TESTS=tests/bash\-compat.bats"
+Re-run one bats file with its own cache key for tight local loops.
+.TP
+.B "make test TEST_JOBS=2"
+Reproduce the default GitHub Actions parallelism when diagnosing bats scheduling issues.
+.TP
+.B make audit
+Run the offline repo-audit loop: scan for TODO/FIXME markers, run shellcheck,
+with the core docs and repo-local audit skills included in that scan, and print
+the core docs review queue including
+.I README.md ,
+.I CONTRIBUTING.md ,
+.I SECURITY.md ,
+.I AGENTS.md ,
+.I Agentfile.yaml ,
+.I docs/architecture.md ,
+.I docs/resume-state.md ,
+.I docs/user-stories.md ,
+.I man/taskgrind.1 ,
+.I .devin/skills/standing-audit-gap-loop/SKILL.md ,
+and
+.I .devin/skills/grind-log-analyze/SKILL.md .
+.TP
+.B make check
+Run lint plus the cached test flow before committing.
+.RE
+.SH SEE ALSO
+.BR devin (1),
+.BR bats (1),
+.BR shellcheck (1)
+.SH AUTHORS
+Created by Fyodor Ivanishchev. Extracted from dotfiles where it lived as dvb\-grind.

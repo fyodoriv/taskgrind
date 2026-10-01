@@ -1,0 +1,1571 @@
+#!/usr/bin/env bats
+# Tests for taskgrind — signal handling + 9 more
+# Auto-split for parallel execution
+
+load test_helper
+
+DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
+
+_wait_for_file_pattern() {
+  local file="$1"
+  local pattern="$2"
+  local attempts=0
+  while true; do
+    if [ -f "$file" ] && grep -q -- "$pattern" "$file"; then
+      return 0
+    fi
+    attempts=$((attempts + 1))
+    [ "$attempts" -ge 100 ] && return 1
+    sleep 0.1
+  done
+}
+
+# ── Signal handling ──────────────────────────────────────────────────
+
+@test "taskgrind traps INT signal for cleanup" {
+  grep -q "trap.*INT" "$DVB_GRIND"
+}
+
+@test "taskgrind traps TERM signal for cleanup" {
+  grep -q "trap.*TERM" "$DVB_GRIND"
+}
+
+@test "taskgrind prints summary on interrupt (INT/TERM)" {
+  export DVB_DEADLINE_OFFSET=180
+  local started_file="$TEST_DIR/session-started"
+  local slow_devin="$TEST_DIR/slow-devin"
+  cat > "$slow_devin" <<SCRIPT
+#!/bin/bash
+printf '%s\n' started > "$started_file"
+sleep 10
+SCRIPT
+  chmod +x "$slow_devin"
+  export DVB_GRIND_CMD="$slow_devin"
+
+  "$DVB_GRIND" 1 "$TEST_REPO" > "$TEST_DIR/signal-output.txt" 2>&1 &
+  local grind_pid=$!
+  _wait_for_file_pattern "$started_file" 'started'
+  kill -INT "$grind_pid" 2>/dev/null || true
+  wait "$grind_pid" 2>/dev/null || true
+  grep -q "Grind complete\|sessions" "$TEST_DIR/signal-output.txt"
+}
+
+@test "interrupt summary keeps queued tasks in remaining count" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] First queued task
+- [ ] Second queued task
+TASKS
+
+  export DVB_DEADLINE_OFFSET=180
+  local started_file="$TEST_DIR/session-started"
+  local slow_devin="$TEST_DIR/slow-devin"
+  cat > "$slow_devin" <<SCRIPT
+#!/bin/bash
+trap '' INT
+printf '%s\n' started > "$started_file"
+sleep 3
+SCRIPT
+  chmod +x "$slow_devin"
+  export DVB_GRIND_CMD="$slow_devin"
+  export DVB_SHUTDOWN_GRACE=10
+
+  "$DVB_GRIND" 1 "$TEST_REPO" > "$TEST_DIR/signal-remaining-output.txt" 2>&1 &
+  local grind_pid=$!
+  _wait_for_file_pattern "$started_file" 'started'
+  kill -INT "$grind_pid" 2>/dev/null || true
+  wait "$grind_pid" 2>/dev/null || true
+
+  grep -q 'Remaining: 2' "$TEST_DIR/signal-remaining-output.txt"
+  grep -q 'grind_done.*remaining=2' "$TEST_LOG"
+}
+
+# ── Graceful shutdown ────────────────────────────────────────────────
+
+@test "INT signal waits for running session before exiting" {
+  # Slow devin that takes 5s but records when it starts and finishes
+  local slow_devin="$TEST_DIR/slow-devin"
+  cat > "$slow_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+echo "session_started" >> "$TEST_DIR/session-lifecycle.log"
+sleep 3
+echo "session_finished" >> "$TEST_DIR/session-lifecycle.log"
+SCRIPT
+  chmod +x "$slow_devin"
+  export DVB_GRIND_CMD="$slow_devin"
+  export DVB_DEADLINE_OFFSET=30
+  export DVB_SHUTDOWN_GRACE=10
+
+  "$DVB_GRIND" 1 "$TEST_REPO" > "$TEST_DIR/graceful-output.txt" 2>&1 &
+  local grind_pid=$!
+  _wait_for_file_pattern "$TEST_DIR/session-lifecycle.log" 'session_started'
+  # Send INT while session is running
+  kill -INT "$grind_pid" 2>/dev/null || true
+  wait "$grind_pid" 2>/dev/null || true
+  # Session should have finished (session_finished written)
+  grep -q 'session_finished' "$TEST_DIR/session-lifecycle.log"
+}
+
+@test "TERM signal waits for running session before exiting with status 143" {
+  local slow_devin="$TEST_DIR/slow-devin"
+  cat > "$slow_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+echo "session_started" >> "$TEST_DIR/session-lifecycle.log"
+sleep 3
+echo "session_finished" >> "$TEST_DIR/session-lifecycle.log"
+SCRIPT
+  chmod +x "$slow_devin"
+  export DVB_GRIND_CMD="$slow_devin"
+  export DVB_DEADLINE_OFFSET=30
+  export DVB_SHUTDOWN_GRACE=10
+
+  "$DVB_GRIND" 1 "$TEST_REPO" > "$TEST_DIR/graceful-term-output.txt" 2>&1 &
+  local grind_pid=$!
+  local status
+  _wait_for_file_pattern "$TEST_DIR/session-lifecycle.log" 'session_started'
+
+  kill -TERM "$grind_pid" 2>/dev/null || true
+
+  set +e
+  wait "$grind_pid"
+  status=$?
+  set -e
+
+  [ "$status" -eq 143 ]
+  grep -q 'session_finished' "$TEST_DIR/session-lifecycle.log"
+  grep -q 'Grind complete' "$TEST_DIR/graceful-term-output.txt"
+}
+
+@test "graceful shutdown function is called on INT" {
+  # Structural: INT trap calls graceful_shutdown, not just cleanup
+  grep -q "trap 'graceful_shutdown 130' INT" "$DVB_GRIND"
+}
+
+@test "graceful shutdown sends SIGINT then waits before SIGTERM" {
+  # Structural: graceful_shutdown sends INT first, sleeps in a loop, then SIGTERM
+  grep -q 'kill -INT.*_dvb_pid' "$DVB_GRIND"
+  grep -q 'DVB_SHUTDOWN_GRACE' "$DVB_GRIND"
+  # Verify SIGTERM escalation exists after grace period
+  grep -A5 'waited -lt.*_shutdown_grace' "$DVB_GRIND" | grep -q 'kill.*_dvb_pid'
+}
+
+@test "structural: graceful_shutdown waits for _dvb_pid" {
+  grep -q 'graceful_shutdown' "$DVB_GRIND"
+  grep -q 'kill -INT.*_dvb_pid' "$DVB_GRIND"
+  grep -q 'DVB_SHUTDOWN_GRACE' "$DVB_GRIND"
+}
+
+@test "structural: graceful_shutdown kills orphaned git sync processes" {
+  grep -q '_git_pid=0' "$DVB_GRIND"
+  grep -q '_git_timer=0' "$DVB_GRIND"
+  # graceful_shutdown kills git processes
+  grep -A140 'graceful_shutdown()' "$DVB_GRIND" | grep -q '_git_pid'
+  # cleanup also kills git processes
+  grep -A90 'cleanup()' "$DVB_GRIND" | grep -q '_git_pid'
+}
+
+@test "structural: graceful_shutdown kills elapsed timer" {
+  # graceful_shutdown should clean up _dvb_timer_pid to prevent orphan output
+  grep -A140 'graceful_shutdown()' "$DVB_GRIND" | grep -q '_dvb_timer_pid'
+}
+
+@test "structural: _productive_zero_ship initialized before loop" {
+  # Must be initialized before the while loop to avoid set -u crash
+  grep -q '_productive_zero_ship=0' "$DVB_GRIND"
+}
+
+@test "structural: cleanup uses shutdown-safe remaining-task snapshot" {
+  grep -q 'tasks_remaining_snapshot=' "$DVB_GRIND"
+  grep -q 'Remaining: ${tasks_remaining_snapshot}' "$DVB_GRIND"
+  grep -q 'grind_done.*remaining=\$tasks_remaining_snapshot' "$DVB_GRIND"
+}
+
+@test "structural: final_sync pushes local commits" {
+  grep -q 'final_sync' "$DVB_GRIND"
+  grep -q 'git.*push.*origin' "$DVB_GRIND"
+}
+
+@test "final_sync surfaces git push stderr in log and terminal warning" {
+  local remote_repo="$TEST_DIR/remote.git"
+  git init --bare "$remote_repo" >/dev/null
+
+  local origin_repo="$TEST_DIR/origin"
+  git clone "$remote_repo" "$origin_repo" >/dev/null 2>&1
+  git -C "$origin_repo" config user.email "test@test.com"
+  git -C "$origin_repo" config user.name "Test"
+  git -C "$origin_repo" config core.hooksPath /dev/null
+  cat > "$origin_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Seed remote
+TASKS
+  git -C "$origin_repo" add -f TASKS.md
+  git -C "$origin_repo" commit -m "seed remote" >/dev/null
+  git -C "$origin_repo" push origin main >/dev/null 2>&1
+
+  local grind_repo="$TEST_DIR/grind-repo"
+  git clone "$remote_repo" "$grind_repo" >/dev/null 2>&1
+  git -C "$grind_repo" config user.email "test@test.com"
+  git -C "$grind_repo" config user.name "Test"
+  git -C "$grind_repo" config core.hooksPath /dev/null
+  cat > "$grind_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+  git -C "$grind_repo" add -f TASKS.md
+  git -C "$grind_repo" commit -m "complete task" >/dev/null
+
+  local hook_dir="$TEST_DIR/git-hooks"
+  mkdir -p "$hook_dir"
+  cat > "$hook_dir/pre-push" <<'SCRIPT'
+#!/bin/bash
+echo "remote rejected push: branch is protected" >&2
+echo "contact your admin" >&2
+exit 1
+SCRIPT
+  chmod +x "$hook_dir/pre-push"
+  git -C "$grind_repo" config core.hooksPath "$hook_dir"
+
+  local fake_devin="$TEST_DIR/fake-devin-real-final-sync"
+  cat > "$fake_devin" <<'SCRIPT'
+#!/bin/bash
+for arg in "$@"; do
+  if [ "$arg" = "--version" ]; then
+    echo "fake-devin 1.0.0"
+    exit 0
+  fi
+done
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+exit 0
+SCRIPT
+  chmod +x "$fake_devin"
+
+  unset DVB_GRIND_CMD
+  export DVB_DEVIN_PATH="$fake_devin"
+  export DVB_CAFFEINATED=1
+  export DVB_DEADLINE_OFFSET=20
+
+  "$DVB_GRIND" 1 "$grind_repo" >/dev/null 2>&1
+  [ "$?" -eq 0 ]
+  grep -q 'final_sync push_failed error=remote rejected push: branch is protected' "$TEST_LOG"
+  grep -q 'remote rejected push: branch is protected' "$TEST_LOG"
+  grep -q 'Push failed: \$push_first_line' "$DVB_GRIND"
+}
+
+@test "final_sync skips push when shutdown finds no commits ahead of origin" {
+  local remote_repo="$TEST_DIR/remote.git"
+  git init --bare "$remote_repo" >/dev/null
+
+  local origin_repo="$TEST_DIR/origin"
+  git clone "$remote_repo" "$origin_repo" >/dev/null 2>&1
+  git -C "$origin_repo" config user.email "test@test.com"
+  git -C "$origin_repo" config user.name "Test"
+  git -C "$origin_repo" config core.hooksPath /dev/null
+  cat > "$origin_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Seed remote
+TASKS
+  git -C "$origin_repo" add -f TASKS.md
+  git -C "$origin_repo" commit -m "seed remote" >/dev/null
+  git -C "$origin_repo" push origin main >/dev/null 2>&1
+
+  local grind_repo="$TEST_DIR/grind-repo"
+  git clone "$remote_repo" "$grind_repo" >/dev/null 2>&1
+  git -C "$grind_repo" config user.email "test@test.com"
+  git -C "$grind_repo" config user.name "Test"
+  git -C "$grind_repo" config core.hooksPath /dev/null
+
+  local fake_devin="$TEST_DIR/fake-devin-no-final-sync-push"
+  cat > "$fake_devin" <<'SCRIPT'
+#!/bin/bash
+for arg in "$@"; do
+  if [ "$arg" = "--version" ]; then
+    echo "fake-devin 1.0.0"
+    exit 0
+  fi
+done
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+exit 0
+SCRIPT
+  chmod +x "$fake_devin"
+
+  unset DVB_GRIND_CMD
+  export DVB_DEVIN_PATH="$fake_devin"
+  export DVB_CAFFEINATED=1
+  export DVB_DEADLINE_OFFSET=20
+
+  run "$DVB_GRIND" 1 "$grind_repo"
+  [ "$status" -eq 0 ]
+  grep -q 'final_sync nothing_to_push' "$TEST_LOG"
+  [[ "$output" != *"Pushing "* ]]
+}
+
+@test "final_sync recovers from squash-merge divergence by rebasing and retrying push" {
+  # Same-tree divergence: local commit and origin commit have identical trees
+  # but different SHAs (the squash-merge case). git pull --rebase drops the
+  # equivalent local commit, then push is a no-op or fast-forward and succeeds.
+  local remote_repo="$TEST_DIR/remote.git"
+  git init --bare "$remote_repo" >/dev/null
+
+  local origin_repo="$TEST_DIR/origin"
+  git clone "$remote_repo" "$origin_repo" >/dev/null 2>&1
+  git -C "$origin_repo" config user.email "test@test.com"
+  git -C "$origin_repo" config user.name "Test"
+  git -C "$origin_repo" config core.hooksPath /dev/null
+  cat > "$origin_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Seed remote
+TASKS
+  git -C "$origin_repo" add -f TASKS.md
+  git -C "$origin_repo" commit -m "seed remote" >/dev/null
+  git -C "$origin_repo" push origin main >/dev/null 2>&1
+
+  local grind_repo="$TEST_DIR/grind-repo"
+  git clone "$remote_repo" "$grind_repo" >/dev/null 2>&1
+  git -C "$grind_repo" config user.email "test@test.com"
+  git -C "$grind_repo" config user.name "Test"
+  git -C "$grind_repo" config core.hooksPath /dev/null
+  cat > "$grind_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+  git -C "$grind_repo" add -f TASKS.md
+  git -C "$grind_repo" commit -m "local task commit" >/dev/null
+
+  # Origin advances with the SAME tree under a different SHA (squash-merge case).
+  # Achieve same-tree by removing the same content on origin under a fresh commit.
+  cat > "$origin_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+  git -C "$origin_repo" add -f TASKS.md
+  git -C "$origin_repo" commit -m "remote shipped same content" >/dev/null
+  git -C "$origin_repo" push origin main >/dev/null 2>&1
+
+  local fake_devin="$TEST_DIR/fake-devin-rebase-recovery"
+  cat > "$fake_devin" <<'SCRIPT'
+#!/bin/bash
+for arg in "$@"; do
+  if [ "$arg" = "--version" ]; then
+    echo "fake-devin 1.0.0"
+    exit 0
+  fi
+done
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+exit 0
+SCRIPT
+  chmod +x "$fake_devin"
+
+  unset DVB_GRIND_CMD
+  export DVB_DEVIN_PATH="$fake_devin"
+  export DVB_CAFFEINATED=1
+  export DVB_DEADLINE_OFFSET=20
+
+  run "$DVB_GRIND" 1 "$grind_repo"
+  [ "$status" -eq 0 ]
+  grep -q 'final_sync rebase_attempt' "$TEST_LOG"
+  grep -q 'final_sync rebase_recovered' "$TEST_LOG"
+  grep -q 'final_sync push_ok' "$TEST_LOG"
+  # No push_failed should be logged in the recovery path
+  ! grep -q 'final_sync push_failed' "$TEST_LOG"
+}
+
+@test "final_sync surfaces unrecoverable conflict when rebase fails" {
+  # Real divergence: local and origin both modified the same file with
+  # different content. git pull --rebase fails with conflict, the rebase is
+  # aborted, the working tree is left clean, and the existing push_failed
+  # path runs.
+  local remote_repo="$TEST_DIR/remote.git"
+  git init --bare "$remote_repo" >/dev/null
+
+  local origin_repo="$TEST_DIR/origin"
+  git clone "$remote_repo" "$origin_repo" >/dev/null 2>&1
+  git -C "$origin_repo" config user.email "test@test.com"
+  git -C "$origin_repo" config user.name "Test"
+  git -C "$origin_repo" config core.hooksPath /dev/null
+  cat > "$origin_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Seed remote
+TASKS
+  echo "shared-line-v1" > "$origin_repo/shared.txt"
+  git -C "$origin_repo" add -f TASKS.md shared.txt
+  git -C "$origin_repo" commit -m "seed remote" >/dev/null
+  git -C "$origin_repo" push origin main >/dev/null 2>&1
+
+  local grind_repo="$TEST_DIR/grind-repo"
+  git clone "$remote_repo" "$grind_repo" >/dev/null 2>&1
+  git -C "$grind_repo" config user.email "test@test.com"
+  git -C "$grind_repo" config user.name "Test"
+  git -C "$grind_repo" config core.hooksPath /dev/null
+  cat > "$grind_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+  echo "local-divergent-content" > "$grind_repo/shared.txt"
+  git -C "$grind_repo" add -f TASKS.md shared.txt
+  git -C "$grind_repo" commit -m "local divergent commit" >/dev/null
+
+  echo "origin-divergent-content" > "$origin_repo/shared.txt"
+  git -C "$origin_repo" add shared.txt
+  git -C "$origin_repo" commit -m "origin divergent commit" >/dev/null
+  git -C "$origin_repo" push origin main >/dev/null 2>&1
+
+  local fake_devin="$TEST_DIR/fake-devin-conflict"
+  cat > "$fake_devin" <<'SCRIPT'
+#!/bin/bash
+for arg in "$@"; do
+  if [ "$arg" = "--version" ]; then
+    echo "fake-devin 1.0.0"
+    exit 0
+  fi
+done
+echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
+exit 0
+SCRIPT
+  chmod +x "$fake_devin"
+
+  unset DVB_GRIND_CMD
+  export DVB_DEVIN_PATH="$fake_devin"
+  export DVB_CAFFEINATED=1
+  export DVB_DEADLINE_OFFSET=20
+
+  run "$DVB_GRIND" 1 "$grind_repo"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"non-fast-forward"* || "$output" == *"Push failed"* ]]
+  grep -q 'final_sync rebase_attempt' "$TEST_LOG"
+  grep -q 'final_sync rebase_aborted' "$TEST_LOG"
+  grep -Eq 'final_sync push_failed error=' "$TEST_LOG"
+  # The working tree should be clean — no rebase-merge or rebase-apply directory left
+  [ ! -d "$grind_repo/.git/rebase-merge" ]
+  [ ! -d "$grind_repo/.git/rebase-apply" ]
+}
+
+@test "graceful shutdown runs final_sync only once before EXIT cleanup" {
+  local remote_repo="$TEST_DIR/remote.git"
+  git init --bare "$remote_repo" >/dev/null
+
+  local origin_repo="$TEST_DIR/origin"
+  git clone "$remote_repo" "$origin_repo" >/dev/null 2>&1
+  git -C "$origin_repo" config user.email "test@test.com"
+  git -C "$origin_repo" config user.name "Test"
+  git -C "$origin_repo" config core.hooksPath /dev/null
+  cat > "$origin_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Seed remote
+TASKS
+  git -C "$origin_repo" add -f TASKS.md
+  git -C "$origin_repo" commit -m "seed remote" >/dev/null
+  git -C "$origin_repo" push origin main >/dev/null 2>&1
+
+  local grind_repo="$TEST_DIR/grind-repo"
+  git clone "$remote_repo" "$grind_repo" >/dev/null 2>&1
+  git -C "$grind_repo" config user.email "test@test.com"
+  git -C "$grind_repo" config user.name "Test"
+  git -C "$grind_repo" config core.hooksPath /dev/null
+  cat > "$grind_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Complete queued task
+TASKS
+  git -C "$grind_repo" add -f TASKS.md
+  git -C "$grind_repo" commit -m "local task commit" >/dev/null
+
+  local started_file="$TEST_DIR/session-started"
+  local fake_devin="$TEST_DIR/fake-devin-real-final-sync"
+  cat > "$fake_devin" <<SCRIPT
+#!/bin/bash
+for arg in "\$@"; do
+  if [ "\$arg" = "--version" ]; then
+    echo "fake-devin 1.0.0"
+    exit 0
+  fi
+  if [ "\$arg" = "-p" ]; then
+    trap 'echo interrupted >> "$TEST_DIR/session-lifecycle.log"; exit 0' INT
+    printf '%s\n' started > "$started_file"
+    sleep 30
+    exit 0
+  fi
+done
+exit 0
+SCRIPT
+  chmod +x "$fake_devin"
+
+  unset DVB_GRIND_CMD
+  export DVB_DEVIN_PATH="$fake_devin"
+  export DVB_CAFFEINATED=1
+  export DVB_DEADLINE_OFFSET=30
+  export DVB_SHUTDOWN_GRACE=10
+
+  "$DVB_GRIND" 1 "$grind_repo" > "$TEST_DIR/graceful-final-sync-output.txt" 2>&1 &
+  local grind_pid=$!
+  _wait_for_file_pattern "$started_file" 'started'
+  kill -INT "$grind_pid" 2>/dev/null || true
+  wait "$grind_pid" 2>/dev/null || true
+
+  [ "$(grep -c 'final_sync pushing commits=1' "$TEST_LOG")" -eq 1 ]
+  [ "$(grep -c 'final_sync push_ok' "$TEST_LOG")" -eq 1 ]
+  [ "$(git -C "$grind_repo" rev-list --count origin/main..HEAD)" -eq 0 ]
+}
+
+@test "repeated shutdown signals do not push the same final-sync snapshot twice" {
+  local remote_repo="$TEST_DIR/remote.git"
+  git init --bare "$remote_repo" >/dev/null
+
+  local origin_repo="$TEST_DIR/origin"
+  git clone "$remote_repo" "$origin_repo" >/dev/null 2>&1
+  git -C "$origin_repo" config user.email "test@test.com"
+  git -C "$origin_repo" config user.name "Test"
+  git -C "$origin_repo" config core.hooksPath /dev/null
+  cat > "$origin_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Seed remote
+TASKS
+  git -C "$origin_repo" add -f TASKS.md
+  git -C "$origin_repo" commit -m "seed remote" >/dev/null
+  git -C "$origin_repo" push origin main >/dev/null 2>&1
+
+  local grind_repo="$TEST_DIR/grind-repo"
+  git clone "$remote_repo" "$grind_repo" >/dev/null 2>&1
+  git -C "$grind_repo" config user.email "test@test.com"
+  git -C "$grind_repo" config user.name "Test"
+  git -C "$grind_repo" config core.hooksPath /dev/null
+  cat > "$grind_repo/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Complete queued task
+TASKS
+  git -C "$grind_repo" add -f TASKS.md
+  git -C "$grind_repo" commit -m "local task commit" >/dev/null
+
+  local started_file="$TEST_DIR/session-started"
+  local fake_devin="$TEST_DIR/fake-devin-repeated-signal-final-sync"
+  cat > "$fake_devin" <<SCRIPT
+#!/bin/bash
+for arg in "\$@"; do
+  if [ "\$arg" = "--version" ]; then
+    echo "fake-devin 1.0.0"
+    exit 0
+  fi
+  if [ "\$arg" = "-p" ]; then
+    trap 'echo interrupted >> "$TEST_DIR/session-lifecycle.log"; exit 0' INT TERM
+    printf '%s\n' started > "$started_file"
+    sleep 30
+    exit 0
+  fi
+done
+exit 0
+SCRIPT
+  chmod +x "$fake_devin"
+
+  unset DVB_GRIND_CMD
+  export DVB_DEVIN_PATH="$fake_devin"
+  export DVB_CAFFEINATED=1
+  export DVB_DEADLINE_OFFSET=30
+  export DVB_SHUTDOWN_GRACE=10
+
+  "$DVB_GRIND" 1 "$grind_repo" > "$TEST_DIR/repeated-signal-final-sync-output.txt" 2>&1 &
+  local grind_pid=$!
+  _wait_for_file_pattern "$started_file" 'started'
+  kill -INT "$grind_pid" 2>/dev/null || true
+  sleep 0.2
+  kill -TERM "$grind_pid" 2>/dev/null || true
+  wait "$grind_pid" 2>/dev/null || true
+
+  [ "$(grep -c 'final_sync pushing commits=1' "$TEST_LOG")" -eq 1 ]
+  [ "$(grep -c 'final_sync push_ok' "$TEST_LOG")" -eq 1 ]
+  [ "$(git -C "$grind_repo" rev-list --count origin/main..HEAD)" -eq 0 ]
+}
+
+@test "structural: EXIT trap routes through final_sync handler before cleanup" {
+  grep -q 'handle_exit_trap()' "$DVB_GRIND"
+  grep -q "trap 'handle_exit_trap' EXIT" "$DVB_GRIND"
+}
+
+@test "structural: graceful shutdown sets EXIT final_sync handoff guard" {
+  grep -q '_dvb_skip_exit_final_sync=1' "$DVB_GRIND"
+  grep -q "trap 'handle_exit_trap' EXIT" "$DVB_GRIND"
+}
+
+# ── Tasks unchanged scenario ─────────────────────────────────────────
+
+@test "zero tasks shipped when tasks unchanged between sessions" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Persistent task
+TASKS
+  export DVB_DEADLINE_OFFSET=20
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'shipped=0' "$TEST_LOG"
+}
+
+@test "summary shows 0+ tasks when no tasks shipped" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Task that stays
+TASKS
+  export DVB_DEADLINE_OFFSET=20
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [[ "$output" == *"0+ tasks"* ]]
+}
+
+# ── Deadline check before cooldown ───────────────────────────────────
+
+@test "deadline check before cooldown prevents sleeping past deadline" {
+  grep -q 'Check deadline before cooldown' "$DVB_GRIND"
+  local check_line sleep_line
+  check_line=$(grep -n 'Check deadline before cooldown' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  sleep_line=$(grep -n 'sleep "$cooldown"' "$DVB_GRIND" | head -1 | cut -d: -f1)
+  [ -n "$check_line" ]
+  [ -n "$sleep_line" ]
+  [ "$check_line" -lt "$sleep_line" ]
+}
+
+@test "grind exits immediately when deadline reached mid-loop" {
+  export DVB_DEADLINE_OFFSET=1
+  export DVB_COOL=60
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Grind complete"* ]]
+}
+
+# ── Caffeinate re-exec ───────────────────────────────────────────────
+
+@test "caffeinate re-exec is skipped in test mode" {
+  export DVB_DEADLINE_OFFSET=20
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+}
+
+@test "DVB_CAFFEINATED env prevents double caffeinate" {
+  grep -q 'DVB_CAFFEINATED' "$DVB_GRIND"
+  grep -A2 'DVB_CAFFEINATED' "$DVB_GRIND" | grep -q 'caffeinate'
+}
+
+@test "Linux: systemd-inhibit fallback for caffeinate (structural)" {
+  grep -q 'systemd-inhibit' "$DVB_GRIND"
+  grep -q 'idle:sleep' "$DVB_GRIND"
+  grep -q 'systemd-inhibit.*grind probe.*true' "$DVB_GRIND"
+}
+
+@test "Linux: flock preferred, perl fallback when flock unavailable (structural)" {
+  grep -q 'flock -n "$_lock_fd"' "$DVB_GRIND"
+  grep -q 'perl.*Fcntl.*LOCK_EX' "$DVB_GRIND"
+}
+
+@test "Linux: notify-send fallback for osascript (structural)" {
+  grep -q 'notify-send' "$DVB_GRIND"
+}
+
+# ── Stall detection (zero-ship sessions) ─────────────────────────────
+
+@test "DVB_MAX_ZERO_SHIP defaults to 6" {
+  grep -Fq 'DVB_DEFAULT_MAX_ZERO_SHIP="6"' "$BATS_TEST_DIRNAME/../lib/constants.sh"
+  grep -Fq 'DVB_MAX_ZERO_SHIP:-$DVB_DEFAULT_MAX_ZERO_SHIP' "$DVB_GRIND"
+}
+
+@test "5 consecutive zero-ship sessions exits the marathon" {
+  # Create a persistent task that never gets removed
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stubborn task that never completes
+TASKS
+  export DVB_DEADLINE_OFFSET=30
+  export DVB_MAX_ZERO_SHIP=5
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"zero-ship sessions"* ]]
+  [[ "$output" == *"stalled"* ]]
+  grep -q 'stall_bail' "$TEST_LOG"
+  # Should have exactly 5 sessions (bail at 5)
+  local count
+  count=$(wc -l < "$DVB_GRIND_INVOKE_LOG" | tr -d ' ')
+  [ "$count" -eq 5 ]
+}
+
+@test "TG_MAX_ZERO_SHIP takes precedence over DVB_MAX_ZERO_SHIP" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stubborn task
+TASKS
+  export DVB_DEADLINE_OFFSET=30
+  # If DVB_ won, bail would need 20 zero-ship sessions. TG_ should force the
+  # bail to fire at 3, proving the mirror works for this knob.
+  export DVB_MAX_ZERO_SHIP=20
+  export TG_MAX_ZERO_SHIP=3
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  grep -q 'stall_bail consecutive_zero_ship=3' "$TEST_LOG"
+  local count
+  count=$(wc -l < "$DVB_GRIND_INVOKE_LOG" | tr -d ' ')
+  [ "$count" -eq 3 ]
+}
+
+@test "3 consecutive zero-ship sessions adds stall warning to log" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stubborn task
+TASKS
+  export DVB_DEADLINE_OFFSET=15
+  export DVB_MAX_ZERO_SHIP=5
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'stall_warning consecutive_zero_ship=3' "$TEST_LOG"
+}
+
+@test "stall warning appears in prompt after 3 zero-ship sessions" {
+  local counter_file="$TEST_DIR/stall-counter"
+  echo "0" > "$counter_file"
+  local prompt_devin="$TEST_DIR/prompt-devin"
+  cat > "$prompt_devin" <<SCRIPT
+#!/bin/bash
+n=\$(cat "$counter_file")
+n=\$((n + 1))
+echo "\$n" > "$counter_file"
+prompt=""
+prev=""
+for arg in "\$@"; do
+  if [ "\$prev" = "-p" ]; then
+    prompt="\$arg"
+    break
+  fi
+  case "\$arg" in
+    -p=*)
+      prompt="\${arg#-p=}"
+      break
+      ;;
+  esac
+  prev="\$arg"
+done
+printf '%s' "\$prompt" > "$TEST_DIR/prompt-\$n.txt"
+printf '%s\n' "\$prompt" >> "$TEST_DIR/prompts.log"
+if [ "\$n" -eq 4 ]; then
+  cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+EOF
+fi
+SCRIPT
+  chmod +x "$prompt_devin"
+  export DVB_GRIND_CMD="$prompt_devin"
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stubborn task
+TASKS
+  export DVB_DEADLINE_OFFSET=20
+  export DVB_MAX_ZERO_SHIP=5
+  export DVB_SKIP_SWEEP_ON_EMPTY=1
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'WARNING.*shipped nothing' "$TEST_DIR/prompt-4.txt"
+}
+
+@test "stall warning tells agent to decompose" {
+  local counter_file="$TEST_DIR/decompose-counter"
+  echo "0" > "$counter_file"
+  local prompt_devin="$TEST_DIR/decompose-prompt-devin"
+  cat > "$prompt_devin" <<SCRIPT
+#!/bin/bash
+n=\$(cat "$counter_file")
+n=\$((n + 1))
+echo "\$n" > "$counter_file"
+prompt=""
+prev=""
+for arg in "\$@"; do
+  if [ "\$prev" = "-p" ]; then
+    prompt="\$arg"
+    break
+  fi
+  case "\$arg" in
+    -p=*)
+      prompt="\${arg#-p=}"
+      break
+      ;;
+  esac
+  prev="\$arg"
+done
+printf '%s' "\$prompt" > "$TEST_DIR/prompt-\$n.txt"
+if [ "\$n" -eq 4 ]; then
+  cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+EOF
+fi
+SCRIPT
+  chmod +x "$prompt_devin"
+  export DVB_GRIND_CMD="$prompt_devin"
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Large task
+TASKS
+  export DVB_DEADLINE_OFFSET=20
+  export DVB_MAX_ZERO_SHIP=5
+  export DVB_SKIP_SWEEP_ON_EMPTY=1
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'decompose' "$TEST_DIR/prompt-4.txt"
+  ! grep -q 'sweep' "$TEST_DIR/prompt-4.txt"
+}
+
+@test "productive zero-ship detected when agent commits but does not remove task" {
+  # Set up a real git repo so git HEAD changes can be detected
+  git -C "$TEST_REPO" init -q
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+  git -C "$TEST_REPO" config core.hooksPath /dev/null
+  git -C "$TEST_REPO" add -f TASKS.md
+  git -C "$TEST_REPO" commit -q -m "chore: initial"
+
+  # Fake devin that commits code but never removes the task
+  local commit_devin="$TEST_DIR/commit-devin"
+  cat > "$commit_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+echo "fix something" >> "$TEST_REPO/code.txt"
+git -C "$TEST_REPO" add -A
+git -C "$TEST_REPO" commit -q -m "fix: session work" --allow-empty
+SCRIPT
+  chmod +x "$commit_devin"
+  export DVB_GRIND_CMD="$commit_devin"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Task that never gets removed
+  **ID**: stuck-task
+TASKS
+  git -C "$TEST_REPO" add -f TASKS.md
+  git -C "$TEST_REPO" commit -q -m "chore: seed stuck task"
+
+  export DVB_DEADLINE_OFFSET=10
+  export DVB_MAX_ZERO_SHIP=5
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'productive_zero_ship' "$TEST_LOG"
+  grep -q 'reason=no_local_task_removed task_id=stuck-task' "$TEST_LOG"
+  ! grep -q 'concurrent task additions kept the queue flat' "$TEST_LOG"
+}
+
+@test "productive zero-ship log names blocker for the first remaining local task" {
+  git -C "$TEST_REPO" init -q
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+  git -C "$TEST_REPO" config core.hooksPath /dev/null
+  git -C "$TEST_REPO" add -f TASKS.md
+  git -C "$TEST_REPO" commit -q -m "chore: initial"
+
+  local commit_devin="$TEST_DIR/commit-devin"
+  cat > "$commit_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+echo "fix something" >> "$TEST_REPO/code.txt"
+git -C "$TEST_REPO" add -A
+git -C "$TEST_REPO" commit -q -m "fix: session work" --allow-empty
+SCRIPT
+  chmod +x "$commit_devin"
+  export DVB_GRIND_CMD="$commit_devin"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Waiting on approval
+  **ID**: approval-task
+  **Blocked by**: security approval
+- [ ] Follow-up work
+  **ID**: follow-up-task
+TASKS
+  git -C "$TEST_REPO" add -f TASKS.md
+  git -C "$TEST_REPO" commit -q -m "chore: seed blocked task"
+
+  export DVB_DEADLINE_OFFSET=10
+  export DVB_MAX_ZERO_SHIP=5
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'reason=no_local_task_removed task_id=approval-task blocker=security approval' "$TEST_LOG"
+}
+
+@test "productive zero-ship log explains concurrent task additions" {
+  git -C "$TEST_REPO" init -q
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+  git -C "$TEST_REPO" add TASKS.md
+  git -C "$TEST_REPO" commit -q -m "initial"
+
+  local commit_devin="$TEST_DIR/commit-devin"
+  cat > "$commit_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+- [ ] Persistent task
+  **ID**: task-a
+- [ ] New task injected during session
+  **ID**: task-b
+EOF
+echo "new work" >> "$TEST_REPO/code.txt"
+git -C "$TEST_REPO" add -A
+git -C "$TEST_REPO" commit -q -m "fix: session work"
+SCRIPT
+  chmod +x "$commit_devin"
+  export DVB_GRIND_CMD="$commit_devin"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Persistent task
+  **ID**: task-a
+TASKS
+
+  export DVB_DEADLINE_OFFSET=10
+  export DVB_MAX_ZERO_SHIP=5
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'productive_zero_ship' "$TEST_LOG"
+  grep -q 'concurrent task additions kept the queue flat' "$TEST_LOG"
+}
+
+@test "productive zero-ship log explains temporary task churn" {
+  git -C "$TEST_REPO" init -q
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+  git -C "$TEST_REPO" add TASKS.md
+  git -C "$TEST_REPO" commit -q -m "initial"
+
+  local commit_devin="$TEST_DIR/commit-devin"
+  cat > "$commit_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+- [ ] Persistent task
+  **ID**: task-a
+- [ ] Temporary subtask
+  **ID**: task-temp
+EOF
+git -C "$TEST_REPO" add -f TASKS.md
+git -C "$TEST_REPO" commit -q -m "test: add temporary task"
+
+cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+- [ ] Persistent task
+  **ID**: task-a
+EOF
+echo "new work" >> "$TEST_REPO/code.txt"
+git -C "$TEST_REPO" add -A
+git -C "$TEST_REPO" commit -q -m "fix: session work after task churn"
+SCRIPT
+  chmod +x "$commit_devin"
+  export DVB_GRIND_CMD="$commit_devin"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Persistent task
+  **ID**: task-a
+TASKS
+
+  export DVB_DEADLINE_OFFSET=10
+  export DVB_MAX_ZERO_SHIP=5
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'productive_zero_ship' "$TEST_LOG"
+  grep -q 'temporary task churn restored the original queue' "$TEST_LOG"
+}
+
+@test "productive zero-ship treats orphan-branch task refresh as local task churn" {
+  init_test_repo
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Refresh recurring audit task
+  **ID**: audit-task
+TASKS
+  git -C "$TEST_REPO" add -f TASKS.md
+  git -C "$TEST_REPO" commit -q -m "chore: seed queue"
+
+  # Fake devin does the orphan-branch checkout + queue refresh once per
+  # session. The `sleep 2` is gone — that was a hack to keep session 1
+  # alive past the original `DVB_DEADLINE=$(( now + 1 ))` window, which
+  # itself was the parallel-load flake source. With `DVB_DEADLINE_OFFSET=15`
+  # the deadline is set relative to taskgrind's own clock read, so the
+  # session loop is guaranteed to enter once even under heavy bats load.
+  local commit_devin="$TEST_DIR/commit-devin"
+  cat > "$commit_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+git -C "$TEST_REPO" checkout --orphan refreshed-queue >/dev/null 2>&1
+git -C "$TEST_REPO" reset >/dev/null 2>&1
+cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+- [ ] Refresh recurring audit task for next cycle
+  **ID**: audit-task
+EOF
+echo "audit refresh" > "$TEST_REPO/code.txt"
+git -C "$TEST_REPO" add -A
+git -C "$TEST_REPO" commit -q -m "chore: refresh audit queue"
+SCRIPT
+  chmod +x "$commit_devin"
+  export DVB_GRIND_CMD="$commit_devin"
+
+  # Use DVB_DEADLINE_OFFSET so heavy parallel-setup latency cannot push the
+  # deadline into the past before the session loop enters. 5s is plenty —
+  # the fake devin runs in <100ms; this is just guaranteeing one iteration.
+  export DVB_DEADLINE_OFFSET=20
+  export DVB_MAX_ZERO_SHIP=1  # bail after 1 zero-ship to keep the run short
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  grep -q 'productive_zero_ship session=1 commits=1 reason=local_task_churn' "$TEST_LOG"
+  grep -q 'shipped_inferred session=1 count=1 reason=local_task_churn' "$TEST_LOG"
+  ! grep -q 'productive_zero_ship session=1 commits=1 reason=no_local_task_removed' "$TEST_LOG"
+}
+
+@test "productive zero-ship log explains non-local task removal" {
+  git -C "$TEST_REPO" init -q
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+
+  mkdir -p "$TEST_REPO/other"
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Persistent local task
+  **ID**: local-task
+TASKS
+  cat > "$TEST_REPO/other/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Remote task to remove
+  **ID**: remote-task
+TASKS
+  git -C "$TEST_REPO" add TASKS.md other/TASKS.md
+  git -C "$TEST_REPO" commit -q -m "chore: seed local and non-local queues"
+
+  local commit_devin="$TEST_DIR/commit-devin"
+  cat > "$commit_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+cat > "$TEST_REPO/other/TASKS.md" <<'EOF'
+# Tasks
+## P0
+EOF
+echo "new work" >> "$TEST_REPO/code.txt"
+git -C "$TEST_REPO" add -A
+git -C "$TEST_REPO" commit -q -m "fix: clear non-local task"
+SCRIPT
+  chmod +x "$commit_devin"
+  export DVB_GRIND_CMD="$commit_devin"
+
+  export DVB_DEADLINE_OFFSET=10
+  export DVB_MAX_ZERO_SHIP=5
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'productive_zero_ship session=1 commits=1 reason=nonlocal_task_removed' "$TEST_LOG"
+  grep -q 'shipped_inferred session=1 count=1 reason=nonlocal_task_removed' "$TEST_LOG"
+  ! grep -q 'zero_ship_stall_ignored session=1 reason=nonlocal_task_removed' "$TEST_LOG"
+}
+
+@test "productive zero-ship escalation appears in prompt after 2 zero-ship sessions with commits" {
+  git -C "$TEST_REPO" init -q
+  git -C "$TEST_REPO" config user.email "test@test.com"
+  git -C "$TEST_REPO" config user.name "Test"
+  git -C "$TEST_REPO" add TASKS.md
+  git -C "$TEST_REPO" commit -q -m "initial"
+
+  local counter_file="$TEST_DIR/commit-counter"
+  echo "0" > "$counter_file"
+  local commit_devin="$TEST_DIR/commit-devin"
+  cat > "$commit_devin" <<SCRIPT
+#!/bin/bash
+n=\$(cat "$counter_file")
+n=\$((n + 1))
+echo "\$n" > "$counter_file"
+prompt=""
+prev=""
+for arg in "\$@"; do
+  if [ "\$prev" = "-p" ]; then
+    prompt="\$arg"
+    break
+  fi
+  case "\$arg" in
+    -p=*)
+      prompt="\${arg#-p=}"
+      break
+      ;;
+  esac
+  prev="\$arg"
+done
+printf '%s' "\$prompt" > "$TEST_DIR/prompt-\$n.txt"
+printf '%s\n' "\$prompt" >> "$TEST_DIR/prompts.log"
+echo "work" >> "$TEST_REPO/code.txt"
+git -C "$TEST_REPO" add -A
+git -C "$TEST_REPO" commit -q -m "fix: do work"
+if [ "\$n" -eq 3 ]; then
+  cat > "$TEST_REPO/TASKS.md" <<'EOF'
+# Tasks
+## P0
+EOF
+fi
+SCRIPT
+  chmod +x "$commit_devin"
+  export DVB_GRIND_CMD="$commit_devin"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Persistent task
+TASKS
+
+  export DVB_DEADLINE_OFFSET=20
+  export DVB_MAX_ZERO_SHIP=5
+  export DVB_SKIP_SWEEP_ON_EMPTY=1
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'productive_zero_ship session=2 commits=1 reason=no_local_task_removed' "$TEST_LOG"
+}
+
+@test "no productive zero-ship when no commits and no ships" {
+  # Non-git repo: no commits possible, so no productive zero-ship
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Task
+TASKS
+
+  export DVB_DEADLINE_OFFSET=20
+  export DVB_MAX_ZERO_SHIP=5
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  ! grep -q 'productive_zero_ship' "$TEST_LOG"
+}
+
+@test "zero-ship counter resets when a session ships a task" {
+  # Fake devin that removes a task each run by counting invocations and rewriting TASKS.md
+  local ship_devin="$TEST_DIR/ship-devin"
+  local counter_file="$TEST_DIR/ship-counter"
+  echo "0" > "$counter_file"
+  cat > "$ship_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+# Increment counter and rewrite TASKS.md with one fewer task
+n=\$(cat "$counter_file")
+n=\$((n + 1))
+echo "\$n" > "$counter_file"
+remaining=\$((30 - n))
+[ \$remaining -lt 0 ] && remaining=0
+{
+  echo "# Tasks"
+  echo "## P0"
+  i=1
+  while [ \$i -le \$remaining ]; do
+    echo "- [ ] Task \$i"
+    i=\$((i + 1))
+  done
+} > "$TEST_REPO/TASKS.md"
+SCRIPT
+  chmod +x "$ship_devin"
+  export DVB_GRIND_CMD="$ship_devin"
+
+  # Start with 30 tasks
+  {
+    echo "# Tasks"
+    echo "## P0"
+    for i in $(seq 1 30); do
+      echo "- [ ] Task $i"
+    done
+  } > "$TEST_REPO/TASKS.md"
+
+  export DVB_DEADLINE_OFFSET=20
+  export DVB_MAX_ZERO_SHIP=3
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  # Should NOT have stall_bail — every session ships a task, counter stays at 0
+  ! grep -q 'stall_bail' "$TEST_LOG"
+  # Verify tasks were actually shipped
+  [ "$( grep -c 'shipped=[1-9]' "$TEST_LOG" || true )" -ge 1 ]
+}
+
+@test "DVB_MAX_ZERO_SHIP=abc exits with must be numeric error" {
+  export DVB_MAX_ZERO_SHIP=abc
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"TG_MAX_ZERO_SHIP must be numeric"* ]]
+}
+
+# ── grind_done log ordering on Ctrl-C ──────────────────────────────────
+
+@test "grind_done is last log entry on Ctrl-C interrupt" {
+  export DVB_DEADLINE_OFFSET=30
+  local slow_devin="$TEST_DIR/slow-devin"
+  cat > "$slow_devin" <<'SCRIPT'
+#!/bin/bash
+sleep 10
+SCRIPT
+  chmod +x "$slow_devin"
+  export DVB_GRIND_CMD="$slow_devin"
+
+  "$DVB_GRIND" 1 "$TEST_REPO" > "$TEST_DIR/int-output.txt" 2>&1 &
+  local grind_pid=$!
+  sleep 2
+  kill -INT "$grind_pid" 2>/dev/null || true
+  wait "$grind_pid" 2>/dev/null || true
+  # grind_done should be the last log_write entry — no session-end after it
+  local last_content_line
+  last_content_line=$(grep -v '^#' "$TEST_LOG" | grep -v '^$' | tail -1)
+  [[ "$last_content_line" == *"grind_done"* ]]
+}
+
+@test "_dvb_finalizing flag guards session-end log after cleanup" {
+  # Structural: session-end log is wrapped in _dvb_finalizing check
+  grep -q '_dvb_finalizing.*0.*log_write.*session=.*ended\|_dvb_finalizing -eq 0' "$DVB_GRIND"
+}
+
+@test "cleanup sets _dvb_finalizing=1" {
+  grep -q '_dvb_finalizing=1' "$DVB_GRIND"
+}
+
+# ── Temp file cleanup patterns ─────────────────────────────────────────
+
+@test "find cleanup patterns only match taskgrind-prefixed files" {
+  # The find fallback must use 'taskgrind-*' prefix on all patterns to avoid
+  # deleting files from other tools in TMPDIR.
+  # Extract the find lines from the cleanup block
+  local find_lines
+  find_lines=$(grep 'find.*_dvb_tmp.*-delete' "$DVB_GRIND")
+  # Every -name pattern must start with 'taskgrind-'
+  local bad_patterns
+  bad_patterns=$(echo "$find_lines" | grep -oE "'-name' '[^']*'|-name '[^']*'" | grep -v 'taskgrind-' || true)
+  [ -z "$bad_patterns" ]
+}
+
+@test "fd cleanup regex is scoped to taskgrind files" {
+  # The fd regex should only match files starting with 'taskgrind-'
+  grep -q "taskgrind-(exec" "$DVB_GRIND"
+}
+
+# ── Graceful timeout (SIGINT before SIGTERM) ───────────────────────────
+
+@test "timeout watchdog sends SIGINT before SIGTERM" {
+  grep -q 'kill -INT "$_dvb_pid"' "$DVB_GRIND"
+}
+
+@test "timeout watchdog has grace period before SIGTERM escalation" {
+  # After SIGINT, wait a grace period then check if still alive
+  grep -Fq 'DVB_DEFAULT_SESSION_GRACE="15"' "$BATS_TEST_DIRNAME/../lib/constants.sh"
+  grep -Fq 'DVB_SESSION_GRACE:-$DVB_DEFAULT_SESSION_GRACE' "$DVB_GRIND"
+  grep -q 'sleep "$_grace"' "$DVB_GRIND"
+  grep -q 'still alive after.*grace.*SIGTERM' "$DVB_GRIND"
+}
+
+@test "timeout watchdog only sends SIGTERM if process survived SIGINT" {
+  # kill -0 check before SIGTERM escalation
+  grep -A2 'sleep "$_grace"' "$DVB_GRIND" | grep -q 'kill -0 "$_dvb_pid"'
+}
+
+@test "TG_SESSION_GRACE overrides DVB_SESSION_GRACE for timeout escalation" {
+  # The stub must answer `--version` with non-empty output, otherwise
+  # run_backend_probe (bin/taskgrind:524) rejects it as a broken shim before
+  # the session loop (and the TG_/DVB_ precedence we want to verify) ever
+  # runs. Any other invocation — including `-p <prompt>` — falls through to
+  # the real stubborn-session behaviour: trap SIGINT and sleep long enough
+  # that the DVB_MAX_SESSION=1 watchdog has to escalate through grace.
+  local stubborn_devin="$TEST_DIR/stubborn-devin"
+  cat > "$stubborn_devin" <<'SCRIPT'
+#!/bin/bash
+case "$1" in
+  --version) echo "stubborn-devin 1.0"; exit 0 ;;
+esac
+trap '' INT
+sleep 5
+SCRIPT
+  chmod +x "$stubborn_devin"
+
+  unset DVB_GRIND_CMD
+  export TG_DEVIN_PATH="$stubborn_devin"
+  export DVB_MAX_SESSION=1
+  export DVB_SESSION_GRACE=9
+  export TG_SESSION_GRACE=0
+  export DVB_DEADLINE_OFFSET=20
+
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [[ "$output" == *"still alive after 0s grace"* ]]
+}
+
+# ── Diminishing returns / DVB_EARLY_EXIT_ON_STALL ─────────────────────
+
+@test "diminishing returns warning after 5 low-throughput sessions" {
+  # Persistent task never removed → 0 shipped per session
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stubborn task
+TASKS
+  export DVB_DEADLINE_OFFSET=15
+  export DVB_MAX_ZERO_SHIP=10
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  grep -q 'diminishing_returns' "$TEST_LOG"
+  [[ "$output" == *"Low throughput"* ]]
+}
+
+@test "DVB_EARLY_EXIT_ON_STALL=1 exits early on low throughput" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stubborn task
+TASKS
+  export DVB_DEADLINE_OFFSET=15
+  export DVB_MAX_ZERO_SHIP=10
+  export DVB_EARLY_EXIT_ON_STALL=1
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  grep -q 'early_exit_stall' "$TEST_LOG"
+  [[ "$output" == *"TG_STALL_EXIT=first"* ]]
+}
+
+@test "DVB_EARLY_EXIT_ON_STALL=0 does not exit early" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stubborn task
+TASKS
+  export DVB_DEADLINE_OFFSET=15
+  export DVB_MAX_ZERO_SHIP=6
+  export DVB_EARLY_EXIT_ON_STALL=0
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  # Should bail due to zero-ship stall, NOT early_exit_stall
+  ! grep -q 'early_exit_stall' "$TEST_LOG"
+  grep -q 'stall_bail' "$TEST_LOG"
+}
+
+@test "TG_EARLY_EXIT_ON_STALL takes precedence over DVB_EARLY_EXIT_ON_STALL" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stubborn task
+TASKS
+  export DVB_DEADLINE_OFFSET=15
+  export DVB_MAX_ZERO_SHIP=10
+  export DVB_EARLY_EXIT_ON_STALL=0
+  export TG_EARLY_EXIT_ON_STALL=1
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  grep -q 'early_exit_stall' "$TEST_LOG"
+  [[ "$output" == *"TG_STALL_EXIT=first"* ]]
+}
+
+@test "early exit stops the grind loop (no more sessions)" {
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stubborn task
+TASKS
+  export DVB_DEADLINE_OFFSET=30
+  export DVB_MAX_ZERO_SHIP=20
+  export DVB_EARLY_EXIT_ON_STALL=1
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  # Should exit after ~5 sessions (when diminishing returns fires)
+  local count
+  count=$(wc -l < "$DVB_GRIND_INVOKE_LOG" | tr -d ' ')
+  # Exactly 5 sessions (diminishing returns fires at session 5)
+  [ "$count" -le 6 ]
+}
+
+@test "productive timeout warning when shipped session hits timeout" {
+  # Fake devin that removes one task per invocation
+  local ship_devin="$TEST_DIR/ship-devin"
+  local counter_file="$TEST_DIR/ship-counter"
+  echo "0" > "$counter_file"
+  cat > "$ship_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+n=\$(cat "$counter_file")
+n=\$((n + 1))
+echo "\$n" > "$counter_file"
+remaining=\$((5 - n))
+[ \$remaining -lt 0 ] && remaining=0
+{
+  echo "# Tasks"
+  echo "## P0"
+  i=1
+  while [ \$i -le \$remaining ]; do
+    echo "- [ ] Task \$i"
+    i=\$((i + 1))
+  done
+} > "$TEST_REPO/TASKS.md"
+SCRIPT
+  chmod +x "$ship_devin"
+  export DVB_GRIND_CMD="$ship_devin"
+
+  {
+    echo "# Tasks"
+    echo "## P0"
+    for i in $(seq 1 5); do
+      echo "- [ ] Task $i"
+    done
+  } > "$TEST_REPO/TASKS.md"
+
+  # DVB_MAX_SESSION=0 means any elapsed time >= 0 triggers productive_timeout
+  export DVB_MAX_SESSION=0
+  export DVB_DEADLINE_OFFSET=20
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  grep -q 'productive_timeout' "$TEST_LOG"
+  [[ "$output" == *"Productive session hit timeout"* ]]
+}
+
+@test "productive timeout auto-increases max_session" {
+  local ship_devin="$TEST_DIR/ship-devin"
+  local counter_file="$TEST_DIR/ship-counter"
+  echo "0" > "$counter_file"
+  cat > "$ship_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+n=\$(cat "$counter_file")
+n=\$((n + 1))
+echo "\$n" > "$counter_file"
+remaining=\$((3 - n))
+[ \$remaining -lt 0 ] && remaining=0
+{
+  echo "# Tasks"
+  echo "## P0"
+  i=1
+  while [ \$i -le \$remaining ]; do
+    echo "- [ ] Task \$i"
+    i=\$((i + 1))
+  done
+} > "$TEST_REPO/TASKS.md"
+SCRIPT
+  chmod +x "$ship_devin"
+  export DVB_GRIND_CMD="$ship_devin"
+
+  {
+    echo "# Tasks"
+    echo "## P0"
+    for i in $(seq 1 3); do
+      echo "- [ ] Task $i"
+    done
+  } > "$TEST_REPO/TASKS.md"
+
+  export DVB_MAX_SESSION=0
+  export DVB_DEADLINE_OFFSET=20
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [[ "$output" == *"Auto-increasing to"* ]]
+  grep -q 'new_timeout=' "$TEST_LOG"
+}
+
+@test "productive timeout caps at 7200s (structural)" {
+  # Behavioral: fast stubs can't reach the cap (session_elapsed ≈ 0 < 1800 after
+  # first increase), so we verify the cap logic structurally.
+  grep -q 'max_session.*7200' "$DVB_GRIND"
+  grep -q 'at cap' "$DVB_GRIND"
+  # Verify the clamp: if max_session + 1800 > 7200, it's set to exactly 7200
+  grep -Fq 'max_session" -gt 7200' "$DVB_GRIND"
+  grep -Fq '&& max_session=7200' "$DVB_GRIND"
+}
+
+@test "no productive timeout when session does not ship" {
+  # Tasks never removed → 0 shipped → no productive_timeout
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Stubborn task
+TASKS
+  export DVB_MAX_SESSION=0
+  export DVB_DEADLINE_OFFSET=20
+  export DVB_MAX_ZERO_SHIP=3
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  ! grep -q 'productive_timeout' "$TEST_LOG"
+}
+
+# ── Bosun grind: signal-aborted exit deregisters with --reason aborted ─
+
+@test "bosun grind: SIGTERM during a session deregisters with --reason aborted" {
+  # When the operator (or supervisor) kills the controller mid-grind,
+  # bosun must see the grind session as `aborted`, not `completed`.
+  # graceful_shutdown sets _bosun_grind_done_reason=aborted before
+  # cleanup runs, and cleanup propagates that into `bosun grind done`.
+  local invocations="$TEST_DIR/bosun-invocations.log"
+  : > "$invocations"
+  local bin_dir="$TEST_DIR/bin"
+  mkdir -p "$bin_dir"
+  cat > "$bin_dir/bosun" <<SCRIPT
+#!/bin/bash
+printf '%s\n' "\$*" >> "$invocations"
+case "\$1\$2" in
+  grindregister)
+    sid="abort-test-session"
+    mkdir -p "\$HOME/.orchestrator"
+    cat > "\$HOME/.orchestrator/grind-session-\$sid.env" <<ENV
+export BOSUN_GRIND_SESSION_ID="\$sid"
+export BOSUN_GRIND_PROJECT_ID="$TEST_REPO"
+export BOSUN_API_BASE="http://localhost:9746"
+export BOSUN_URL="http://localhost:9746"
+ENV
+    echo "\$sid"
+    ;;
+esac
+exit 0
+SCRIPT
+  chmod +x "$bin_dir/bosun"
+
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+- [ ] Signal abort test
+TASKS
+
+  # Slow fake devin that runs long enough for us to send a signal
+  local slow_devin="$TEST_DIR/slow-devin-abort"
+  cat > "$slow_devin" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
+echo "started" >> "$TEST_DIR/abort-lifecycle.log"
+sleep 30
+SCRIPT
+  chmod +x "$slow_devin"
+
+  export DVB_GRIND_CMD="$slow_devin"
+  export DVB_BOSUN_HEARTBEAT_TEST=1
+  export DVB_REGISTER_REAL_BOSUN_GRIND=1
+  export TG_BOSUN_HEARTBEAT_INTERVAL=99
+  export BOSUN_BIN="$bin_dir/bosun"
+  export DVB_DEADLINE_OFFSET=60
+  export DVB_SHUTDOWN_GRACE=5
+  export DVB_COOL=0
+  export DVB_MAX_ZERO_SHIP=99
+  export DVB_SYNC_INTERVAL=999
+
+  "$DVB_GRIND" --skill fleet-grind 1 "$TEST_REPO" > "$TEST_DIR/abort-output.txt" 2>&1 &
+  local grind_pid=$!
+  _wait_for_file_pattern "$TEST_DIR/abort-lifecycle.log" 'started'
+  kill -TERM "$grind_pid" 2>/dev/null || true
+
+  set +e
+  wait "$grind_pid"
+  local status=$?
+  set -e
+
+  # SIGTERM exits with status 143
+  [ "$status" -eq 143 ]
+  # And the grind session was deregistered with reason=aborted
+  grep -q 'grind done --session abort-test-session --reason aborted' "$invocations"
+  ! grep -q -- '--reason completed' "$invocations"
+}
+
+# Note on SIGINT-vs-SIGTERM coverage: bats runs each test in a non-interactive
+# subshell, where bash discards SIGINT delivered to a backgrounded job
+# (`set +m`, no controlling terminal). SIGTERM is unaffected and exercises
+# the same `graceful_shutdown -> cleanup -> _finalize_bosun_grind_session`
+# code path, so the SIGTERM test above is the canonical coverage. The trap
+# binding for INT is asserted by the structural test
+# `taskgrind traps INT signal for cleanup` earlier in this file.

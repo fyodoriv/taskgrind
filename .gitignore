@@ -1,0 +1,14 @@
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.log
+.taskgrind-prompt
+.taskgrind-state
+.test-cache
+.test-cache-*
+
+# Orchestrator pipeline artifacts
+.orchestrator/
