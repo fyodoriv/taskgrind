@@ -3103,7 +3103,9 @@ supervisor_json_string_field() {
 
 supervisor_file_mtime() {
   local file_path="$1"
-  stat -f %m "$file_path" 2>/dev/null || stat -c %Y "$file_path" 2>/dev/null || echo "0"
+  # Try GNU `stat -c` first: BSD stat rejects -c with no output, but GNU
+  # `stat -f` is a no-argument flag that prints file-system info, not mtime.
+  stat -c %Y "$file_path" 2>/dev/null || stat -f %m "$file_path" 2>/dev/null || echo "0"
 }
 
 supervisor_log_token() {
@@ -3936,7 +3938,9 @@ cleanup() {
   # Remove temp files
   [[ -n "${_DVB_SELF_COPY:-}" && -f "${_DVB_SELF_COPY}" ]] && rm -f "$_DVB_SELF_COPY"
   [[ -n "${_lock_file:-}" && -f "${_lock_file}" ]] && rm -f "$_lock_file"
-  [[ -n "${_bosun_410_flag_file:-}" && -f "$_bosun_410_flag_file" ]] && rm -f "$_bosun_410_flag_file" 2>/dev/null || true
+  if [[ -n "${_bosun_410_flag_file:-}" && -f "$_bosun_410_flag_file" ]]; then
+    rm -f "$_bosun_410_flag_file" 2>/dev/null || true
+  fi
   rm -f "$session_output"
   rm -f "$_task_attempts_file"
   rm -f "${_task_attempts_file}.new" 2>/dev/null || true
@@ -3968,7 +3972,9 @@ if [[ -n "$supervise_status_file" ]]; then
   _supervisor_exit=0
   run_supervisor_once "$supervise_status_file" || _supervisor_exit=$?
   rm -f "$session_output" "$_task_attempts_file" "${_task_attempts_file}.new" 2>/dev/null || true
-  [[ -n "${_lock_file:-}" && -f "${_lock_file}" ]] && rm -f "$_lock_file" 2>/dev/null || true
+  if [[ -n "${_lock_file:-}" && -f "${_lock_file}" ]]; then
+    rm -f "$_lock_file" 2>/dev/null || true
+  fi
   exit "$_supervisor_exit"
 fi
 # INT/TERM → graceful shutdown (wait for session, push, then exit)

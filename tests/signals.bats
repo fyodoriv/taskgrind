@@ -1261,15 +1261,18 @@ SCRIPT
 
 @test "timeout watchdog has grace period before SIGTERM escalation" {
   # After SIGINT, wait a grace period then check if still alive
+  # The escalation lives in lib/watchdog.sh since the watchdog extraction.
+  local watchdog="$BATS_TEST_DIRNAME/../lib/watchdog.sh"
   grep -Fq 'DVB_DEFAULT_SESSION_GRACE="15"' "$BATS_TEST_DIRNAME/../lib/constants.sh"
-  grep -Fq 'DVB_SESSION_GRACE:-$DVB_DEFAULT_SESSION_GRACE' "$DVB_GRIND"
-  grep -q 'sleep "$_grace"' "$DVB_GRIND"
-  grep -q 'still alive after.*grace.*SIGTERM' "$DVB_GRIND"
+  grep -Fq 'DVB_SESSION_GRACE:-${DVB_DEFAULT_SESSION_GRACE' "$watchdog"
+  grep -Fq 'remaining="$grace"' "$watchdog"
+  grep -q 'escalation=SIGTERM.*grace=' "$watchdog"
 }
 
 @test "timeout watchdog only sends SIGTERM if process survived SIGINT" {
-  # kill -0 check before SIGTERM escalation
-  grep -A2 'sleep "$_grace"' "$DVB_GRIND" | grep -q 'kill -0 "$_dvb_pid"'
+  # kill -0 check inside the grace loop, before SIGTERM escalation
+  grep -A7 'remaining="$grace"' "$BATS_TEST_DIRNAME/../lib/watchdog.sh" \
+    | grep -q 'kill -0 "$target_pid"'
 }
 
 @test "TG_SESSION_GRACE overrides DVB_SESSION_GRACE for timeout escalation" {
@@ -1298,7 +1301,7 @@ SCRIPT
   export DVB_DEADLINE_OFFSET=20
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
-  [[ "$output" == *"still alive after 0s grace"* ]]
+  grep -q 'session_watchdog escalation=SIGTERM .*grace=0s' "$TEST_LOG"
 }
 
 # ── Diminishing returns / DVB_EARLY_EXIT_ON_STALL ─────────────────────

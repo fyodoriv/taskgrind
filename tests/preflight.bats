@@ -645,7 +645,9 @@ SCRIPT
 
   # Test that user skills containing "pipeline" don't match
   DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
-  source <(grep -A 15 '^_skill_needs_bosun()' "$DVB_GRIND")
+  # eval, not `source <(...)`: Bash 3.2 (macOS /bin/bash) silently sources
+  # nothing from a process substitution, leaving the function undefined.
+  eval "$(sed -n '/^_skill_needs_bosun()/,/^}/p' "$DVB_GRIND")"
 
   # These should NOT need bosun (return 1)
   skill="user-pipeline-helper"; run _skill_needs_bosun
