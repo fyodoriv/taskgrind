@@ -834,13 +834,13 @@ EOF
 # ── Git sync timer leak fix ────────────────────────────────────────────
 
 @test "git sync timer uses trap+wait pattern to avoid orphaned sleeps" {
-  # The git sync timer subshell should have the same pattern as the session
-  # timeout watchdog: trap 'kill $! ...; exit 0' TERM + sleep N &; wait $!
-  # Count occurrences of the trap pattern — should appear 3+ times:
-  # sweep watchdog, session watchdog, git sync timer.
+  # Each git sync timer subshell uses trap 'kill $! ...; exit 0' TERM +
+  # sleep N &; wait $!. Count occurrences — should appear 2+ times: control
+  # repo sync timer and target repo sync timer. (Session and sweep watchdogs
+  # moved to lib/watchdog.sh and deliberately no longer use this trap.)
   local count
   count=$(grep -c "trap 'kill \$! 2>/dev/null; exit 0' TERM" "$DVB_GRIND")
-  [ "$count" -ge 3 ]
+  [ "$count" -ge 2 ]
 }
 
 # ── Multi-project locking ─────────────────────────────────────────────

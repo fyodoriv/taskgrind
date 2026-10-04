@@ -316,8 +316,8 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   [[ "$output" == *'--model "Claude Opus 4.7 Max"'* ]]
 }
 
-@test "fleet-grind default GPT-5.5 dry-run includes standard context guard" {
-  run "$DVB_GRIND" --dry-run --skill fleet-grind 1 "$TEST_REPO"
+@test "fleet-grind GPT-5.5 dry-run includes standard context guard" {
+  run "$DVB_GRIND" --dry-run --skill fleet-grind --model gpt 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"CONTEXT_BUDGET: Model profile standard"* ]]
   [[ "$output" == *"one merge/fill/fix cycle"* ]]

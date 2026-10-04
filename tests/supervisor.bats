@@ -86,6 +86,46 @@ mark_file_old() {
   grep -q 'supervisor_repair_start reason=stale_preflight' "$TEST_LOG"
 }
 
+@test "--supervise detects stale status with GNU coreutils stat" {
+  # GNU `stat -f` takes no argument, so `stat -f %m FILE` treats '%m' as a
+  # second file: it prints file-system info for FILE and exits 1. This shim
+  # copies that, so macOS runners catch the Linux-only mtime bug too.
+  local fake_bin="$TEST_DIR/gnu-stat-bin"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/stat" <<'SCRIPT'
+#!/bin/bash
+if [ "$1" = "-c" ]; then
+  [ "$2" = "%Y" ] && [ -e "$3" ] || exit 1
+  exec date -r "$3" +%s
+fi
+if [ "$1" = "-f" ]; then
+  shift
+  rc=0
+  for operand in "$@"; do
+    if [ -e "$operand" ]; then
+      printf '  File: "%s"\n    ID: 0 Namelen: 255 Type: ext2/ext3\n' "$operand"
+    else
+      echo "stat: cannot read file system information for '$operand'" >&2
+      rc=1
+    fi
+  done
+  exit "$rc"
+fi
+exit 1
+SCRIPT
+  chmod +x "$fake_bin/stat"
+  export PATH="$fake_bin:$PATH"
+  local status_file="$TEST_DIR/stale-status.json"
+  write_watched_status "$status_file" "preflight" "$TEST_DIR/stale.log"
+  mark_file_old "$status_file"
+
+  run "$DVB_GRIND" --supervise "$status_file" 1 "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  [ "$(grep -c 'SUPERVISOR_REPAIR' "$DVB_GRIND_INVOKE_LOG")" -eq 1 ]
+  grep -q 'supervisor_repair_start reason=stale_preflight' "$TEST_LOG"
+}
+
 @test "--supervise treats missing watched status as a repairable stuck state" {
   local missing_status="$TEST_DIR/missing-status.json"
 
