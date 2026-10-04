@@ -12,3 +12,9 @@
 
 # Orchestrator pipeline artifacts
 .orchestrator/
+
+# Accidental root artifacts from misquoted version specifiers
+# (e.g. `pip install foo>=1.11.0` without quotes writes stdout to a file
+# named `=1.11.0`). Root-anchored so legitimate `foo=bar` filenames in
+# subdirectories aren't affected. See task prevent-semver-root-artifacts.
+/=*
