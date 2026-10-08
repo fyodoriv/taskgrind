@@ -64,10 +64,10 @@ session=3
 tasks_shipped=2
 sessions_zero_ship=1
 consecutive_zero_ship=0
-backend=devin
+backend=claude-code
 skill=next-task
-model=claude-opus-4-7-max
-startup_model=claude-opus-4-7-max
+model=claude-opus-4-7
+startup_model=claude-opus-4-7
 startup_prompt=focus on reliability
 no_push=0
 ```

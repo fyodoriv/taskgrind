@@ -29,8 +29,8 @@ HOOK
 }
 
 _install_fleet_grind_skill() {
-  mkdir -p "$TEST_HOME/.config/devin/skills/fleet-grind"
-  printf '# fleet-grind\n' > "$TEST_HOME/.config/devin/skills/fleet-grind/SKILL.md"
+  mkdir -p "$TEST_HOME/.claude/skills/fleet-grind"
+  printf '# fleet-grind\n' > "$TEST_HOME/.claude/skills/fleet-grind/SKILL.md"
 }
 
 @test "preflight passes when target repo has Iron Rule 7 hook + correct hooksPath" {

@@ -190,8 +190,8 @@ TASKS
 # git/skill behavior.
 
 @test "unclaimed task surviving multiple sessions never reaches skip threshold" {
-  local fast_devin="$TEST_DIR/fast-devin"
-  create_fake_devin "$fast_devin" <<'SCRIPT'
+  local fast_backend="$TEST_DIR/fast-backend"
+  create_fake_backend "$fast_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 SCRIPT
@@ -202,7 +202,7 @@ SCRIPT
   **ID**: untouched-task
 TASKS
 
-  export DVB_GRIND_CMD="$fast_devin"
+  export DVB_GRIND_CMD="$fast_backend"
   export DVB_DEADLINE_OFFSET=30
   export DVB_MAX_SESSION=1
   export DVB_MAX_ZERO_SHIP=999
@@ -215,8 +215,8 @@ TASKS
 }
 
 @test "claimed task that doesn't ship across 3 sessions hits skip threshold" {
-  local fast_devin="$TEST_DIR/fast-devin"
-  create_fake_devin "$fast_devin" <<'SCRIPT'
+  local fast_backend="$TEST_DIR/fast-backend"
+  create_fake_backend "$fast_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 SCRIPT
@@ -227,7 +227,7 @@ SCRIPT
   **ID**: stuck-claimed-task
 TASKS
 
-  export DVB_GRIND_CMD="$fast_devin"
+  export DVB_GRIND_CMD="$fast_backend"
   export DVB_DEADLINE_OFFSET=30
   export DVB_MAX_SESSION=1
   export DVB_MAX_ZERO_SHIP=999
@@ -239,7 +239,7 @@ TASKS
 }
 
 @test "claim drop between sessions resets the attempt counter" {
-  local toggling_devin="$TEST_DIR/toggling-devin"
+  local toggling_backend="$TEST_DIR/toggling-backend"
   local counter_file="$TEST_DIR/session-counter"
   echo "0" > "$counter_file"
 
@@ -253,7 +253,7 @@ TASKS
   # Session 1 sees the seeded claim; session 2 strips the claim marker.
   # The counter must drop to zero on the un-claim instead of climbing
   # toward the skip threshold across the surviving sessions.
-  create_fake_devin "$toggling_devin" <<SCRIPT
+  create_fake_backend "$toggling_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "${DVB_GRIND_INVOKE_LOG}"
 count=\$(cat "$counter_file")
@@ -268,7 +268,7 @@ if [[ "\$count" -eq 2 ]]; then
 TASKS
 fi
 SCRIPT
-  export DVB_GRIND_CMD="$toggling_devin"
+  export DVB_GRIND_CMD="$toggling_backend"
   export DVB_DEADLINE_OFFSET=30
   export DVB_MAX_SESSION=1
   export DVB_MAX_ZERO_SHIP=999
@@ -307,7 +307,7 @@ _run_claimed_task_ids() {
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
 ## P0
-- [ ] Claimed alpha (@devin)
+- [ ] Claimed alpha (@agent)
   **ID**: claimed-alpha
 - [ ] Unclaimed beta
   **ID**: unclaimed-beta
@@ -341,10 +341,10 @@ TASKS
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
 ## P0
-- [ ] Claimed first (@devin)
+- [ ] Claimed first (@agent)
 - [ ] Unclaimed second
   **ID**: unclaimed-second
-- [ ] Claimed third (@devin)
+- [ ] Claimed third (@agent)
   **ID**: claimed-third
 TASKS
   # The first task has a claim but no **ID**: line, so nothing emits

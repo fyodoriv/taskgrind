@@ -8,9 +8,9 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 
 # ── Multi-backend support ─────────────────────────────────────────────
 
-@test "default backend is devin" {
+@test "default backend is claude-code" {
   run_tiny_workload
-  [[ "$output" == *"backend=devin"* ]]
+  [[ "$output" == *"backend=claude-code"* ]]
 }
 
 @test "--backend flag sets backend" {
@@ -34,11 +34,11 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 
 @test "TG_BACKEND takes precedence over DVB_BACKEND during a real run" {
   export DVB_BACKEND=codex
-  export TG_BACKEND=devin
+  export TG_BACKEND=claude-code
   run_tiny_workload
   [ "$status" -eq 0 ]
-  [[ "$output" == *"backend=devin"* ]]
-  grep -q -- '--permission-mode dangerous' "$DVB_GRIND_INVOKE_LOG"
+  [[ "$output" == *"backend=claude-code"* ]]
+  grep -q -- '--dangerously-skip-permissions' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--backend flag overrides DVB_BACKEND env" {
@@ -52,7 +52,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   run "$DVB_GRIND" --dry-run --backend unknown-backend 1 "$TEST_REPO"
   [ "$status" -ne 0 ]
   [[ "$output" == *"unknown backend"* ]]
-  [[ "$output" == *"Supported: devin, claude-code, codex"* ]]
+  [[ "$output" == *"Supported: claude-code, codex"* ]]
 }
 
 @test "--backend without value exits with clear error" {
@@ -63,12 +63,12 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 
 @test "backend shows in startup banner" {
   run_tiny_workload
-  [[ "$output" == *"backend=devin"* ]]
+  [[ "$output" == *"backend=claude-code"* ]]
 }
 
 @test "backend shows in log file header" {
   run_tiny_workload
-  grep -q 'backend=devin' "$TEST_LOG"
+  grep -q 'backend=claude-code' "$TEST_LOG"
 }
 
 @test "--preflight shows backend in config header" {
@@ -77,7 +77,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   echo "# Tasks" > "$TEST_REPO/TASKS.md"
   run "$DVB_GRIND" --preflight "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"backend:  devin"* ]]
+  [[ "$output" == *"backend:  claude-code"* ]]
 }
 
 @test "--dry-run shows backend in config" {
@@ -142,10 +142,6 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   printf '%s\n' "$log_line" | grep -Eq "$pattern"
 }
 
-@test "build_session_args produces --permission-mode dangerous for devin backend" {
-  grep -q "permission-mode dangerous" "$DVB_GRIND"
-}
-
 @test "build_session_args produces --dangerously-skip-permissions for claude-code backend" {
   grep -q "dangerously-skip-permissions" "$DVB_GRIND"
 }
@@ -155,10 +151,11 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   grep -q '"-q"' "$DVB_GRIND" || grep -q "\\-q" "$DVB_GRIND"
 }
 
-@test "devin backend invokes with --permission-mode dangerous" {
-  export DVB_DEADLINE_OFFSET=5
-  run "$DVB_GRIND" --backend devin 1 "$TEST_REPO"
-  [ -f "$DVB_GRIND_INVOKE_LOG" ] && grep -q -- '--permission-mode dangerous' "$DVB_GRIND_INVOKE_LOG"
+@test "devin backend is rejected as unknown" {
+  run "$DVB_GRIND" --dry-run --backend devin 1 "$TEST_REPO"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unknown backend 'devin'"* ]]
+  [[ "$output" == *"Supported: claude-code, codex"* ]]
 }
 
 @test "claude-code backend invokes with --dangerously-skip-permissions" {
@@ -190,7 +187,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "codex backend warns when model contains claude" {
-  export DVB_MODEL=claude-opus-4-7-max
+  export DVB_MODEL=claude-opus-4-7
   run "$DVB_GRIND" --dry-run --backend codex 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Warning"*"Anthropic model"*"codex"* ]]
@@ -283,7 +280,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 
 @test "--model alias resolves before backend invocation" {
   run_tiny_workload --model opus 1 "$TEST_REPO"
-  grep -q -- '--model claude-opus-4-7-max' "$DVB_GRIND_INVOKE_LOG"
+  grep -q -- '--model claude-opus-4-7' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--model works with --backend and --skill" {
@@ -326,7 +323,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 @test "fleet-grind opus dry-run includes large context profile" {
   run "$DVB_GRIND" --dry-run --skill fleet-grind --model opus 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"model:    claude-opus-4-7-max"* ]]
+  [[ "$output" == *"model:    claude-opus-4-7"* ]]
   [[ "$output" == *"CONTEXT_BUDGET: Model profile large"* ]]
 }
 
@@ -358,7 +355,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   export DVB_DEADLINE_OFFSET=10
   _prompt_file="$TEST_REPO/.taskgrind-prompt"
   echo "focus on testing" > "$_prompt_file"
-  # Multiple sessions — fake devin runs fast, so both sessions will see the prompt
+  # Multiple sessions — fake backend runs fast, so both sessions will see the prompt
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'focus on testing' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -471,17 +468,17 @@ EOF
 
 @test "deleting model file reverts to startup model" {
   export DVB_DEADLINE_OFFSET=10
-  # Create a fake devin that removes the model file on first run
-  FAKE_DEVIN_V2="$TEST_DIR/fake-devin-v2"
-  cat > "$FAKE_DEVIN_V2" <<'SCRIPT'
+  # Create a fake backend that removes the model file on first run
+  FAKE_BACKEND_V2="$TEST_DIR/fake-backend-v2"
+  cat > "$FAKE_BACKEND_V2" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 # Remove the model file after first invocation so second session reverts
 rm -f "$DVB_MODEL_FILE_PATH"
 exit 0
 SCRIPT
-  chmod +x "$FAKE_DEVIN_V2"
-  export DVB_GRIND_CMD="$FAKE_DEVIN_V2"
+  chmod +x "$FAKE_BACKEND_V2"
+  export DVB_GRIND_CMD="$FAKE_BACKEND_V2"
   echo "sonnet" > "$TEST_REPO/.taskgrind-model"
   export DVB_MODEL_FILE_PATH="$TEST_REPO/.taskgrind-model"
   run "$DVB_GRIND" --model opus 1 "$TEST_REPO"
@@ -491,8 +488,8 @@ SCRIPT
 
 @test "model file alias resolves on live reload" {
   export DVB_DEADLINE_OFFSET=10
-  FAKE_DEVIN_V3="$TEST_DIR/fake-devin-v3"
-  cat > "$FAKE_DEVIN_V3" <<'SCRIPT'
+  FAKE_BACKEND_V3="$TEST_DIR/fake-backend-v3"
+  cat > "$FAKE_BACKEND_V3" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 count_file="${DVB_MODEL_COUNT_FILE:?}"
@@ -504,8 +501,8 @@ if [[ "$count" -eq 1 ]]; then
 fi
 exit 0
 SCRIPT
-  chmod +x "$FAKE_DEVIN_V3"
-  export DVB_GRIND_CMD="$FAKE_DEVIN_V3"
+  chmod +x "$FAKE_BACKEND_V3"
+  export DVB_GRIND_CMD="$FAKE_BACKEND_V3"
   export DVB_MODEL_FILE_PATH="$TEST_REPO/.taskgrind-model"
   export DVB_MODEL_COUNT_FILE="$TEST_DIR/model-count"
   echo "0" > "$DVB_MODEL_COUNT_FILE"
@@ -695,11 +692,11 @@ SCRIPT
   #
   # The canonical marker list below is the contract. Adding a new
   # marker to bin/taskgrind requires: (1) emit it from the script,
-  # (2) document it in `.devin/skills/grind-log-analyze/SKILL.md`,
+  # (2) document it in `.agents/skills/grind-log-analyze/SKILL.md`,
   # (3) append the token here. All three guarantees are mechanically
   # checked: each marker is grep'd in both files.
   local script="$BATS_TEST_DIRNAME/../bin/taskgrind"
-  local skill="$BATS_TEST_DIRNAME/../.devin/skills/grind-log-analyze/SKILL.md"
+  local skill="$BATS_TEST_DIRNAME/../.agents/skills/grind-log-analyze/SKILL.md"
   [ -f "$script" ]
   [ -f "$skill" ]
 
@@ -934,13 +931,13 @@ SCRIPT
 
 @test "no_push value is persisted in resume state and restored on --resume" {
   local state_file="$TEST_DIR/resume-state"
-  local slow_devin="$TEST_DIR/slow-devin"
-  create_fake_devin "$slow_devin" <<'SCRIPT'
+  local slow_backend="$TEST_DIR/slow-backend"
+  create_fake_backend "$slow_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG}"
 sleep 5
 SCRIPT
-  export DVB_GRIND_CMD="$slow_devin"
+  export DVB_GRIND_CMD="$slow_backend"
   export DVB_STATE_FILE="$state_file"
   export DVB_DEADLINE_OFFSET=30
 
@@ -1252,16 +1249,16 @@ TASKS
 }
 
 @test "sweep_efficiency reports a positive tasks_per_min when tasks are found" {
-  local sweep_devin="$TEST_DIR/sweep-devin"
-  cat > "$sweep_devin" <<SCRIPT
+  local sweep_backend="$TEST_DIR/sweep-backend"
+  cat > "$sweep_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 if echo "\$@" | grep -q 'TASKS.md is empty'; then
   printf '# Tasks\n## P0\n- [ ] Found one\n  **ID**: found-one\n- [ ] Found two\n  **ID**: found-two\n' > "$TEST_REPO/TASKS.md"
 fi
 SCRIPT
-  chmod +x "$sweep_devin"
-  export DVB_GRIND_CMD="$sweep_devin"
+  chmod +x "$sweep_backend"
+  export DVB_GRIND_CMD="$sweep_backend"
   printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
   export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -1272,7 +1269,7 @@ SCRIPT
 @test "operator docs name TG_SWEEP_MAX alongside the other gates" {
   local readme="$BATS_TEST_DIRNAME/../README.md"
   local man="$BATS_TEST_DIRNAME/../man/taskgrind.1"
-  local skill="$BATS_TEST_DIRNAME/../.devin/skills/grind-log-analyze/SKILL.md"
+  local skill="$BATS_TEST_DIRNAME/../.agents/skills/grind-log-analyze/SKILL.md"
 
   grep -q 'TG_SWEEP_MAX' "$readme"
   grep -q 'sweep_efficiency tasks=N elapsed=Ns tasks_per_min=N\.NN' "$readme"
@@ -1514,7 +1511,7 @@ TASKS
   # productive session, so subsequent zero-ship sessions cannot land a
   # second consecutive trip until the window-of-5 is once again all
   # zero.
-  local toggle_devin="$TEST_DIR/toggle-devin"
+  local toggle_backend="$TEST_DIR/toggle-backend"
   local counter_file="$TEST_DIR/dim-counter"
   echo "0" > "$counter_file"
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
@@ -1527,7 +1524,7 @@ TASKS
 - [ ] Third task
   **ID**: third-task
 TASKS
-  create_fake_devin "$toggle_devin" <<SCRIPT
+  create_fake_backend "$toggle_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "${DVB_GRIND_INVOKE_LOG}"
 n=\$(cat "$counter_file")
@@ -1544,7 +1541,7 @@ if [[ "\$n" -eq 6 ]]; then
 EOF
 fi
 SCRIPT
-  export DVB_GRIND_CMD="$toggle_devin"
+  export DVB_GRIND_CMD="$toggle_backend"
   export DVB_DEADLINE_OFFSET=30
   export DVB_MAX_ZERO_SHIP=20
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -1561,7 +1558,7 @@ SCRIPT
 @test "operator docs name TG_STALL_EXIT alongside the existing gates" {
   local readme="$BATS_TEST_DIRNAME/../README.md"
   local man="$BATS_TEST_DIRNAME/../man/taskgrind.1"
-  local skill="$BATS_TEST_DIRNAME/../.devin/skills/grind-log-analyze/SKILL.md"
+  local skill="$BATS_TEST_DIRNAME/../.agents/skills/grind-log-analyze/SKILL.md"
 
   grep -q 'TG_STALL_EXIT' "$readme"
   grep -q 'diminishing_returns_exit consecutive=2 reason=default-2x' "$readme"

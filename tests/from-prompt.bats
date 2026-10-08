@@ -86,7 +86,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   export DVB_FROM_PROMPT_RESPONSE='model=opus'
   run "$DVB_GRIND" --dry-run --from-prompt "use opus" "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"model:    claude-opus-4-7-max"* ]]
+  [[ "$output" == *"model:    claude-opus-4-7"* ]]
   # hours should still be the default (10)
   [[ "$output" == *"hours:    10"* ]]
 }
@@ -100,7 +100,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 repo=$TEST_REPO
 target_repos=$target1:$target2
 model=opus
-backend=devin
+backend=claude-code
 skill=pipeline-ops
 focus=focus on tests
 no_push=1"
@@ -108,9 +108,9 @@ no_push=1"
   [ "$status" -eq 0 ]
   [[ "$output" == *"hours:    8"* ]]
   [[ "$output" == *"repo:     $TEST_REPO"* ]]
-  [[ "$output" == *"backend:  devin"* ]]
+  [[ "$output" == *"backend:  claude-code"* ]]
   [[ "$output" == *"skill:    pipeline-ops"* ]]
-  [[ "$output" == *"model:    claude-opus-4-7-max"* ]]
+  [[ "$output" == *"model:    claude-opus-4-7"* ]]
   [[ "$output" == *"no_push:  1"* ]]
   [[ "$output" == *"target:   $target1"* ]]
   [[ "$output" == *"target:   $target2"* ]]
@@ -139,7 +139,7 @@ random_extra=junk'
   run "$DVB_GRIND" --dry-run --from-prompt "windows-y output" "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"hours:    8"* ]]
-  [[ "$output" == *"model:    claude-opus-4-7-max"* ]]
+  [[ "$output" == *"model:    claude-opus-4-7"* ]]
 }
 
 @test "empty value for a key sets the slot to empty (no crash)" {

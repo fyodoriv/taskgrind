@@ -35,7 +35,7 @@ the selected backend, including repo\-local lanes such as
 standing\-audit\-gap\-loop.
 .TP
 .BR \-\-backend " " \fIname\fR
-AI backend: devin, claude\-code, codex (default: devin).
+AI backend: claude\-code, codex (default: claude\-code).
 .TP
 .BR \-\-rotate\-backends " " \fIlist\fR
 Override the auto\-detected comma\-separated list of backends to cycle
@@ -49,8 +49,8 @@ swap target. Same effect as setting
 .BR TG_ROTATE_BACKENDS .
 .TP
 .BR \-\-model " " \fIname\fR
-AI model to use (default: "gpt\-5\-5\-xhigh\-priority"; "gpt\-5.5" for codex). Overrides TG_MODEL env var. Short aliases such as
-\fBopus\fR, \fBsonnet\fR, \fBhaiku\fR, \fBgpt\fR, \fBcodex\fR, and \fBswe\fR resolve to the
+AI model to use (default: "claude\-opus\-4\-7"; "gpt\-5.5" for codex). Overrides TG_MODEL env var. Short aliases such as
+\fBopus\fR, \fBsonnet\fR, \fBhaiku\fR, \fBgpt\fR, and \fBcodex\fR resolve to the
 current preferred model IDs. Quote multi-word model names, for example
 \fB\-\-model "gpt\-5.5 XHigh thinking fast"\fR.
 .TP
@@ -144,7 +144,7 @@ Print version (commit hash + date) and exit.
 TG_ is the canonical prefix. DVB_ is supported as a backward\-compatible alias.
 .TP
 .B TG_BACKEND
-AI backend (default: devin).
+AI backend (default: claude\-code).
 .TP
 .B TG_ROTATE_BACKENDS
 Comma\-separated list overriding the auto\-detected backend rotation list.
@@ -154,7 +154,7 @@ Same effect as
 .BR \-\-rotate\-backends .
 .TP
 .B TG_MODEL
-AI model (default: "gpt\-5\-5\-xhigh\-priority"; "gpt\-5.5" for codex).
+AI model (default: "claude\-opus\-4\-7"; "gpt\-5.5" for codex).
 .TP
 .B TG_SKILL
 Skill to run (default: next\-task).
@@ -349,9 +349,6 @@ Has no effect when
 NO\-PUBLISH MODE wins so the agent is not told two opposite things
 at once. Default 0.
 .TP
-.B TG_DEVIN_PATH
-Override devin binary path (default: auto\-detect from PATH).
-.TP
 .B TG_TARGET_REPOS
 Colon\-separated workspace target repo paths. Same effect as repeating
 .BR \-\-target\-repo " " \fIpath\fR
@@ -485,28 +482,8 @@ rotation, and resume shapes as the other supported backends:
 .nf
 taskgrind \-\-preflight \-\-backend claude\-code \-\-model claude\-sonnet\-4.6 ~/apps/myrepo
 TG_BACKEND=claude\-code TG_MODEL=sonnet taskgrind ~/apps/myrepo 8
-taskgrind \-\-rotate\-backends devin,claude\-code,codex ~/apps/myrepo 8
+taskgrind \-\-rotate\-backends claude\-code,codex ~/apps/myrepo 8
 .fi
-.TP
-.B devin
-Binary detection uses
-.B devin
-from
-.BR PATH ,
-or
-.B TG_DEVIN_PATH
-if set. Model validation runs
-.B devin \-\-model <name> \-\-help
-before launch. Common setup failures are
-.B Backend binary not found (devin)
-for a missing CLI or bad
-.BR TG_DEVIN_PATH ,
-and
-.B Model rejected by devin before starting
-for an unsupported model string. When the optional startup probe reports that
-the backend is a stub or broken after
-.BR \-\-version ,
-reinstall or roll back the Devin CLI before retrying.
 .TP
 .B claude\-code
 Binary detection uses
@@ -794,7 +771,7 @@ path in repair prompts when present.
 Claimed concurrency slot for this repo.
 .TP
 .B backend
-Active backend such as devin, claude\-code, or codex.
+Active backend such as claude\-code or codex.
 .TP
 .B skill
 Skill prompt sent to each session.
@@ -868,9 +845,9 @@ Lifecycle example:
   "pid": 48122,
   "log_file": "/tmp/taskgrind-myrepo.log",
   "slot": 0,
-  "backend": "devin",
+  "backend": "claude-code",
   "skill": "next-task",
-  "model": "claude-opus-4-7-max",
+  "model": "claude-opus-4-7",
   "session": 3,
   "remaining_minutes": 451,
   "current_phase": "running_session",
@@ -961,13 +938,13 @@ taskgrind \-\-model gpt\-5\-5\-xhigh\-priority 8
                                    # use specific model
 taskgrind \-\-model "gpt\-5.5 XHigh thinking fast" 8
                                    # quote multi\-word model names
-taskgrind \-\-model opus 8          # alias resolves to claude-opus-4-7-max
+taskgrind \-\-model opus 8          # alias resolves to claude-opus-4-7
 taskgrind \-\-skill pipeline\-ops ~/apps/bosun 10
                                    # custom installed skill
 taskgrind \-\-backend claude\-code 8  # use Claude Code backend
 TG_BACKEND=claude\-code TG_MODEL=sonnet taskgrind ~/apps/myrepo 8
                                    # reusable Claude Code defaults
-taskgrind \-\-rotate\-backends devin,claude\-code,codex ~/apps/myrepo 8
+taskgrind \-\-rotate\-backends claude\-code,codex ~/apps/myrepo 8
                                    # override backend rotation
 taskgrind \-\-prompt "focus on test coverage" 8
 taskgrind \-\-dry\-run 8 ~/apps/myrepo
@@ -1275,15 +1252,14 @@ the core docs review queue including
 .I docs/resume-state.md ,
 .I docs/user-stories.md ,
 .I man/taskgrind.1 ,
-.I .devin/skills/standing-audit-gap-loop/SKILL.md ,
+.I .agents/skills/standing-audit-gap-loop/SKILL.md ,
 and
-.I .devin/skills/grind-log-analyze/SKILL.md .
+.I .agents/skills/grind-log-analyze/SKILL.md .
 .TP
 .B make check
 Run lint plus the cached test flow before committing.
 .RE
 .SH SEE ALSO
-.BR devin (1),
 .BR bats (1),
 .BR shellcheck (1)
 .SH AUTHORS

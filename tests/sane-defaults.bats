@@ -169,14 +169,14 @@ PY
 }
 
 @test "fleet-grind child sessions inherit BOSUN_GRIND_SESSION_ID in test mode" {
-  create_fake_devin "$TEST_DIR/fake-devin-env" <<'SCRIPT'
+  create_fake_backend "$TEST_DIR/fake-backend-env" <<'SCRIPT'
 #!/bin/bash
 env | grep '^BOSUN_GRIND_SESSION_ID=' >> "$TG_ENV_LOG"
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 exit 0
 SCRIPT
 
-  export DVB_GRIND_CMD="$TEST_DIR/fake-devin-env"
+  export DVB_GRIND_CMD="$TEST_DIR/fake-backend-env"
   export TG_ENV_LOG="$TEST_DIR/env.log"
   export DVB_DEADLINE_OFFSET=5
   export DVB_MIN_SESSION=0
@@ -197,7 +197,7 @@ SCRIPT
 
 # ── Backend auto-detection ────────────────────────────────────────────
 
-@test "autodetect: scans PATH for devin / claude-code / codex when --rotate-backends not set" {
+@test "autodetect: scans PATH for claude-code / codex when --rotate-backends not set" {
   python3 - "$DVB_GRIND" <<'PY'
 import sys, pathlib
 text = pathlib.Path(sys.argv[1]).read_text()
@@ -232,7 +232,7 @@ PY
 
 @test "autodetect: skipped in test mode (DVB_GRIND_CMD set) so bats stays portable" {
   # Run in test mode (DVB_GRIND_CMD already set by test_helper). The autodetect
-  # branch should NOT fire — the setup runner doesn't have devin/claude/codex
+  # branch should NOT fire — the setup runner doesn't have claude/codex
   # on PATH, and we don't want bats to depend on them.
   export DVB_DEADLINE_OFFSET=2
   run "$DVB_GRIND" --preflight --skill audit-error-handling "$TEST_REPO"
@@ -258,7 +258,7 @@ PY
 # ── Bosun grind heartbeat + done lifecycle ────────────────────────────
 #
 # Background: 2026-04-30 fleet-grind canary. Taskgrind registered a
-# Bosun grind session and ran a 7-minute child Devin session. Bosun's
+# Bosun grind session and ran a 7-minute child backend session. Bosun's
 # monitor marked the grind session `disconnected` after 5 minutes
 # because lastHeartbeatAt never advanced after registration. Even
 # though Taskgrind exited normally, the session's terminal status

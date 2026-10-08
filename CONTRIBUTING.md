@@ -37,7 +37,7 @@ matches the GitHub Actions CI path for Linux runs.
 3. **Run `make check`** — shellcheck + all bats tests must pass
 4. **Commit on `main`** — this repo uses trunk-based development for small changes
 
-All tests use a fake devin stub via `DVB_GRIND_CMD` — they never invoke real AI backends.
+All tests use a fake backend stub via `DVB_GRIND_CMD` — they never invoke real AI backends.
 
 ## Backend Expectations
 
@@ -46,7 +46,6 @@ guidance aligned with the actual runtime checks in `bin/taskgrind`.
 
 | Backend | Binary resolution | Preflight model check | Failure text contributors should preserve |
 |---------|-------------------|-----------------------|-------------------------------------------|
-| `devin` | `devin` from `PATH`, unless `TG_DEVIN_PATH` overrides it | `devin --model <name> --help` | `Backend binary not found (devin)` and `Model rejected by devin before starting` |
 | `claude-code` | `claude` from `PATH` | `claude --model <name> --help` | `Backend binary not found (claude-code)` and `Model rejected by claude-code before starting` |
 | `codex` | `codex` from `PATH` | `codex --model <name> --help` | `Backend binary not found (codex)` and `Model rejected by codex before starting` |
 
@@ -106,7 +105,7 @@ Use `make audit` when you want the same lightweight local audit loop that empty-
 - Includes the core docs and repo-local audit skills in that actionable scan so real doc drift still shows up in the same pass
 - Runs shellcheck through `make lint`
 - Validates `TASKS.md` against the tasks.md spec via `tasks-lint` (`@tasks-md/lint`); the audit exits non-zero on the first malformed entry
-- Prints the core docs review queue (`README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `AGENTS.md`, `Agentfile.yaml`, `docs/architecture.md`, `docs/resume-state.md`, `docs/user-stories.md`, `man/taskgrind.1`, `.devin/skills/standing-audit-gap-loop/SKILL.md`, `.devin/skills/grind-log-analyze/SKILL.md`)
+- Prints the core docs review queue (`README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `AGENTS.md`, `Agentfile.yaml`, `docs/architecture.md`, `docs/resume-state.md`, `docs/user-stories.md`, `man/taskgrind.1`, `.agents/skills/standing-audit-gap-loop/SKILL.md`, `.agents/skills/grind-log-analyze/SKILL.md`)
 
 Apart from the optional `tasks-lint` install (which is cached locally and in
 CI), the target is local-only and does not depend on external services at run
@@ -161,21 +160,21 @@ The bats suite is split across many `tests/*.bats` files and runs with auto-capp
 
 Common root causes to check before declaring a flake:
 
-- **Deadlines under 30s.** `DVB_DEADLINE=$(( $(date +%s) + 5 ))` will lose the race with bats fixture setup under load. Bump the deadline; the fake devin still exits in <100ms, so the test stays fast in the common case.
-- **Inline fake devin missing `--version` output.** Tests that `unset DVB_GRIND_CMD` and rely on a fake on PATH must emit a non-empty pseudo-version string when called with `--version`, or `run_backend_probe` rejects the binary as a stub. See `_install_fake_backend_binary` in `tests/preflight.bats` for the canonical shape.
+- **Deadlines under 30s.** `DVB_DEADLINE=$(( $(date +%s) + 5 ))` will lose the race with bats fixture setup under load. Bump the deadline; the fake backend still exits in <100ms, so the test stays fast in the common case.
+- **Inline fake backend missing `--version` output.** Tests that `unset DVB_GRIND_CMD` and rely on a fake on PATH must emit a non-empty pseudo-version string when called with `--version`, or `run_backend_probe` rejects the binary as a stub. See `_install_fake_backend_binary` in `tests/preflight.bats` for the canonical shape.
 - **Counter-driven fixtures racing taskgrind startup.** Fixtures that increment a counter on each `git -C rev-parse HEAD` call must account for the probe and preflight paths that may also call git before session 1.
 
 ## Project Structure
 
 ```
 bin/taskgrind           Main script (the whole tool)
-lib/constants.sh        Shared constants (model, binary path, caffeinate flags)
+lib/constants.sh        Shared constants (model, caffeinate flags)
 lib/fullpower.sh        Priority boosting (taskpolicy on macOS)
 tests/*.bats            Focused bats suites by subsystem
 tests/test_helper.bash  Shared test helpers
 man/taskgrind.1         Man page
 docs/                   Architecture docs and user stories
-.devin/skills/          Repo-local audit loop skills
+.agents/skills/         Repo-local audit loop skills
 .editorconfig           Indent style for shell/bats/markdown/Makefile
 Makefile                lint + test targets
 ```

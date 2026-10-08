@@ -2,7 +2,7 @@
 # Loaded via: load test_helper
 #
 # Provides setup()/teardown() used by all split test files.
-# Each test gets an isolated tmpdir with fake devin, repo, and lib copies.
+# Each test gets an isolated tmpdir with fake backend, repo, and lib copies.
 
 remove_with_retries() {
   local target_dir="$1"
@@ -96,16 +96,16 @@ TASKS
   : "${DVB_EMPTY_QUEUE_WAIT:=0}"
   export DVB_BACKOFF_BASE DVB_NET_WAIT DVB_EMPTY_QUEUE_WAIT
 
-  # Create a fake devin that just exits immediately
-  FAKE_DEVIN="$TEST_DIR/fake-devin"
-  cat > "$FAKE_DEVIN" <<'SCRIPT'
+  # Create a fake backend that just exits immediately
+  FAKE_BACKEND="$TEST_DIR/fake-backend"
+  cat > "$FAKE_BACKEND" <<'SCRIPT'
 #!/bin/bash
-# Fake devin — records invocations and exits
+# Fake backend — records invocations and exits
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 exit 0
 SCRIPT
-  chmod +x "$FAKE_DEVIN"
-  export DVB_GRIND_CMD="$FAKE_DEVIN"
+  chmod +x "$FAKE_BACKEND"
+  export DVB_GRIND_CMD="$FAKE_BACKEND"
   export DVB_GRIND_INVOKE_LOG="$TEST_DIR/invocations.log"
 }
 
@@ -140,11 +140,6 @@ create_fake_backend() {
   local fake_backend_path="$1"
   cat > "$fake_backend_path"
   chmod +x "$fake_backend_path"
-}
-
-# Helper: create an executable fake devin script from stdin.
-create_fake_devin() {
-  create_fake_backend "$1"
 }
 
 # Helper: create an executable fake git-style binary from stdin.
@@ -198,10 +193,10 @@ session=1
 tasks_shipped=0
 sessions_zero_ship=0
 consecutive_zero_ship=0
-backend=devin
+backend=claude-code
 skill=next-task
-model=claude-opus-4-7-max
-startup_model=claude-opus-4-7-max
+model=claude-opus-4-7
+startup_model=claude-opus-4-7
 startup_prompt=
 EOF
 
@@ -233,8 +228,8 @@ prepare_tiny_workload() {
 TASKS
   fi
 
-  local tiny_devin="$TEST_DIR/tiny-devin"
-  cat > "$tiny_devin" <<SCRIPT
+  local tiny_backend="$TEST_DIR/tiny-backend"
+  cat > "$tiny_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 cat > "$TEST_REPO/TASKS.md" <<'TASKS'
@@ -242,8 +237,8 @@ cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 ## P0
 TASKS
 SCRIPT
-  chmod +x "$tiny_devin"
-  export DVB_GRIND_CMD="$tiny_devin"
+  chmod +x "$tiny_backend"
+  export DVB_GRIND_CMD="$tiny_backend"
 
   DVB_COOL=0
   DVB_EMPTY_QUEUE_WAIT=0
@@ -271,4 +266,14 @@ run_tiny_workload() {
   else
     run "$DVB_GRIND" "$@"
   fi
+}
+
+# Helper: expose an executable as the `claude` binary on PATH so production
+# (non-DVB_GRIND_CMD) backend resolution finds it for the default backend.
+use_fake_claude_binary() {
+  local fake_path="$1"
+  local fake_bin_dir="$TEST_DIR/fake-claude-bin"
+  mkdir -p "$fake_bin_dir"
+  ln -sf "$fake_path" "$fake_bin_dir/claude"
+  export PATH="$fake_bin_dir:$PATH"
 }

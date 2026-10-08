@@ -22,7 +22,7 @@ taskgrind/
 ├── docs/architecture.md    Design decision rationales
 ├── man/taskgrind.1         Man page
 ├── install.sh              One-liner install script
-├── .devin/skills/          Repo-local audit loop skills used by taskgrind sessions
+├── .agents/skills/         Repo-local audit loop skills used by taskgrind sessions
 ├── .github/workflows/      CI (shellcheck + bats on macOS + Linux)
 ├── Makefile                lint + test targets
 ├── README.md               Usage, install, env vars
@@ -53,7 +53,7 @@ make uninstall  # remove symlink and man page
 2. **Commit on `main`** — this repo doesn't use feature branches for small changes
 3. **Env vars use `TG_` prefix (primary)** — `DVB_` is supported as a backward-compatible alias. Internal/test-only vars keep the `DVB_` prefix.
 4. **Source paths are relative** — `$TASKGRIND_DIR/lib/constants.sh`, derived from script location
-5. **Test with `DVB_GRIND_CMD`** — all tests use a fake devin stub, never the real binary
+5. **Test with `DVB_GRIND_CMD`** — all tests use a fake backend stub, never the real binary
 6. **Use `TESTS=...` for tight loops** — `make test TESTS=tests/bash-compat.bats` or another file reruns just that selection and caches it separately from the full suite
 7. **Parallel bats is auto-capped at 2** — `make test` / `make check` cap `TEST_JOBS` at 2 by default to match GitHub Actions and avoid deadline-sensitive flakes on slower shared runners or busy local machines. Use `TEST_JOBS=4` or `TEST_JOBS=8` only as explicit stress diagnostics; going past 8 historically hit `signal 15` terminations from `bats --jobs 9+` because of the macOS per-user soft process limit (~709 by default) during teardown + next-test-dispatch overlap.
 8. **Keep runtime files `/bin/bash` 3.2 compatible** — `tests/bash-compat.bats` smokes `/bin/bash bin/taskgrind --dry-run` and rejects common Bash-4-only syntax in sourced runtime files
@@ -89,7 +89,7 @@ Key subsystems:
 
 | Variable | Purpose |
 |----------|---------|
-| `DVB_GRIND_CMD` | Override devin binary (for testing) |
+| `DVB_GRIND_CMD` | Override backend binary (for testing) |
 | `DVB_DEADLINE` | Override deadline epoch (for testing) |
 | `DVB_NET_FILE` | Sentinel file for network state in tests |
 | `DVB_CAFFEINATED` | Re-exec guard to prevent double caffeinate |

@@ -97,7 +97,7 @@ SCRIPT
     PATH="$PATH" \
     DVB_COOL=0 \
     DVB_DEADLINE="$(( $(date +%s) - 1 ))" \
-    DVB_GRIND_CMD="$FAKE_DEVIN" \
+    DVB_GRIND_CMD="$FAKE_BACKEND" \
     DVB_GRIND_INVOKE_LOG="$DVB_GRIND_INVOKE_LOG" \
     DVB_LOG="$TEST_LOG" \
     "$installed_taskgrind" --dry-run 1 "$TEST_REPO"

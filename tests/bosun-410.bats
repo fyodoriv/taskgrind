@@ -58,18 +58,18 @@ SCRIPT
   local bosun_bin
   bosun_bin=$(_make_fake_bosun_410_on_first_heartbeat "$invocations")
 
-  # Cooperative fake devin — sleeps long enough for a heartbeat to
+  # Cooperative fake backend — sleeps long enough for a heartbeat to
   # fire, responds to SIGINT cleanly. The test bounds elapsed time at
   # cap+grace+jitter, so a slow backend here would still succeed if
   # SIGINT works; the non-cooperative case lives in a separate test.
-  local fake_devin="$TEST_DIR/fake-devin-slow"
-  cat > "$fake_devin" <<SCRIPT
+  local fake_backend="$TEST_DIR/fake-backend-slow"
+  cat > "$fake_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 trap 'exit 0' INT
 sleep 30
 SCRIPT
-  chmod +x "$fake_devin"
+  chmod +x "$fake_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -77,7 +77,7 @@ SCRIPT
 - [ ] 410 EXIT_NOW termination test
 TASKS
 
-  export DVB_GRIND_CMD="$fake_devin"
+  export DVB_GRIND_CMD="$fake_backend"
   export DVB_GRIND_INVOKE_LOG="$TEST_DIR/invocations.log"
   export DVB_BOSUN_HEARTBEAT_TEST=1
   export DVB_REGISTER_REAL_BOSUN_GRIND=1
@@ -116,14 +116,14 @@ TASKS
   local bosun_bin
   bosun_bin=$(_make_fake_bosun_410_on_first_heartbeat "$invocations")
 
-  local fake_devin="$TEST_DIR/fake-devin-cooperative"
-  cat > "$fake_devin" <<SCRIPT
+  local fake_backend="$TEST_DIR/fake-backend-cooperative"
+  cat > "$fake_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 trap 'exit 0' INT
 sleep 30
 SCRIPT
-  chmod +x "$fake_devin"
+  chmod +x "$fake_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -131,7 +131,7 @@ SCRIPT
 - [ ] terminal_reason assertion
 TASKS
 
-  export DVB_GRIND_CMD="$fake_devin"
+  export DVB_GRIND_CMD="$fake_backend"
   export DVB_GRIND_INVOKE_LOG="$TEST_DIR/invocations.log"
   export DVB_BOSUN_HEARTBEAT_TEST=1
   export DVB_REGISTER_REAL_BOSUN_GRIND=1
@@ -159,8 +159,8 @@ TASKS
   local bosun_bin
   bosun_bin=$(_make_fake_bosun_410_on_first_heartbeat "$invocations")
 
-  local fake_devin="$TEST_DIR/fake-devin-stub"
-  cat > "$fake_devin" <<SCRIPT
+  local fake_backend="$TEST_DIR/fake-backend-stub"
+  cat > "$fake_backend" <<SCRIPT
 #!/bin/bash
 # Count invocations so we can assert the second session never runs.
 echo "\$@" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
@@ -169,7 +169,7 @@ echo "\$@" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 trap 'exit 0' INT
 sleep 30
 SCRIPT
-  chmod +x "$fake_devin"
+  chmod +x "$fake_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -178,7 +178,7 @@ SCRIPT
 - [ ] second task should NOT be picked up
 TASKS
 
-  export DVB_GRIND_CMD="$fake_devin"
+  export DVB_GRIND_CMD="$fake_backend"
   export DVB_GRIND_INVOKE_LOG="$TEST_DIR/invocations.log"
   export DVB_BOSUN_HEARTBEAT_TEST=1
   export DVB_REGISTER_REAL_BOSUN_GRIND=1
@@ -223,14 +223,14 @@ TASKS
   local bosun_bin
   bosun_bin=$(_make_fake_bosun_410_on_first_heartbeat "$invocations")
 
-  local fake_devin="$TEST_DIR/fake-devin-cooperative"
-  cat > "$fake_devin" <<SCRIPT
+  local fake_backend="$TEST_DIR/fake-backend-cooperative"
+  cat > "$fake_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 trap 'exit 0' INT
 sleep 30
 SCRIPT
-  chmod +x "$fake_devin"
+  chmod +x "$fake_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -238,7 +238,7 @@ SCRIPT
 - [ ] log-marker test
 TASKS
 
-  export DVB_GRIND_CMD="$fake_devin"
+  export DVB_GRIND_CMD="$fake_backend"
   export DVB_GRIND_INVOKE_LOG="$TEST_DIR/invocations.log"
   export DVB_BOSUN_HEARTBEAT_TEST=1
   export DVB_REGISTER_REAL_BOSUN_GRIND=1
@@ -304,8 +304,8 @@ SCRIPT
 - [ ] transient-fail test
 TASKS
 
-  local fake_devin="$TEST_DIR/fake-devin-quick"
-  cat > "$fake_devin" <<SCRIPT
+  local fake_backend="$TEST_DIR/fake-backend-quick"
+  cat > "$fake_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 sleep 2
@@ -314,9 +314,9 @@ cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 ## P0
 TASKS
 SCRIPT
-  chmod +x "$fake_devin"
+  chmod +x "$fake_backend"
 
-  export DVB_GRIND_CMD="$fake_devin"
+  export DVB_GRIND_CMD="$fake_backend"
   export DVB_GRIND_INVOKE_LOG="$TEST_DIR/invocations.log"
   export DVB_BOSUN_HEARTBEAT_TEST=1
   export DVB_REGISTER_REAL_BOSUN_GRIND=1

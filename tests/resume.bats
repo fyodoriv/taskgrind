@@ -20,13 +20,13 @@ wait_for_resume_session() {
 
 @test "writes resumable runtime state for an interrupted run" {
   local state_file="$TEST_DIR/resume-state"
-  local slow_devin="$TEST_DIR/slow-devin"
-  create_fake_devin "$slow_devin" <<'SCRIPT'
+  local slow_backend="$TEST_DIR/slow-backend"
+  create_fake_backend "$slow_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG}"
 sleep 5
 SCRIPT
-  export DVB_GRIND_CMD="$slow_devin"
+  export DVB_GRIND_CMD="$slow_backend"
   export DVB_STATE_FILE="$state_file"
   export DVB_DEADLINE_OFFSET=30
 
@@ -35,9 +35,9 @@ SCRIPT
 
   wait_for_resume_session "$state_file" 1
   grep -q "^status=running$" "$state_file"
-  grep -q "^backend=devin$" "$state_file"
+  grep -q "^backend=claude-code$" "$state_file"
   grep -q "^skill=next-task$" "$state_file"
-  grep -q "^model=claude-opus-4-7-max$" "$state_file"
+  grep -q "^model=claude-opus-4-7$" "$state_file"
   grep -q "^startup_prompt=$" "$state_file"
 
   kill -9 "$grind_pid"
@@ -47,9 +47,9 @@ SCRIPT
 @test "--resume restores counters and clears state after clean completion" {
   local state_file="$TEST_DIR/resume-state"
   local counter_file="$TEST_DIR/resume-counter"
-  local resumable_devin="$TEST_DIR/resumable-devin"
+  local resumable_backend="$TEST_DIR/resumable-backend"
   echo "0" > "$counter_file"
-  create_fake_devin "$resumable_devin" <<SCRIPT
+  create_fake_backend "$resumable_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "${DVB_GRIND_INVOKE_LOG}"
 count=\$(cat "$counter_file")
@@ -64,7 +64,7 @@ else
 TASKS
 fi
 SCRIPT
-  export DVB_GRIND_CMD="$resumable_devin"
+  export DVB_GRIND_CMD="$resumable_backend"
   export DVB_STATE_FILE="$state_file"
   export DVB_DEADLINE_OFFSET=30
 
@@ -93,10 +93,10 @@ session=1
 tasks_shipped=0
 sessions_zero_ship=0
 consecutive_zero_ship=0
-backend=devin
+backend=claude-code
 skill=next-task
-model=claude-opus-4-7-max
-startup_model=claude-opus-4-7-max
+model=claude-opus-4-7
+startup_model=claude-opus-4-7
 EOF
 
   run "$DVB_GRIND" --resume "$TEST_REPO"
@@ -117,10 +117,10 @@ session=1
 tasks_shipped=0
 sessions_zero_ship=0
 consecutive_zero_ship=0
-backend=devin
+backend=claude-code
 skill=next-task
-model=claude-opus-4-7-max
-startup_model=claude-opus-4-7-max
+model=claude-opus-4-7
+startup_model=claude-opus-4-7
 EOF
 
   run "$DVB_GRIND" --resume "$TEST_REPO"
@@ -180,7 +180,7 @@ EOF
   write_resume_state_file "$state_file" \
     "repo=$TEST_REPO"
 
-  run "$DVB_GRIND" --resume "$TEST_REPO" --backend claude-code
+  run "$DVB_GRIND" --resume "$TEST_REPO" --backend codex
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"saved state is incompatible: backend override does not match saved state"* ]]
@@ -204,7 +204,7 @@ EOF
   [ ! -f "$state_file" ]
 }
 
-@test "--resume rejects claude-code state when backend override asks for devin" {
+@test "--resume rejects claude-code state when backend override asks for codex" {
   local state_file="$TEST_DIR/resume-state"
   export DVB_STATE_FILE="$state_file"
 
@@ -212,7 +212,7 @@ EOF
     "repo=$TEST_REPO" \
     "backend=claude-code"
 
-  run "$DVB_GRIND" --resume "$TEST_REPO" --backend devin
+  run "$DVB_GRIND" --resume "$TEST_REPO" --backend codex
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"saved state is incompatible: backend override does not match saved state"* ]]
@@ -247,9 +247,9 @@ EOF
 @test "--resume restores the saved startup prompt and keeps live prompt overlays" {
   local state_file="$TEST_DIR/resume-state"
   local counter_file="$TEST_DIR/resume-counter"
-  local resumable_devin="$TEST_DIR/resumable-devin"
+  local resumable_backend="$TEST_DIR/resumable-backend"
   echo "0" > "$counter_file"
-  create_fake_devin "$resumable_devin" <<SCRIPT
+  create_fake_backend "$resumable_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "${DVB_GRIND_INVOKE_LOG}"
 count=\$(cat "$counter_file")
@@ -264,7 +264,7 @@ else
 TASKS
 fi
 SCRIPT
-  export DVB_GRIND_CMD="$resumable_devin"
+  export DVB_GRIND_CMD="$resumable_backend"
   export DVB_STATE_FILE="$state_file"
   export DVB_DEADLINE_OFFSET=30
 

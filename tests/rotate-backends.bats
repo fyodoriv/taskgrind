@@ -41,7 +41,7 @@ echo "$session_number" > "$ROTATION_SESSION_COUNTER"
 
 case "${ROTATION_SCENARIO:-}" in
   rate-limit-then-ship)
-    if [[ "$backend_name" == "devin" && "$session_number" -eq 1 ]]; then
+    if [[ "$backend_name" == "codex" && "$session_number" -eq 1 ]]; then
       echo "429 too many requests: rate limit hit"
       exit 0
     fi
@@ -53,7 +53,7 @@ case "${ROTATION_SCENARIO:-}" in
     fi
     ;;
   missing-next)
-    if [[ "$backend_name" == "devin" && "$session_number" -eq 1 ]]; then
+    if [[ "$backend_name" == "codex" && "$session_number" -eq 1 ]]; then
       echo "429 too many requests: rate limit hit"
       exit 0
     fi
@@ -71,7 +71,7 @@ if [[ "${ROTATION_COMMIT_SHIP:-0}" == "1" ]]; then
 fi
 SCRIPT
   chmod +x "$ROTATION_FAKE_BIN/backend-shim"
-  ln -sf "$ROTATION_FAKE_BIN/backend-shim" "$ROTATION_FAKE_BIN/devin"
+  ln -sf "$ROTATION_FAKE_BIN/backend-shim" "$ROTATION_FAKE_BIN/codex"
   ln -sf "$ROTATION_FAKE_BIN/backend-shim" "$ROTATION_FAKE_BIN/claude"
 
   export ROTATION_FAKE_BIN
@@ -79,7 +79,6 @@ SCRIPT
   echo "0" > "$ROTATION_SESSION_COUNTER"
 
   export PATH="$ROTATION_FAKE_BIN:$PATH"
-  export DVB_DEVIN_PATH="$ROTATION_FAKE_BIN/devin"
   export DVB_CAFFEINATED=1
   export DVB_SKIP_PREFLIGHT=1
   export DVB_SKIP_SWEEP_ON_EMPTY=1
@@ -144,20 +143,20 @@ PY
 
 @test "taskgrind rotation help block documents --rotate-backends" {
   grep -q -- '--rotate-backends' "$DVB_GRIND" | head -1
-  grep -q 'rotate-backends devin,claude-code,codex' "$DVB_GRIND"
+  grep -q 'rotate-backends claude-code,codex' "$DVB_GRIND"
 }
 
 # ── Integration ─────────────────────────────────────────────────────
 
 @test "rotation: --rotate-backends flag is parsed without error" {
   export DVB_DEADLINE_OFFSET=8
-  run "$DVB_GRIND" --rotate-backends devin,claude-code 1 "$TEST_REPO"
+  run "$DVB_GRIND" --rotate-backends codex,claude-code 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
 }
 
 @test "rotation: --rotate-backends accepts =value syntax" {
   export DVB_DEADLINE_OFFSET=8
-  run "$DVB_GRIND" --rotate-backends=devin,codex 1 "$TEST_REPO"
+  run "$DVB_GRIND" --rotate-backends=claude-code,codex 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
 }
 
@@ -174,7 +173,7 @@ PY
 }
 
 @test "rotation: TG_ROTATE_BACKENDS env var seeds DVB_ROTATE_BACKENDS" {
-  export TG_ROTATE_BACKENDS="claude-code,codex,devin"
+  export TG_ROTATE_BACKENDS="claude-code,codex"
   export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" --dry-run 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -183,11 +182,11 @@ PY
 @test "rotation: empty rotation list (single element) is a no-op" {
   # A 1-element rotation list has no "next" to advance to; should not loop.
   export DVB_DEADLINE_OFFSET=8
-  run "$DVB_GRIND" --rotate-backends devin 1 "$TEST_REPO"
+  run "$DVB_GRIND" --rotate-backends codex 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
 }
 
-@test "rotation: devin rate-limit rotates into claude-code and preserves session state" {
+@test "rotation: codex rate-limit rotates into claude-code and preserves session state" {
   setup_fake_rotation_backends
   init_test_repo
   git init --bare "$TEST_DIR/origin.git" >/dev/null
@@ -201,19 +200,19 @@ PY
   export ROTATION_SCENARIO="rate-limit-then-ship"
   export ROTATION_COMMIT_SHIP=1
 
-  run "$DVB_GRIND" --no-push --backend devin --rotate-backends devin,claude-code \
+  run "$DVB_GRIND" --no-push --backend codex --rotate-backends codex,claude-code \
     --prompt "CLI_ROTATION_PROMPT" 1 "$TEST_REPO"
 
   [ "$status" -eq 0 ]
-  grep -q 'backend_rotated from=devin to=claude-code reason=rate_limit' "$TEST_LOG"
-  grep -qE 'session_start session=1 .*backend=devin' "$TEST_LOG"
-  grep -qE 'session_end session=1 .*shipped=0 .*backend=devin' "$TEST_LOG"
+  grep -q 'backend_rotated from=codex to=claude-code reason=rate_limit' "$TEST_LOG"
+  grep -qE 'session_start session=1 .*backend=codex' "$TEST_LOG"
+  grep -qE 'session_end session=1 .*shipped=0 .*backend=codex' "$TEST_LOG"
   grep -qE 'session_start session=2 .*backend=claude-code' "$TEST_LOG"
   grep -qE 'session_end session=2 .*shipped=1 .*backend=claude-code' "$TEST_LOG"
   grep -q 'final_sync would_push commits=1' "$TEST_LOG"
   grep -q 'grind_done sessions=2 shipped=1' "$TEST_LOG"
 
-  grep -q -- 'devin --model claude-sonnet-4.6 --permission-mode dangerous' "$DVB_GRIND_INVOKE_LOG"
+  grep -q -- 'codex --model claude-sonnet-4.6 -q' "$DVB_GRIND_INVOKE_LOG"
   grep -q -- 'claude-code --model claude-sonnet-4.6 --dangerously-skip-permissions' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'CLI_ROTATION_PROMPT' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'LIVE_ROTATION_PROMPT' "$DVB_GRIND_INVOKE_LOG"
@@ -224,7 +223,7 @@ PY
   [ "$(grep -c '^[[:space:]]*- \[ \]' "$TEST_REPO/TASKS.md")" -eq 0 ]
 }
 
-@test "rotation: claude-code zero-ship self-investigation rotates back to devin" {
+@test "rotation: claude-code zero-ship self-investigation rotates back to codex" {
   setup_fake_rotation_backends
   export DVB_STATUS_FILE="$TEST_DIR/status.json"
   export DVB_DEADLINE_OFFSET=12
@@ -232,24 +231,24 @@ PY
   export DVB_MAX_ZERO_SHIP=5
   export ROTATION_SCENARIO="self-investigate-then-ship"
 
-  run "$DVB_GRIND" --backend claude-code --rotate-backends claude-code,devin \
+  run "$DVB_GRIND" --backend claude-code --rotate-backends claude-code,codex \
     --prompt "SELF_INVESTIGATE_PROMPT" 1 "$TEST_REPO"
 
   [ "$status" -eq 0 ]
   grep -q 'self_investigate anomaly=zero_ship_streak streak=2 threshold=2 backend=claude-code' "$TEST_LOG"
-  grep -q 'backend_rotated from=claude-code to=devin reason=zero_ship_streak' "$TEST_LOG"
+  grep -q 'backend_rotated from=claude-code to=codex reason=zero_ship_streak' "$TEST_LOG"
   grep -qE 'session_start session=1 .*backend=claude-code' "$TEST_LOG"
   grep -qE 'session_start session=2 .*backend=claude-code' "$TEST_LOG"
-  grep -qE 'session_start session=3 .*backend=devin' "$TEST_LOG"
-  grep -qE 'session_end session=3 .*shipped=1 .*backend=devin' "$TEST_LOG"
+  grep -qE 'session_start session=3 .*backend=codex' "$TEST_LOG"
+  grep -qE 'session_end session=3 .*shipped=1 .*backend=codex' "$TEST_LOG"
   grep -q 'grind_done sessions=3 shipped=1' "$TEST_LOG"
   grep -q 'sessions_zero_ship=2' "$TEST_LOG"
 
   [ "$(grep -c '^claude-code ' "$DVB_GRIND_INVOKE_LOG")" -eq 2 ]
-  [ "$(grep -c '^devin ' "$DVB_GRIND_INVOKE_LOG")" -eq 1 ]
+  [ "$(grep -c '^codex ' "$DVB_GRIND_INVOKE_LOG")" -eq 1 ]
   grep -q 'SELF_INVESTIGATE_PROMPT' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'WARNING: Previous 2 sessions shipped nothing' "$DVB_GRIND_INVOKE_LOG"
-  grep -q '"backend": "devin"' "$DVB_STATUS_FILE"
+  grep -q '"backend": "codex"' "$DVB_STATUS_FILE"
   grep -q '"number": 3' "$DVB_STATUS_FILE"
   grep -q '"shipped": 1' "$DVB_STATUS_FILE"
 }
@@ -262,15 +261,15 @@ PY
   export DVB_DEADLINE_OFFSET=12
   export ROTATION_SCENARIO="missing-next"
 
-  run "$DVB_GRIND" --backend devin --rotate-backends devin,claude-code 1 "$TEST_REPO"
+  run "$DVB_GRIND" --backend codex --rotate-backends codex,claude-code 1 "$TEST_REPO"
 
   [ "$status" -eq 0 ]
-  grep -q 'backend_rotation_skipped from=devin to=claude-code reason=binary_missing' "$TEST_LOG"
-  grep -qE 'session_start session=1 .*backend=devin' "$TEST_LOG"
-  grep -qE 'session_start session=2 .*backend=devin' "$TEST_LOG"
-  grep -qE 'session_end session=2 .*shipped=1 .*backend=devin' "$TEST_LOG"
+  grep -q 'backend_rotation_skipped from=codex to=claude-code reason=binary_missing' "$TEST_LOG"
+  grep -qE 'session_start session=1 .*backend=codex' "$TEST_LOG"
+  grep -qE 'session_start session=2 .*backend=codex' "$TEST_LOG"
+  grep -qE 'session_end session=2 .*shipped=1 .*backend=codex' "$TEST_LOG"
   ! grep -q '^claude-code ' "$DVB_GRIND_INVOKE_LOG"
-  grep -q '"backend": "devin"' "$DVB_STATUS_FILE"
+  grep -q '"backend": "codex"' "$DVB_STATUS_FILE"
 }
 
 # ── Self-investigation hook ────────────────────────────────────────────

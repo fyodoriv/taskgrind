@@ -52,7 +52,7 @@ What happens:
 
 Sample banner:
 ```
-☕ taskgrind: 4h (until 13:00) — backend=devin, skill=next-task, model=claude-opus-4-7-max, repo=/Users/you/apps/myproject
+☕ taskgrind: 4h (until 13:00) — backend=claude-code, skill=next-task, model=claude-opus-4-7, repo=/Users/you/apps/myproject
    Each session runs next-task. Git sync every 5 sessions.
    Focus: focus on test coverage
    Log: ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
@@ -94,7 +94,7 @@ taskgrind --preflight --backend claude-code --model claude-sonnet-4.6 ~/apps/myp
 TG_BACKEND=claude-code TG_MODEL=sonnet taskgrind ~/apps/myproject 6
 
 # Let taskgrind rotate away from whichever backend is rate-limited
-taskgrind --rotate-backends devin,claude-code,codex ~/apps/myproject 8
+taskgrind --rotate-backends claude-code,codex ~/apps/myproject 8
 
 # Resume a Claude Code grind with the same startup choices
 taskgrind --resume --backend claude-code --model sonnet ~/apps/myproject
@@ -107,8 +107,8 @@ What happens:
 - `TG_BACKEND=claude-code` behaves like `--backend claude-code`, so shell
   wrappers, `launchd`, cron, and resume commands can inherit the same backend
   baseline without long flag lists
-- `--rotate-backends devin,claude-code,codex` keeps Claude Code in the same
-  rotation pool as Devin and Codex; rate-limit, quota, throttle, and
+- `--rotate-backends claude-code,codex` keeps Claude Code in the same
+  rotation pool as Codex; rate-limit, quota, throttle, and
   zero-ship-streak diagnostics can move the next session to another installed
   backend
 - Resume validation is backend-aware: if `.taskgrind-state` saved
@@ -286,9 +286,9 @@ Dry-run output:
 taskgrind --dry-run
   hours:    8
   repo:     /Users/you/apps/myproject
-  backend:  devin
+  backend:  claude-code
   skill:    next-task
-  model:    claude-opus-4-7-max
+  model:    claude-opus-4-7
   cooldown: 5s
   log:      ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
   status:   disabled
@@ -301,14 +301,14 @@ Preflight output:
 ```
 taskgrind --preflight
   repo:     /Users/you/apps/myproject
-  backend:  devin
+  backend:  claude-code
   skill:    next-task
-  model:    claude-opus-4-7-max
+  model:    claude-opus-4-7
   slots:    0/2 active
 
 Preflight checks for: /Users/you/apps/myproject
 
-  ✓ Backend binary (devin): /usr/local/bin/devin
+  ✓ Backend binary (claude-code): /usr/local/bin/claude
   ✓ Network connectivity
   ✓ Git state clean
   ✓ Git remote reachable
@@ -359,7 +359,7 @@ What happens:
 
 Sample output:
 ```
-☕ taskgrind: 6h (until 15:00) — backend=devin, skill=next-task, model=claude-opus-4-7-max, repo=/Users/you/apps/myproject
+☕ taskgrind: 6h (until 15:00) — backend=claude-code, skill=next-task, model=claude-opus-4-7, repo=/Users/you/apps/myproject
    Resuming: session=3 shipped=2 zero-ship=1
    Each session runs next-task. Git sync every 5 sessions.
    Log: ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
@@ -485,9 +485,9 @@ What happens:
 
 Sample log:
 ```
-[pid=38291] [09:00] session=1 remaining=360m tasks=9 model=claude-opus-4-7-max
+[pid=38291] [09:00] session=1 remaining=360m tasks=9 model=claude-opus-4-7
 [pid=38291] [09:42] session=1 ended exit=0 duration=2520s tasks_after=8 shipped=1
-[pid=38291] [09:47] live_model=claude-sonnet-4.6 (startup=claude-opus-4-7-max)
+[pid=38291] [09:47] live_model=claude-sonnet-4.6 (startup=claude-opus-4-7)
 [pid=38291] [09:47] session=2 remaining=313m tasks=8 model=claude-sonnet-4.6
 ```
 
@@ -542,14 +542,14 @@ keep moving.
 
 Sample log showing the transition:
 ```
-[pid=38291] [11:00] session=4 remaining=420m tasks=9 model=claude-opus-4-7-max
+[pid=38291] [11:00] session=4 remaining=420m tasks=9 model=claude-opus-4-7
 [pid=38291] [11:45] session=4 ended exit=0 duration=2700s tasks_after=9 shipped=0
-[pid=38291] [11:50] session=5 remaining=375m tasks=9 model=claude-opus-4-7-max
+[pid=38291] [11:50] session=5 remaining=375m tasks=9 model=claude-opus-4-7
 [pid=38291] [12:35] session=5 ended exit=0 duration=2700s tasks_after=9 shipped=0
-[pid=38291] [12:40] session=6 remaining=330m tasks=9 model=claude-opus-4-7-max
+[pid=38291] [12:40] session=6 remaining=330m tasks=9 model=claude-opus-4-7
 [pid=38291] [13:25] session=6 ended exit=0 duration=2700s tasks_after=9 shipped=0
 [pid=38291] [13:25] task_skip_threshold ids=refactor-auth-adapter
-[pid=38291] [13:30] session=7 remaining=285m tasks=9 model=claude-opus-4-7-max
+[pid=38291] [13:30] session=7 remaining=285m tasks=9 model=claude-opus-4-7
 ```
 
 Session 7's prompt (shown by `taskgrind --dry-run` style expansion) now
@@ -743,7 +743,7 @@ What happens:
 
 Sample banner:
 ```
-☕ taskgrind: 8h (until 17:00) — backend=devin, skill=next-task, model=claude-opus-4-7-max, repo=/Users/you/apps/control
+☕ taskgrind: 8h (until 17:00) — backend=claude-code, skill=next-task, model=claude-opus-4-7, repo=/Users/you/apps/control
    Workspace: control + 2 target(s)
      - /Users/you/apps/frontend
      - /Users/you/apps/backend
@@ -805,7 +805,7 @@ TG_FROM_PROMPT="8h on agentbrew with frontend backend, opus, review only" \
 ```
 
 What happens:
-- Taskgrind asks the configured backend (default `devin`) to convert the
+- Taskgrind asks the configured backend (default `claude-code`) to convert the
   brief into KEY=VALUE config lines: `hours=8`, `repo=/Users/you/apps/agentbrew`,
   `target_repos=/Users/you/apps/frontend:/Users/you/apps/backend`,
   `model=opus`, `focus=focus on test coverage`, `no_push=1`.
@@ -830,8 +830,8 @@ What the brief CAN set:
 - `hours` (1-24)
 - `repo` (control repo absolute path)
 - `target_repos` (one or more workspace target repos)
-- `model` (alias `opus`/`sonnet`/`haiku`/`swe`/`codex`/`gpt` or full id)
-- `backend` (`devin`, `claude-code`, `codex`)
+- `model` (alias `opus`/`sonnet`/`haiku`/`codex`/`gpt` or full id)
+- `backend` (`claude-code`, `codex`)
 - `skill` (any installed skill; default `next-task`)
 - `focus` (the agent-facing `--prompt` text)
 - `no_push` (publishing gate)
@@ -851,9 +851,9 @@ $ taskgrind --dry-run --from-prompt "8h on agentbrew with frontend backend targe
 taskgrind --dry-run
   hours:    8
   repo:     /Users/you/apps/agentbrew
-  backend:  devin
+  backend:  claude-code
   skill:    next-task
-  model:    claude-opus-4-7-max
+  model:    claude-opus-4-7
   ...
   workspace: control + 2 target(s)
   target:   /Users/you/apps/frontend
@@ -886,7 +886,7 @@ Why this helps:
 Common pitfalls:
 - The translator runs with the configured backend, so a missing or
   broken backend binary fails the brief before any session starts. If
-  `which devin` (or the backend you configured) is not on `$PATH`,
+  `which claude` (or the backend you configured) is not on `$PATH`,
   taskgrind says so and exits.
 - Brief-only briefs that produce zero parseable lines (LLM returned
   prose, refused, or hit a content filter) are rejected — the grind

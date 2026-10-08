@@ -16,10 +16,10 @@ _setup_production_multi_instance_backend() {
   export TMPDIR="$TEST_DIR/tmp"
   mkdir -p "$TMPDIR" "$TEST_DIR/bin"
 
-  local fake_devin="$TEST_DIR/bin/devin"
-  cat > "$fake_devin" <<'SCRIPT'
+  local fake_backend="$TEST_DIR/bin/claude"
+  cat > "$fake_backend" <<'SCRIPT'
 #!/bin/bash
-echo "$@" >> "${PROD_FAKE_DEVIN_LOG:-/tmp/taskgrind-prod-invocations.log}"
+echo "$@" >> "${PROD_FAKE_BACKEND_LOG:-/tmp/taskgrind-prod-invocations.log}"
 if [[ "$*" == *"--help"* ]]; then
   exit 0
 fi
@@ -28,16 +28,16 @@ fi
 # with --version. Without this the multi-instance concurrent grinds
 # abort at the probe stage before ever acquiring a slot.
 if [[ "$*" == *"--version"* ]]; then
-  echo "fake-devin 0.0.1"
+  echo "fake-backend 0.0.1"
   exit 0
 fi
-sleep "${PROD_FAKE_DEVIN_SLEEP:-4}"
+sleep "${PROD_FAKE_BACKEND_SLEEP:-4}"
 exit 0
 SCRIPT
-  chmod +x "$fake_devin"
-  export DVB_DEVIN_PATH="$fake_devin"
-  export PROD_FAKE_DEVIN_LOG="$TEST_DIR/production-invocations.log"
-  export PROD_FAKE_DEVIN_SLEEP=4
+  chmod +x "$fake_backend"
+  use_fake_claude_binary "$fake_backend"
+  export PROD_FAKE_BACKEND_LOG="$TEST_DIR/production-invocations.log"
+  export PROD_FAKE_BACKEND_SLEEP=4
 
   local fake_watchdog="$TEST_DIR/bin/network-watchdog"
   cat > "$fake_watchdog" <<'SCRIPT'
@@ -357,7 +357,7 @@ TASKS
 @test "second concurrent grind errors when all 1 slot is full" {
   _setup_production_multi_instance_backend
   export DVB_MAX_INSTANCES=1
-  export PROD_FAKE_DEVIN_SLEEP=6
+  export PROD_FAKE_BACKEND_SLEEP=6
   export DVB_DEADLINE_OFFSET=12
   local first_output="$TEST_DIR/full-slot-0.out"
 
@@ -375,7 +375,7 @@ TASKS
 
 @test "--preflight reports active slots for running grinds" {
   _setup_production_multi_instance_backend
-  export PROD_FAKE_DEVIN_SLEEP=6
+  export PROD_FAKE_BACKEND_SLEEP=6
   export DVB_DEADLINE_OFFSET=12
   local first_output="$TEST_DIR/preflight-slot-0.out"
 

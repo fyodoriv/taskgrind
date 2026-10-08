@@ -15,7 +15,7 @@ We will acknowledge your report within 48 hours and provide a fix timeline.
 
 ## Security Considerations
 
-Taskgrind runs AI coding backends with **unrestricted permissions** (e.g., `--permission-mode dangerous` for Devin, `--dangerously-skip-permissions` for Claude Code). This is by design — sessions need full filesystem and network access to implement tasks autonomously.
+Taskgrind runs AI coding backends with **unrestricted permissions** (e.g., `--dangerously-skip-permissions` for Claude Code). This is by design — sessions need full filesystem and network access to implement tasks autonomously.
 
 Before running taskgrind, ensure:
 

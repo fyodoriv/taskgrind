@@ -27,7 +27,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "fast session triggers network check when DVB_MIN_SESSION set" {
-  # Fake devin exits instantly (0s < min_session_secs), network is up
+  # Fake backend exits instantly (0s < min_session_secs), network is up
   setup_network_sentinel "$TEST_DIR/net-up"
   export DVB_MIN_SESSION=999
   export DVB_DEADLINE_OFFSET=5
@@ -100,12 +100,12 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   # `DVB_SKIP_PREFLIGHT=1` is required so preflight does not consume the
   # first counter tick — without it, preflight's network check would flip
   # the counter to true before the fast-failure path runs.
-  local restore_devin="$TEST_DIR/restore-devin"
-  create_fake_devin "$restore_devin" <<'SCRIPT'
+  local restore_backend="$TEST_DIR/restore-backend"
+  create_fake_backend "$restore_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 SCRIPT
-  export DVB_GRIND_CMD="$restore_devin"
+  export DVB_GRIND_CMD="$restore_backend"
   export DVB_NET_FILE="$TEST_DIR/net-counter"
   export DVB_NET_FLIP_AFTER=1
   export DVB_SKIP_PREFLIGHT=1
@@ -139,12 +139,12 @@ SCRIPT
   # check. Replaces a `nohup sleep 4 && touch` race that was flaking under
   # parallel load (bats setup overhead routinely consumed the 4s window
   # before taskgrind even checked the sentinel).
-  local restore_devin="$TEST_DIR/restore-devin"
-  create_fake_devin "$restore_devin" <<'SCRIPT'
+  local restore_backend="$TEST_DIR/restore-backend"
+  create_fake_backend "$restore_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 SCRIPT
-  export DVB_GRIND_CMD="$restore_devin"
+  export DVB_GRIND_CMD="$restore_backend"
   export DVB_NET_FILE="$TEST_DIR/net-counter"
   export DVB_NET_FLIP_AFTER=1
   export DVB_SKIP_PREFLIGHT=1
@@ -164,12 +164,12 @@ SCRIPT
   # Counter-mode network state — same pattern as the previous test. Forces
   # wait_for_network to enter (via FLIP_AFTER=1) without depending on a
   # wall-clock race against bats setup overhead.
-  local restore_devin="$TEST_DIR/restore-devin"
-  create_fake_devin "$restore_devin" <<'SCRIPT'
+  local restore_backend="$TEST_DIR/restore-backend"
+  create_fake_backend "$restore_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 SCRIPT
-  export DVB_GRIND_CMD="$restore_devin"
+  export DVB_GRIND_CMD="$restore_backend"
   export DVB_NET_FILE="$TEST_DIR/net-counter"
   export DVB_NET_FLIP_AFTER=1
   export DVB_SKIP_PREFLIGHT=1
@@ -289,8 +289,8 @@ SCRIPT
 @test "consecutive_fast resets after a normal-length session" {
   # First few sessions are fast (incrementing consecutive_fast)
   # Then a slow session resets the counter
-  local slow_devin="$TEST_DIR/slow-devin"
-  create_fake_devin "$slow_devin" <<SCRIPT
+  local slow_backend="$TEST_DIR/slow-backend"
+  create_fake_backend "$slow_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 # On 4th invocation, simulate a long session
@@ -300,7 +300,7 @@ if [ "\$count" -ge 4 ]; then
   sleep 2
 fi
 SCRIPT
-  export DVB_GRIND_CMD="$slow_devin"
+  export DVB_GRIND_CMD="$slow_backend"
   setup_network_sentinel "$TEST_DIR/net-up"
   export DVB_MIN_SESSION=1
   export DVB_BACKOFF_BASE=0
@@ -370,13 +370,13 @@ SCRIPT
   # Counter-mode network state — flips down→up after the fast-failure check
   # so wait_for_network enters and then exits cleanly with the "Network back"
   # message. No wall-clock race against parallel-load test setup overhead.
-  local restore_devin="$TEST_DIR/restore-devin"
-  cat > "$restore_devin" <<'SCRIPT'
+  local restore_backend="$TEST_DIR/restore-backend"
+  cat > "$restore_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 SCRIPT
-  chmod +x "$restore_devin"
-  export DVB_GRIND_CMD="$restore_devin"
+  chmod +x "$restore_backend"
+  export DVB_GRIND_CMD="$restore_backend"
   export DVB_NET_FILE="$TEST_DIR/net-counter"
   export DVB_NET_FLIP_AFTER=1
   export DVB_SKIP_PREFLIGHT=1

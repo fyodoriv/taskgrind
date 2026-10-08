@@ -15,7 +15,7 @@ write_watched_status() {
   "pid": 12345,
   "log_file": "$watched_log",
   "slot": 0,
-  "backend": "devin",
+  "backend": "claude-code",
   "skill": "next-task",
   "model": "gpt-5-5-xhigh-priority",
   "session": 2,
