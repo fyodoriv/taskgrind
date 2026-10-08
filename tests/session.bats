@@ -45,12 +45,12 @@ TASKS
 
 # ── Session loop ─────────────────────────────────────────────────────
 
-@test "runs devin with --permission-mode dangerous" {
+@test "runs claude-code with --dangerously-skip-permissions" {
   run_tiny_workload
-  grep -q -- '--permission-mode dangerous' "$DVB_GRIND_INVOKE_LOG"
+  grep -q -- '--dangerously-skip-permissions' "$DVB_GRIND_INVOKE_LOG"
 }
 
-@test "runs devin in print mode with -p prompt" {
+@test "runs claude-code in print mode with -p prompt" {
   run_tiny_workload
   grep -q -- '-p Run the next-task skill' "$DVB_GRIND_INVOKE_LOG"
 }
@@ -88,7 +88,7 @@ TASKS
 @test "startup sources fullpower helper and boosts the taskgrind pid" {
   local fake_bin="$TEST_DIR/fake-bin"
   local taskpolicy_log="$TEST_DIR/taskpolicy.log"
-  local devin_parent_log="$TEST_DIR/devin-parent.log"
+  local backend_parent_log="$TEST_DIR/backend-parent.log"
   mkdir -p "$fake_bin"
 
   create_fake_git "$fake_bin/taskpolicy" <<'SCRIPT'
@@ -96,25 +96,25 @@ TASKS
 printf '%s\n' "$*" >> "$TASKPOLICY_LOG"
 SCRIPT
 
-  create_fake_devin "$TEST_DIR/fake-devin-with-ppid" <<'SCRIPT'
+  create_fake_backend "$TEST_DIR/fake-backend-with-ppid" <<'SCRIPT'
 #!/bin/bash
-printf '%s\n' "$PPID" > "$DEVIN_PARENT_LOG"
+printf '%s\n' "$PPID" > "$BACKEND_PARENT_LOG"
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 exit 0
 SCRIPT
 
   export PATH="$fake_bin:$PATH"
   export TASKPOLICY_LOG="$taskpolicy_log"
-  export DEVIN_PARENT_LOG="$devin_parent_log"
-  export DVB_GRIND_CMD="$TEST_DIR/fake-devin-with-ppid"
+  export BACKEND_PARENT_LOG="$backend_parent_log"
+  export DVB_GRIND_CMD="$TEST_DIR/fake-backend-with-ppid"
   export DVB_DEADLINE_OFFSET=5
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
   [ -f "$taskpolicy_log" ]
-  [ -f "$devin_parent_log" ]
+  [ -f "$backend_parent_log" ]
   local expected_pid
-  expected_pid="$(cat "$devin_parent_log")"
+  expected_pid="$(cat "$backend_parent_log")"
   grep -q -- "^-B -t 0 -l 0 -p $expected_pid\$" "$taskpolicy_log"
 }
 
@@ -123,8 +123,8 @@ SCRIPT
   local prompt_dir="$TEST_DIR/prompts"
   echo "0" > "$counter_file"
   mkdir -p "$prompt_dir"
-  local smart_devin="$TEST_DIR/smart-devin"
-  cat > "$smart_devin" <<SCRIPT
+  local smart_backend="$TEST_DIR/smart-backend"
+  cat > "$smart_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 n=\$(cat "$counter_file")
@@ -153,8 +153,8 @@ if [ "\$n" -eq 2 ]; then
 EOF
 fi
 SCRIPT
-  chmod +x "$smart_devin"
-  export DVB_GRIND_CMD="$smart_devin"
+  chmod +x "$smart_backend"
+  export DVB_GRIND_CMD="$smart_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -201,11 +201,11 @@ TASKS
 @test "skip list warning appears in session 4 prompt after repeated task attempts" {
   local tmp_root="$TEST_DIR/tmp"
   local counter_file="$TEST_DIR/skip-counter"
-  local prompt_devin="$TEST_DIR/prompt-devin"
+  local prompt_backend="$TEST_DIR/prompt-backend"
   mkdir -p "$tmp_root"
   echo "0" > "$counter_file"
   export TMPDIR="$tmp_root"
-  cat > "$prompt_devin" <<SCRIPT
+  cat > "$prompt_backend" <<SCRIPT
 #!/bin/bash
 n=\$(cat "$counter_file")
 n=\$((n + 1))
@@ -228,8 +228,8 @@ done
 printf '%s' "\$prompt" > "$TEST_DIR/prompt-\$n.txt"
 sleep 0.2
 SCRIPT
-  chmod +x "$prompt_devin"
-  export DVB_GRIND_CMD="$prompt_devin"
+  chmod +x "$prompt_backend"
+  export DVB_GRIND_CMD="$prompt_backend"
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
 ## P0
@@ -279,17 +279,17 @@ TASKS
 
 @test "task skip threshold is logged when a task hits 3 attempts" {
   local counter_file="$TEST_DIR/log-counter"
-  local prompt_devin="$TEST_DIR/log-devin"
+  local prompt_backend="$TEST_DIR/log-backend"
   echo "0" > "$counter_file"
-  cat > "$prompt_devin" <<SCRIPT
+  cat > "$prompt_backend" <<SCRIPT
 #!/bin/bash
 n=\$(cat "$counter_file")
 n=\$((n + 1))
 echo "\$n" > "$counter_file"
 sleep 0.2
 SCRIPT
-  chmod +x "$prompt_devin"
-  export DVB_GRIND_CMD="$prompt_devin"
+  chmod +x "$prompt_backend"
+  export DVB_GRIND_CMD="$prompt_backend"
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
 ## P0
@@ -305,19 +305,19 @@ TASKS
 @test "task attempt temp files are cleaned up after the run" {
   local tmp_root="$TEST_DIR/tmp"
   local counter_file="$TEST_DIR/cleanup-counter"
-  local prompt_devin="$TEST_DIR/cleanup-devin"
+  local prompt_backend="$TEST_DIR/cleanup-backend"
   mkdir -p "$tmp_root"
   echo "0" > "$counter_file"
   export TMPDIR="$tmp_root"
-  cat > "$prompt_devin" <<SCRIPT
+  cat > "$prompt_backend" <<SCRIPT
 #!/bin/bash
 n=\$(cat "$counter_file")
 n=\$((n + 1))
 echo "\$n" > "$counter_file"
 sleep 0.2
 SCRIPT
-  chmod +x "$prompt_devin"
-  export DVB_GRIND_CMD="$prompt_devin"
+  chmod +x "$prompt_backend"
+  export DVB_GRIND_CMD="$prompt_backend"
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
 ## P0
@@ -338,8 +338,8 @@ TASKS
   **ID**: product-fix
 TASKS
 
-  local queue_refresh_devin="$TEST_DIR/queue-refresh-devin"
-  cat > "$queue_refresh_devin" <<'SCRIPT'
+  local queue_refresh_backend="$TEST_DIR/queue-refresh-backend"
+  cat > "$queue_refresh_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 cat > "$TEST_REPO/TASKS.md" <<'EOF'
@@ -351,8 +351,8 @@ cat > "$TEST_REPO/TASKS.md" <<'EOF'
   **ID**: audit-note
 EOF
 SCRIPT
-  chmod +x "$queue_refresh_devin"
-  export DVB_GRIND_CMD="$queue_refresh_devin"
+  chmod +x "$queue_refresh_backend"
+  export DVB_GRIND_CMD="$queue_refresh_backend"
   export DVB_DEADLINE_OFFSET=40
 
   run "$DVB_GRIND" 1 "$TEST_REPO" --skill standing-audit-gap-loop
@@ -518,7 +518,7 @@ TASKS
 }
 
 @test "runs multiple sessions when deadline allows" {
-  # Fake devin that exits instantly; generous deadline to avoid flake under load
+  # Fake backend that exits instantly; generous deadline to avoid flake under load
   export DVB_DEADLINE_OFFSET=30
   run "$DVB_GRIND" 1 "$TEST_REPO"
   local count
@@ -552,25 +552,25 @@ TASKS
 @test "does not launch another session after the deadline expires during pre-session setup" {
   local fake_bin="$TEST_DIR/fake-bin"
   local git_counter="$TEST_DIR/git-rev-parse-head-count"
-  local fake_devin="$fake_bin/devin"
+  local fake_backend="$fake_bin/claude"
   mkdir -p "$fake_bin"
   echo "0" > "$git_counter"
 
   init_test_repo
 
-  # The fake devin emits a non-empty pseudo-version on --version so
+  # The fake backend emits a non-empty pseudo-version on --version so
   # run_backend_probe accepts the binary (probe needs non-empty stdout from
   # a fast --version invocation; an empty exit 0 trips "stub or broken").
-  cat > "$fake_devin" <<'SCRIPT'
+  cat > "$fake_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 if [[ "$*" == *"--version"* ]]; then
-  echo "fake-devin 0.0.1"
+  echo "fake-backend 0.0.1"
   exit 0
 fi
 exit 0
 SCRIPT
-  chmod +x "$fake_devin"
+  chmod +x "$fake_backend"
 
   cat > "$fake_bin/git" <<'SCRIPT'
 #!/bin/bash
@@ -590,7 +590,7 @@ SCRIPT
   export GIT_HEAD_COUNTER="$git_counter"
   unset DVB_GRIND_CMD
   export DVB_DEADLINE_OFFSET=20
-  export DVB_ROTATE_BACKENDS=devin
+  export DVB_ROTATE_BACKENDS=claude-code
 
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
@@ -601,16 +601,16 @@ SCRIPT
   ! grep -q 'Session 2' "$DVB_GRIND_INVOKE_LOG"
 }
 
-@test "continues loop when devin exits non-zero" {
-  # Fake devin that fails
-  local bad_devin="$TEST_DIR/bad-devin"
-  cat > "$bad_devin" <<'SCRIPT'
+@test "continues loop when backend exits non-zero" {
+  # Fake backend that fails
+  local bad_backend="$TEST_DIR/bad-backend"
+  cat > "$bad_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 exit 1
 SCRIPT
-  chmod +x "$bad_devin"
-  export DVB_GRIND_CMD="$bad_devin"
+  chmod +x "$bad_backend"
+  export DVB_GRIND_CMD="$bad_backend"
   export DVB_DEADLINE_OFFSET=8
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -674,7 +674,7 @@ TASKS
   export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  # Sweep session should have been launched (fake devin records invocation)
+  # Sweep session should have been launched (fake backend records invocation)
   [ -s "$DVB_GRIND_INVOKE_LOG" ]
   grep -q 'TASKS.md is empty' "$DVB_GRIND_INVOKE_LOG"
   # Sweep found nothing, so exits
@@ -702,9 +702,9 @@ TASKS
 }
 
 @test "sweep that finds tasks continues grind with normal sessions" {
-  # Fake devin that populates TASKS.md when it sees the sweep prompt
-  local sweep_devin="$TEST_DIR/sweep-devin"
-  cat > "$sweep_devin" <<SCRIPT
+  # Fake backend that populates TASKS.md when it sees the sweep prompt
+  local sweep_backend="$TEST_DIR/sweep-backend"
+  cat > "$sweep_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 # If this is a sweep (prompt mentions "TASKS.md is empty"), add tasks
@@ -712,8 +712,8 @@ if echo "\$@" | grep -q "TASKS.md is empty"; then
   printf '# Tasks\n## P0\n- [ ] Found task\n' > "$TEST_REPO/TASKS.md"
 fi
 SCRIPT
-  chmod +x "$sweep_devin"
-  export DVB_GRIND_CMD="$sweep_devin"
+  chmod +x "$sweep_backend"
+  export DVB_GRIND_CMD="$sweep_backend"
   # Start with empty queue
   printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
   export DVB_DEADLINE_OFFSET=8
@@ -729,16 +729,16 @@ SCRIPT
 }
 
 @test "sweep runs at most once per grind" {
-  # Fake devin that always clears tasks (simulates sweep that finds nothing useful)
-  local clear_devin="$TEST_DIR/clear-devin"
-  cat > "$clear_devin" <<SCRIPT
+  # Fake backend that always clears tasks (simulates sweep that finds nothing useful)
+  local clear_backend="$TEST_DIR/clear-backend"
+  cat > "$clear_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 # Always clear tasks
 printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
 SCRIPT
-  chmod +x "$clear_devin"
-  export DVB_GRIND_CMD="$clear_devin"
+  chmod +x "$clear_backend"
+  export DVB_GRIND_CMD="$clear_backend"
   # Start with a task so the first session runs, then it clears, sweep runs, sweep clears
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -756,9 +756,9 @@ TASKS
 }
 
 @test "sweep resets after productive sessions so queue can refill" {
-  # Fake devin that: sweep adds tasks, normal sessions remove tasks
-  local smart_devin="$TEST_DIR/smart-devin"
-  cat > "$smart_devin" <<SCRIPT
+  # Fake backend that: sweep adds tasks, normal sessions remove tasks
+  local smart_backend="$TEST_DIR/smart-backend"
+  cat > "$smart_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 if echo "\$@" | grep -q "TASKS.md is empty"; then
@@ -769,8 +769,8 @@ else
   printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
 fi
 SCRIPT
-  chmod +x "$smart_devin"
-  export DVB_GRIND_CMD="$smart_devin"
+  chmod +x "$smart_backend"
+  export DVB_GRIND_CMD="$smart_backend"
   # Start empty — first sweep adds tasks, session removes them, second sweep fires
   printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
   export DVB_DEADLINE_OFFSET=8
@@ -824,9 +824,9 @@ SCRIPT
 }
 
 @test "tasks injected during empty-queue wait resume with a normal session" {
-  local refill_devin="$TEST_DIR/refill-devin"
+  local refill_backend="$TEST_DIR/refill-backend"
   local status_file="$TEST_DIR/refill-status.json"
-  cat > "$refill_devin" <<'SCRIPT'
+  cat > "$refill_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 if echo "$@" | grep -q "TASKS.md is empty"; then
@@ -838,8 +838,8 @@ cat > "$TEST_REPO/TASKS.md" <<'EOF'
 ## P0
 EOF
 SCRIPT
-  chmod +x "$refill_devin"
-  export DVB_GRIND_CMD="$refill_devin"
+  chmod +x "$refill_backend"
+  export DVB_GRIND_CMD="$refill_backend"
   export DVB_STATUS_FILE="$status_file"
   export DVB_EMPTY_QUEUE_WAIT=4
   export DVB_DEADLINE_OFFSET=15
@@ -903,16 +903,16 @@ TASKS
 }
 
 @test "queue cleared mid-run triggers sweep on next iteration" {
-  # Fake devin that clears TASKS.md on first call
-  local clear_devin="$TEST_DIR/clear-devin"
-  cat > "$clear_devin" <<SCRIPT
+  # Fake backend that clears TASKS.md on first call
+  local clear_backend="$TEST_DIR/clear-backend"
+  cat > "$clear_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 # Clear all tasks on first call
 printf '# Tasks\n## P0\n## P1\n' > "$TEST_REPO/TASKS.md"
 SCRIPT
-  chmod +x "$clear_devin"
-  export DVB_GRIND_CMD="$clear_devin"
+  chmod +x "$clear_backend"
+  export DVB_GRIND_CMD="$clear_backend"
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
 ## P0
@@ -969,8 +969,8 @@ EOF
   export COUNT_FILE="$count_file"
   export TEST_REPO
 
-  local empty_queue_devin="$TEST_DIR/empty-queue-devin"
-  cat > "$empty_queue_devin" <<'SCRIPT'
+  local empty_queue_backend="$TEST_DIR/empty-queue-backend"
+  cat > "$empty_queue_backend" <<'SCRIPT'
 #!/bin/bash
 count_file="${COUNT_FILE:?}"
 count=$(cat "$count_file")
@@ -985,8 +985,8 @@ TASKS
 fi
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 SCRIPT
-  chmod +x "$empty_queue_devin"
-  export DVB_GRIND_CMD="$empty_queue_devin"
+  chmod +x "$empty_queue_backend"
+  export DVB_GRIND_CMD="$empty_queue_backend"
 
   # Need a real session + sweep + git ops to all complete; under 8x parallel
   # bats load 8s was too tight, the sweep_empty marker missed the deadline.
@@ -1209,15 +1209,15 @@ TASKS
   mkdir -p "$volatile"
   # Add a task so the grind doesn't exit on empty queue
   printf '# Tasks\n## P0\n- [ ] A task\n' > "$volatile/TASKS.md"
-  # Fake devin that deletes the repo on first call
-  local nuke_devin="$TEST_DIR/nuke-devin"
-  cat > "$nuke_devin" <<SCRIPT
+  # Fake backend that deletes the repo on first call
+  local nuke_backend="$TEST_DIR/nuke-backend"
+  cat > "$nuke_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 rm -rf "$volatile"
 SCRIPT
-  chmod +x "$nuke_devin"
-  export DVB_GRIND_CMD="$nuke_devin"
+  chmod +x "$nuke_backend"
+  export DVB_GRIND_CMD="$nuke_backend"
   export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$volatile"
   [ "$status" -eq 0 ]
@@ -1229,17 +1229,17 @@ SCRIPT
 
 @test "log_write does not crash on deleted log file" {
   export DVB_DEADLINE_OFFSET=5
-  # Use a log file that will be deleted by the fake devin
+  # Use a log file that will be deleted by the fake backend
   local volatile_log="$TEST_DIR/volatile.log"
   export DVB_LOG="$volatile_log"
-  local del_devin="$TEST_DIR/del-log-devin"
-  cat > "$del_devin" <<SCRIPT
+  local del_backend="$TEST_DIR/del-log-backend"
+  cat > "$del_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 rm -f "$volatile_log"
 SCRIPT
-  chmod +x "$del_devin"
-  export DVB_GRIND_CMD="$del_devin"
+  chmod +x "$del_backend"
+  export DVB_GRIND_CMD="$del_backend"
   run "$DVB_GRIND" 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   # Should complete without crashing despite log deletion
@@ -1261,9 +1261,9 @@ SCRIPT
 }
 
 @test "tracks shipped tasks when count decreases" {
-  # Fake devin that removes one task each invocation
-  local smart_devin="$TEST_DIR/smart-devin"
-  cat > "$smart_devin" <<SCRIPT
+  # Fake backend that removes one task each invocation
+  local smart_backend="$TEST_DIR/smart-backend"
+  cat > "$smart_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 # Remove the first task line from TASKS.md
@@ -1273,8 +1273,8 @@ if [ -f "\$REPO/TASKS.md" ]; then
   sed -i '0,/^- \[ \]/{/^- \[ \]/d;}' "\$REPO/TASKS.md" 2>/dev/null || true
 fi
 SCRIPT
-  chmod +x "$smart_devin"
-  export DVB_GRIND_CMD="$smart_devin"
+  chmod +x "$smart_backend"
+  export DVB_GRIND_CMD="$smart_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -1292,15 +1292,15 @@ TASKS
 }
 
 @test "does not count added tasks as shipped" {
-  # Fake devin that adds a task
-  local add_devin="$TEST_DIR/add-devin"
-  cat > "$add_devin" <<SCRIPT
+  # Fake backend that adds a task
+  local add_backend="$TEST_DIR/add-backend"
+  cat > "$add_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 echo "- [ ] New task" >> "$TEST_REPO/TASKS.md"
 SCRIPT
-  chmod +x "$add_devin"
-  export DVB_GRIND_CMD="$add_devin"
+  chmod +x "$add_backend"
+  export DVB_GRIND_CMD="$add_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -1315,9 +1315,9 @@ TASKS
 }
 
 @test "ID-based shipped: removing task with ID counts as shipped" {
-  # Fake devin that removes task-a and its metadata, keeping task-b
-  local smart_devin="$TEST_DIR/smart-devin"
-  cat > "$smart_devin" <<SCRIPT
+  # Fake backend that removes task-a and its metadata, keeping task-b
+  local smart_backend="$TEST_DIR/smart-backend"
+  cat > "$smart_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 cat > "$TEST_REPO/TASKS.md" <<'EOF'
@@ -1327,8 +1327,8 @@ cat > "$TEST_REPO/TASKS.md" <<'EOF'
   **ID**: task-b
 EOF
 SCRIPT
-  chmod +x "$smart_devin"
-  export DVB_GRIND_CMD="$smart_devin"
+  chmod +x "$smart_backend"
+  export DVB_GRIND_CMD="$smart_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -1348,8 +1348,8 @@ TASKS
   # The key scenario: agent removes task-a (pre-existing) and adds task-c (new).
   # Count-based: before=2, after=2, shipped=0 (WRONG).
   # ID-based: task-a removed → shipped=1 (CORRECT).
-  local smart_devin="$TEST_DIR/smart-devin"
-  cat > "$smart_devin" <<SCRIPT
+  local smart_backend="$TEST_DIR/smart-backend"
+  cat > "$smart_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 cat > "$TEST_REPO/TASKS.md" <<'EOF'
@@ -1361,8 +1361,8 @@ cat > "$TEST_REPO/TASKS.md" <<'EOF'
   **ID**: task-c
 EOF
 SCRIPT
-  chmod +x "$smart_devin"
-  export DVB_GRIND_CMD="$smart_devin"
+  chmod +x "$smart_backend"
+  export DVB_GRIND_CMD="$smart_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -1382,8 +1382,8 @@ TASKS
 @test "ID-based shipped: adding 2 and removing 2 still counts shipped" {
   # Agent removes task-a and task-b, adds task-c and task-d.
   # Count-based: 2→2, shipped=0. ID-based: 2 removed → shipped=2.
-  local smart_devin="$TEST_DIR/smart-devin"
-  cat > "$smart_devin" <<SCRIPT
+  local smart_backend="$TEST_DIR/smart-backend"
+  cat > "$smart_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 cat > "$TEST_REPO/TASKS.md" <<'EOF'
@@ -1395,8 +1395,8 @@ cat > "$TEST_REPO/TASKS.md" <<'EOF'
   **ID**: task-d
 EOF
 SCRIPT
-  chmod +x "$smart_devin"
-  export DVB_GRIND_CMD="$smart_devin"
+  chmod +x "$smart_backend"
+  export DVB_GRIND_CMD="$smart_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -1414,8 +1414,8 @@ TASKS
 
 @test "ID-based shipped: no IDs falls back to count-based" {
   # Tasks without **ID**: metadata use the old count-based approach
-  local smart_devin="$TEST_DIR/smart-devin"
-  cat > "$smart_devin" <<SCRIPT
+  local smart_backend="$TEST_DIR/smart-backend"
+  cat > "$smart_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 cat > "$TEST_REPO/TASKS.md" <<'EOF'
@@ -1424,8 +1424,8 @@ cat > "$TEST_REPO/TASKS.md" <<'EOF'
 - [ ] Task two
 EOF
 SCRIPT
-  chmod +x "$smart_devin"
-  export DVB_GRIND_CMD="$smart_devin"
+  chmod +x "$smart_backend"
+  export DVB_GRIND_CMD="$smart_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -1442,8 +1442,8 @@ TASKS
 
 @test "ID-based shipped: logs new tasks added during session" {
   # Agent adds a new task with ID during the session
-  local smart_devin="$TEST_DIR/smart-devin"
-  cat > "$smart_devin" <<SCRIPT
+  local smart_backend="$TEST_DIR/smart-backend"
+  cat > "$smart_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 cat > "$TEST_REPO/TASKS.md" <<'EOF'
@@ -1455,8 +1455,8 @@ cat > "$TEST_REPO/TASKS.md" <<'EOF'
   **ID**: task-b
 EOF
 SCRIPT
-  chmod +x "$smart_devin"
-  export DVB_GRIND_CMD="$smart_devin"
+  chmod +x "$smart_backend"
+  export DVB_GRIND_CMD="$smart_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -1475,8 +1475,8 @@ TASKS
   # temporary subtasks, then removes those subtasks before finishing with one
   # surviving follow-up task. The final queue stays flat, but one pre-session
   # task ID was still shipped and must count.
-  local smart_devin="$TEST_DIR/smart-devin"
-  cat > "$smart_devin" <<SCRIPT
+  local smart_backend="$TEST_DIR/smart-backend"
+  cat > "$smart_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 cat > "$TEST_REPO/TASKS.md" <<'EOF'
@@ -1498,8 +1498,8 @@ cat > "$TEST_REPO/TASKS.md" <<'EOF'
   **ID**: task-followup
 EOF
 SCRIPT
-  chmod +x "$smart_devin"
-  export DVB_GRIND_CMD="$smart_devin"
+  chmod +x "$smart_backend"
+  export DVB_GRIND_CMD="$smart_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -1518,8 +1518,8 @@ TASKS
 }
 
 @test "inferred shipped: local successor rollover counts despite flat queue" {
-  local commit_devin="$TEST_DIR/commit-devin"
-  cat > "$commit_devin" <<SCRIPT
+  local commit_backend="$TEST_DIR/commit-backend"
+  cat > "$commit_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 cat > "$TEST_REPO/TASKS.md" <<'EOF'
@@ -1532,8 +1532,8 @@ echo "new work" >> "$TEST_REPO/code.txt"
 git -C "$TEST_REPO" add -A
 git -C "$TEST_REPO" commit -q -m "fix: roll queue forward"
 SCRIPT
-  chmod +x "$commit_devin"
-  export DVB_GRIND_CMD="$commit_devin"
+  chmod +x "$commit_backend"
+  export DVB_GRIND_CMD="$commit_backend"
 
   init_test_repo
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
@@ -1554,8 +1554,8 @@ TASKS
 }
 
 @test "inferred shipped: concurrent additions do not hide local task completion" {
-  local commit_devin="$TEST_DIR/commit-devin"
-  cat > "$commit_devin" <<SCRIPT
+  local commit_backend="$TEST_DIR/commit-backend"
+  cat > "$commit_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 cat > "$TEST_REPO/TASKS.md" <<'EOF'
@@ -1572,8 +1572,8 @@ echo "new work" >> "$TEST_REPO/code.txt"
 git -C "$TEST_REPO" add -A
 git -C "$TEST_REPO" commit -q -m "fix: ship work despite queue churn"
 SCRIPT
-  chmod +x "$commit_devin"
-  export DVB_GRIND_CMD="$commit_devin"
+  chmod +x "$commit_backend"
+  export DVB_GRIND_CMD="$commit_backend"
 
   init_test_repo
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
@@ -1596,8 +1596,8 @@ TASKS
 }
 
 @test "inferred shipped: non-local task removal counts as shipped" {
-  local commit_devin="$TEST_DIR/commit-devin"
-  cat > "$commit_devin" <<SCRIPT
+  local commit_backend="$TEST_DIR/commit-backend"
+  cat > "$commit_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 cat > "$TEST_REPO/other/TASKS.md" <<'EOF'
@@ -1608,8 +1608,8 @@ echo "new work" >> "$TEST_REPO/code.txt"
 git -C "$TEST_REPO" add -A
 git -C "$TEST_REPO" commit -q -m "fix: clear non-local queue item"
 SCRIPT
-  chmod +x "$commit_devin"
-  export DVB_GRIND_CMD="$commit_devin"
+  chmod +x "$commit_backend"
+  export DVB_GRIND_CMD="$commit_backend"
 
   init_test_repo
   mkdir -p "$TEST_REPO/other"
@@ -1643,8 +1643,8 @@ TASKS
   # "tasks_before⚠: unbound variable". Fix: ${tasks_before}→${tasks_after}.
   # This test exercises the count-based fallback branch (no IDs in TASKS.md)
   # where a session adds tasks (tasks_after > tasks_before).
-  local smart_devin="$TEST_DIR/smart-devin"
-  cat > "$smart_devin" <<SCRIPT
+  local smart_backend="$TEST_DIR/smart-backend"
+  cat > "$smart_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 cat > "$TEST_REPO/TASKS.md" <<'EOF'
@@ -1655,8 +1655,8 @@ cat > "$TEST_REPO/TASKS.md" <<'EOF'
 - [ ] Task three
 EOF
 SCRIPT
-  chmod +x "$smart_devin"
-  export DVB_GRIND_CMD="$smart_devin"
+  chmod +x "$smart_backend"
+  export DVB_GRIND_CMD="$smart_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -1682,8 +1682,8 @@ TASKS
   # stall detection.
   local counter_file="$TEST_DIR/counter"
   echo "0" > "$counter_file"
-  local smart_devin="$TEST_DIR/smart-devin"
-  cat > "$smart_devin" <<SCRIPT
+  local smart_backend="$TEST_DIR/smart-backend"
+  cat > "$smart_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 n=\$(cat "$counter_file")
@@ -1706,8 +1706,8 @@ elif [ "\$n" -eq 4 ]; then
 EOF
 fi
 SCRIPT
-  chmod +x "$smart_devin"
-  export DVB_GRIND_CMD="$smart_devin"
+  chmod +x "$smart_backend"
+  export DVB_GRIND_CMD="$smart_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -1736,8 +1736,8 @@ TASKS
   local counter_file="$TEST_DIR/churn-counter"
   echo "0" > "$counter_file"
 
-  local churn_devin="$TEST_DIR/churn-devin"
-  cat > "$churn_devin" <<SCRIPT
+  local churn_backend="$TEST_DIR/churn-backend"
+  cat > "$churn_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 n=\$(cat "$counter_file")
@@ -1762,8 +1762,8 @@ cat > "$TEST_REPO/TASKS.md" <<'EOF'
 EOF
 fi
 SCRIPT
-  chmod +x "$churn_devin"
-  export DVB_GRIND_CMD="$churn_devin"
+  chmod +x "$churn_backend"
+  export DVB_GRIND_CMD="$churn_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -1791,8 +1791,8 @@ TASKS
   local counter_file="$TEST_DIR/churn-counter"
   echo "0" > "$counter_file"
 
-  local churn_devin="$TEST_DIR/churn-devin"
-  cat > "$churn_devin" <<SCRIPT
+  local churn_backend="$TEST_DIR/churn-backend"
+  cat > "$churn_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 n=\$(cat "$counter_file")
@@ -1826,8 +1826,8 @@ cat > "$TEST_REPO/TASKS.md" <<'EOF'
 EOF
 fi
 SCRIPT
-  chmod +x "$churn_devin"
-  export DVB_GRIND_CMD="$churn_devin"
+  chmod +x "$churn_backend"
+  export DVB_GRIND_CMD="$churn_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -1863,17 +1863,17 @@ TASKS
 }
 
 @test "remaining time never shows negative in prompt" {
-  # Fake devin that sleeps briefly so clock can drift past deadline
-  local slow_devin="$TEST_DIR/slow-devin"
-  cat > "$slow_devin" <<'SCRIPT'
+  # Fake backend that sleeps briefly so clock can drift past deadline
+  local slow_backend="$TEST_DIR/slow-backend"
+  cat > "$slow_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 # Record the prompt to check remaining time
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG}.full"
 exit 0
 SCRIPT
-  chmod +x "$slow_devin"
-  export DVB_GRIND_CMD="$slow_devin"
+  chmod +x "$slow_backend"
+  export DVB_GRIND_CMD="$slow_backend"
   # Deadline just 1s in the future — remaining_min will be 0
   export DVB_DEADLINE_OFFSET=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -2232,10 +2232,10 @@ SCRIPT
   local bosun_bin
   bosun_bin=$(_make_fake_bosun_recorder "$invocations")
 
-  # Slow fake devin sleeps long enough for ≥2 heartbeats at the 1s
+  # Slow fake backend sleeps long enough for ≥2 heartbeats at the 1s
   # interval, then ships the task so the grind ends naturally.
-  local fake_devin="$TEST_DIR/fake-devin-slow"
-  cat > "$fake_devin" <<SCRIPT
+  local fake_backend="$TEST_DIR/fake-backend-slow"
+  cat > "$fake_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 sleep 3
@@ -2244,7 +2244,7 @@ cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 ## P0
 TASKS
 SCRIPT
-  chmod +x "$fake_devin"
+  chmod +x "$fake_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -2252,7 +2252,7 @@ SCRIPT
 - [ ] Heartbeat live test task
 TASKS
 
-  export DVB_GRIND_CMD="$fake_devin"
+  export DVB_GRIND_CMD="$fake_backend"
   export DVB_GRIND_INVOKE_LOG="$TEST_DIR/invocations.log"
   export DVB_BOSUN_HEARTBEAT_TEST=1
   export DVB_REGISTER_REAL_BOSUN_GRIND=1
@@ -2290,8 +2290,8 @@ TASKS
 - [ ] Completed reason test
 TASKS
 
-  local fake_devin="$TEST_DIR/fake-devin-fast"
-  cat > "$fake_devin" <<SCRIPT
+  local fake_backend="$TEST_DIR/fake-backend-fast"
+  cat > "$fake_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 cat > "$TEST_REPO/TASKS.md" <<'TASKS'
@@ -2299,9 +2299,9 @@ cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 ## P0
 TASKS
 SCRIPT
-  chmod +x "$fake_devin"
+  chmod +x "$fake_backend"
 
-  export DVB_GRIND_CMD="$fake_devin"
+  export DVB_GRIND_CMD="$fake_backend"
   export DVB_GRIND_INVOKE_LOG="$TEST_DIR/invocations.log"
   export DVB_BOSUN_HEARTBEAT_TEST=1
   export DVB_REGISTER_REAL_BOSUN_GRIND=1
@@ -2338,8 +2338,8 @@ SCRIPT
 - [ ] Caller-provided test
 TASKS
 
-  local fake_devin="$TEST_DIR/fake-devin-slow"
-  cat > "$fake_devin" <<SCRIPT
+  local fake_backend="$TEST_DIR/fake-backend-slow"
+  cat > "$fake_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 sleep 2
@@ -2348,9 +2348,9 @@ cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 ## P0
 TASKS
 SCRIPT
-  chmod +x "$fake_devin"
+  chmod +x "$fake_backend"
 
-  export DVB_GRIND_CMD="$fake_devin"
+  export DVB_GRIND_CMD="$fake_backend"
   export DVB_GRIND_INVOKE_LOG="$TEST_DIR/invocations.log"
   export DVB_BOSUN_HEARTBEAT_TEST=1
   # IMPORTANT: BOSUN_GRIND_SESSION_ID is pre-set by the caller — taskgrind
@@ -2418,8 +2418,8 @@ SCRIPT
 - [ ] Heartbeat failure tolerance test
 TASKS
 
-  local fake_devin="$TEST_DIR/fake-devin-medium"
-  cat > "$fake_devin" <<SCRIPT
+  local fake_backend="$TEST_DIR/fake-backend-medium"
+  cat > "$fake_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 sleep 2
@@ -2428,9 +2428,9 @@ cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 ## P0
 TASKS
 SCRIPT
-  chmod +x "$fake_devin"
+  chmod +x "$fake_backend"
 
-  export DVB_GRIND_CMD="$fake_devin"
+  export DVB_GRIND_CMD="$fake_backend"
   export DVB_GRIND_INVOKE_LOG="$TEST_DIR/invocations.log"
   export DVB_BOSUN_HEARTBEAT_TEST=1
   export DVB_REGISTER_REAL_BOSUN_GRIND=1

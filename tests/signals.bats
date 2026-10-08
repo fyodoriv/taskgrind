@@ -33,14 +33,14 @@ _wait_for_file_pattern() {
 @test "taskgrind prints summary on interrupt (INT/TERM)" {
   export DVB_DEADLINE_OFFSET=180
   local started_file="$TEST_DIR/session-started"
-  local slow_devin="$TEST_DIR/slow-devin"
-  cat > "$slow_devin" <<SCRIPT
+  local slow_backend="$TEST_DIR/slow-backend"
+  cat > "$slow_backend" <<SCRIPT
 #!/bin/bash
 printf '%s\n' started > "$started_file"
 sleep 10
 SCRIPT
-  chmod +x "$slow_devin"
-  export DVB_GRIND_CMD="$slow_devin"
+  chmod +x "$slow_backend"
+  export DVB_GRIND_CMD="$slow_backend"
 
   "$DVB_GRIND" 1 "$TEST_REPO" > "$TEST_DIR/signal-output.txt" 2>&1 &
   local grind_pid=$!
@@ -60,15 +60,15 @@ TASKS
 
   export DVB_DEADLINE_OFFSET=180
   local started_file="$TEST_DIR/session-started"
-  local slow_devin="$TEST_DIR/slow-devin"
-  cat > "$slow_devin" <<SCRIPT
+  local slow_backend="$TEST_DIR/slow-backend"
+  cat > "$slow_backend" <<SCRIPT
 #!/bin/bash
 trap '' INT
 printf '%s\n' started > "$started_file"
 sleep 3
 SCRIPT
-  chmod +x "$slow_devin"
-  export DVB_GRIND_CMD="$slow_devin"
+  chmod +x "$slow_backend"
+  export DVB_GRIND_CMD="$slow_backend"
   export DVB_SHUTDOWN_GRACE=10
 
   "$DVB_GRIND" 1 "$TEST_REPO" > "$TEST_DIR/signal-remaining-output.txt" 2>&1 &
@@ -84,17 +84,17 @@ SCRIPT
 # ── Graceful shutdown ────────────────────────────────────────────────
 
 @test "INT signal waits for running session before exiting" {
-  # Slow devin that takes 5s but records when it starts and finishes
-  local slow_devin="$TEST_DIR/slow-devin"
-  cat > "$slow_devin" <<SCRIPT
+  # Slow backend that takes 5s but records when it starts and finishes
+  local slow_backend="$TEST_DIR/slow-backend"
+  cat > "$slow_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 echo "session_started" >> "$TEST_DIR/session-lifecycle.log"
 sleep 3
 echo "session_finished" >> "$TEST_DIR/session-lifecycle.log"
 SCRIPT
-  chmod +x "$slow_devin"
-  export DVB_GRIND_CMD="$slow_devin"
+  chmod +x "$slow_backend"
+  export DVB_GRIND_CMD="$slow_backend"
   export DVB_DEADLINE_OFFSET=30
   export DVB_SHUTDOWN_GRACE=10
 
@@ -109,16 +109,16 @@ SCRIPT
 }
 
 @test "TERM signal waits for running session before exiting with status 143" {
-  local slow_devin="$TEST_DIR/slow-devin"
-  cat > "$slow_devin" <<SCRIPT
+  local slow_backend="$TEST_DIR/slow-backend"
+  cat > "$slow_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 echo "session_started" >> "$TEST_DIR/session-lifecycle.log"
 sleep 3
 echo "session_finished" >> "$TEST_DIR/session-lifecycle.log"
 SCRIPT
-  chmod +x "$slow_devin"
-  export DVB_GRIND_CMD="$slow_devin"
+  chmod +x "$slow_backend"
+  export DVB_GRIND_CMD="$slow_backend"
   export DVB_DEADLINE_OFFSET=30
   export DVB_SHUTDOWN_GRACE=10
 
@@ -229,22 +229,22 @@ SCRIPT
   chmod +x "$hook_dir/pre-push"
   git -C "$grind_repo" config core.hooksPath "$hook_dir"
 
-  local fake_devin="$TEST_DIR/fake-devin-real-final-sync"
-  cat > "$fake_devin" <<'SCRIPT'
+  local fake_backend="$TEST_DIR/fake-backend-real-final-sync"
+  cat > "$fake_backend" <<'SCRIPT'
 #!/bin/bash
 for arg in "$@"; do
   if [ "$arg" = "--version" ]; then
-    echo "fake-devin 1.0.0"
+    echo "fake-backend 1.0.0"
     exit 0
   fi
 done
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 exit 0
 SCRIPT
-  chmod +x "$fake_devin"
+  chmod +x "$fake_backend"
 
   unset DVB_GRIND_CMD
-  export DVB_DEVIN_PATH="$fake_devin"
+  use_fake_claude_binary "$fake_backend"
   export DVB_CAFFEINATED=1
   export DVB_DEADLINE_OFFSET=20
 
@@ -279,22 +279,22 @@ TASKS
   git -C "$grind_repo" config user.name "Test"
   git -C "$grind_repo" config core.hooksPath /dev/null
 
-  local fake_devin="$TEST_DIR/fake-devin-no-final-sync-push"
-  cat > "$fake_devin" <<'SCRIPT'
+  local fake_backend="$TEST_DIR/fake-backend-no-final-sync-push"
+  cat > "$fake_backend" <<'SCRIPT'
 #!/bin/bash
 for arg in "$@"; do
   if [ "$arg" = "--version" ]; then
-    echo "fake-devin 1.0.0"
+    echo "fake-backend 1.0.0"
     exit 0
   fi
 done
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 exit 0
 SCRIPT
-  chmod +x "$fake_devin"
+  chmod +x "$fake_backend"
 
   unset DVB_GRIND_CMD
-  export DVB_DEVIN_PATH="$fake_devin"
+  use_fake_claude_binary "$fake_backend"
   export DVB_CAFFEINATED=1
   export DVB_DEADLINE_OFFSET=20
 
@@ -347,22 +347,22 @@ TASKS
   git -C "$origin_repo" commit -m "remote shipped same content" >/dev/null
   git -C "$origin_repo" push origin main >/dev/null 2>&1
 
-  local fake_devin="$TEST_DIR/fake-devin-rebase-recovery"
-  cat > "$fake_devin" <<'SCRIPT'
+  local fake_backend="$TEST_DIR/fake-backend-rebase-recovery"
+  cat > "$fake_backend" <<'SCRIPT'
 #!/bin/bash
 for arg in "$@"; do
   if [ "$arg" = "--version" ]; then
-    echo "fake-devin 1.0.0"
+    echo "fake-backend 1.0.0"
     exit 0
   fi
 done
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 exit 0
 SCRIPT
-  chmod +x "$fake_devin"
+  chmod +x "$fake_backend"
 
   unset DVB_GRIND_CMD
-  export DVB_DEVIN_PATH="$fake_devin"
+  use_fake_claude_binary "$fake_backend"
   export DVB_CAFFEINATED=1
   export DVB_DEADLINE_OFFSET=20
 
@@ -416,22 +416,22 @@ TASKS
   git -C "$origin_repo" commit -m "origin divergent commit" >/dev/null
   git -C "$origin_repo" push origin main >/dev/null 2>&1
 
-  local fake_devin="$TEST_DIR/fake-devin-conflict"
-  cat > "$fake_devin" <<'SCRIPT'
+  local fake_backend="$TEST_DIR/fake-backend-conflict"
+  cat > "$fake_backend" <<'SCRIPT'
 #!/bin/bash
 for arg in "$@"; do
   if [ "$arg" = "--version" ]; then
-    echo "fake-devin 1.0.0"
+    echo "fake-backend 1.0.0"
     exit 0
   fi
 done
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 exit 0
 SCRIPT
-  chmod +x "$fake_devin"
+  chmod +x "$fake_backend"
 
   unset DVB_GRIND_CMD
-  export DVB_DEVIN_PATH="$fake_devin"
+  use_fake_claude_binary "$fake_backend"
   export DVB_CAFFEINATED=1
   export DVB_DEADLINE_OFFSET=20
 
@@ -478,12 +478,12 @@ TASKS
   git -C "$grind_repo" commit -m "local task commit" >/dev/null
 
   local started_file="$TEST_DIR/session-started"
-  local fake_devin="$TEST_DIR/fake-devin-real-final-sync"
-  cat > "$fake_devin" <<SCRIPT
+  local fake_backend="$TEST_DIR/fake-backend-real-final-sync"
+  cat > "$fake_backend" <<SCRIPT
 #!/bin/bash
 for arg in "\$@"; do
   if [ "\$arg" = "--version" ]; then
-    echo "fake-devin 1.0.0"
+    echo "fake-backend 1.0.0"
     exit 0
   fi
   if [ "\$arg" = "-p" ]; then
@@ -495,10 +495,10 @@ for arg in "\$@"; do
 done
 exit 0
 SCRIPT
-  chmod +x "$fake_devin"
+  chmod +x "$fake_backend"
 
   unset DVB_GRIND_CMD
-  export DVB_DEVIN_PATH="$fake_devin"
+  use_fake_claude_binary "$fake_backend"
   export DVB_CAFFEINATED=1
   export DVB_DEADLINE_OFFSET=30
   export DVB_SHUTDOWN_GRACE=10
@@ -546,12 +546,12 @@ TASKS
   git -C "$grind_repo" commit -m "local task commit" >/dev/null
 
   local started_file="$TEST_DIR/session-started"
-  local fake_devin="$TEST_DIR/fake-devin-repeated-signal-final-sync"
-  cat > "$fake_devin" <<SCRIPT
+  local fake_backend="$TEST_DIR/fake-backend-repeated-signal-final-sync"
+  cat > "$fake_backend" <<SCRIPT
 #!/bin/bash
 for arg in "\$@"; do
   if [ "\$arg" = "--version" ]; then
-    echo "fake-devin 1.0.0"
+    echo "fake-backend 1.0.0"
     exit 0
   fi
   if [ "\$arg" = "-p" ]; then
@@ -563,10 +563,10 @@ for arg in "\$@"; do
 done
 exit 0
 SCRIPT
-  chmod +x "$fake_devin"
+  chmod +x "$fake_backend"
 
   unset DVB_GRIND_CMD
-  export DVB_DEVIN_PATH="$fake_devin"
+  use_fake_claude_binary "$fake_backend"
   export DVB_CAFFEINATED=1
   export DVB_DEADLINE_OFFSET=30
   export DVB_SHUTDOWN_GRACE=10
@@ -727,8 +727,8 @@ TASKS
 @test "stall warning appears in prompt after 3 zero-ship sessions" {
   local counter_file="$TEST_DIR/stall-counter"
   echo "0" > "$counter_file"
-  local prompt_devin="$TEST_DIR/prompt-devin"
-  cat > "$prompt_devin" <<SCRIPT
+  local prompt_backend="$TEST_DIR/prompt-backend"
+  cat > "$prompt_backend" <<SCRIPT
 #!/bin/bash
 n=\$(cat "$counter_file")
 n=\$((n + 1))
@@ -757,8 +757,8 @@ if [ "\$n" -eq 4 ]; then
 EOF
 fi
 SCRIPT
-  chmod +x "$prompt_devin"
-  export DVB_GRIND_CMD="$prompt_devin"
+  chmod +x "$prompt_backend"
+  export DVB_GRIND_CMD="$prompt_backend"
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
 ## P0
@@ -774,8 +774,8 @@ TASKS
 @test "stall warning tells agent to decompose" {
   local counter_file="$TEST_DIR/decompose-counter"
   echo "0" > "$counter_file"
-  local prompt_devin="$TEST_DIR/decompose-prompt-devin"
-  cat > "$prompt_devin" <<SCRIPT
+  local prompt_backend="$TEST_DIR/decompose-prompt-backend"
+  cat > "$prompt_backend" <<SCRIPT
 #!/bin/bash
 n=\$(cat "$counter_file")
 n=\$((n + 1))
@@ -803,8 +803,8 @@ if [ "\$n" -eq 4 ]; then
 EOF
 fi
 SCRIPT
-  chmod +x "$prompt_devin"
-  export DVB_GRIND_CMD="$prompt_devin"
+  chmod +x "$prompt_backend"
+  export DVB_GRIND_CMD="$prompt_backend"
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
 ## P0
@@ -827,9 +827,9 @@ TASKS
   git -C "$TEST_REPO" add -f TASKS.md
   git -C "$TEST_REPO" commit -q -m "chore: initial"
 
-  # Fake devin that commits code but never removes the task
-  local commit_devin="$TEST_DIR/commit-devin"
-  cat > "$commit_devin" <<SCRIPT
+  # Fake backend that commits code but never removes the task
+  local commit_backend="$TEST_DIR/commit-backend"
+  cat > "$commit_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
@@ -837,8 +837,8 @@ echo "fix something" >> "$TEST_REPO/code.txt"
 git -C "$TEST_REPO" add -A
 git -C "$TEST_REPO" commit -q -m "fix: session work" --allow-empty
 SCRIPT
-  chmod +x "$commit_devin"
-  export DVB_GRIND_CMD="$commit_devin"
+  chmod +x "$commit_backend"
+  export DVB_GRIND_CMD="$commit_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -865,16 +865,16 @@ TASKS
   git -C "$TEST_REPO" add -f TASKS.md
   git -C "$TEST_REPO" commit -q -m "chore: initial"
 
-  local commit_devin="$TEST_DIR/commit-devin"
-  cat > "$commit_devin" <<SCRIPT
+  local commit_backend="$TEST_DIR/commit-backend"
+  cat > "$commit_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 echo "fix something" >> "$TEST_REPO/code.txt"
 git -C "$TEST_REPO" add -A
 git -C "$TEST_REPO" commit -q -m "fix: session work" --allow-empty
 SCRIPT
-  chmod +x "$commit_devin"
-  export DVB_GRIND_CMD="$commit_devin"
+  chmod +x "$commit_backend"
+  export DVB_GRIND_CMD="$commit_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -901,8 +901,8 @@ TASKS
   git -C "$TEST_REPO" add TASKS.md
   git -C "$TEST_REPO" commit -q -m "initial"
 
-  local commit_devin="$TEST_DIR/commit-devin"
-  cat > "$commit_devin" <<SCRIPT
+  local commit_backend="$TEST_DIR/commit-backend"
+  cat > "$commit_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 cat > "$TEST_REPO/TASKS.md" <<'EOF'
@@ -917,8 +917,8 @@ echo "new work" >> "$TEST_REPO/code.txt"
 git -C "$TEST_REPO" add -A
 git -C "$TEST_REPO" commit -q -m "fix: session work"
 SCRIPT
-  chmod +x "$commit_devin"
-  export DVB_GRIND_CMD="$commit_devin"
+  chmod +x "$commit_backend"
+  export DVB_GRIND_CMD="$commit_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -941,8 +941,8 @@ TASKS
   git -C "$TEST_REPO" add TASKS.md
   git -C "$TEST_REPO" commit -q -m "initial"
 
-  local commit_devin="$TEST_DIR/commit-devin"
-  cat > "$commit_devin" <<SCRIPT
+  local commit_backend="$TEST_DIR/commit-backend"
+  cat > "$commit_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 cat > "$TEST_REPO/TASKS.md" <<'EOF'
@@ -966,8 +966,8 @@ echo "new work" >> "$TEST_REPO/code.txt"
 git -C "$TEST_REPO" add -A
 git -C "$TEST_REPO" commit -q -m "fix: session work after task churn"
 SCRIPT
-  chmod +x "$commit_devin"
-  export DVB_GRIND_CMD="$commit_devin"
+  chmod +x "$commit_backend"
+  export DVB_GRIND_CMD="$commit_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -995,14 +995,14 @@ TASKS
   git -C "$TEST_REPO" add -f TASKS.md
   git -C "$TEST_REPO" commit -q -m "chore: seed queue"
 
-  # Fake devin does the orphan-branch checkout + queue refresh once per
+  # Fake backend does the orphan-branch checkout + queue refresh once per
   # session. The `sleep 2` is gone — that was a hack to keep session 1
   # alive past the original `DVB_DEADLINE=$(( now + 1 ))` window, which
   # itself was the parallel-load flake source. With `DVB_DEADLINE_OFFSET=15`
   # the deadline is set relative to taskgrind's own clock read, so the
   # session loop is guaranteed to enter once even under heavy bats load.
-  local commit_devin="$TEST_DIR/commit-devin"
-  cat > "$commit_devin" <<SCRIPT
+  local commit_backend="$TEST_DIR/commit-backend"
+  cat > "$commit_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 git -C "$TEST_REPO" checkout --orphan refreshed-queue >/dev/null 2>&1
@@ -1017,12 +1017,12 @@ echo "audit refresh" > "$TEST_REPO/code.txt"
 git -C "$TEST_REPO" add -A
 git -C "$TEST_REPO" commit -q -m "chore: refresh audit queue"
 SCRIPT
-  chmod +x "$commit_devin"
-  export DVB_GRIND_CMD="$commit_devin"
+  chmod +x "$commit_backend"
+  export DVB_GRIND_CMD="$commit_backend"
 
   # Use DVB_DEADLINE_OFFSET so heavy parallel-setup latency cannot push the
   # deadline into the past before the session loop enters. 5s is plenty —
-  # the fake devin runs in <100ms; this is just guaranteeing one iteration.
+  # the fake backend runs in <100ms; this is just guaranteeing one iteration.
   export DVB_DEADLINE_OFFSET=20
   export DVB_MAX_ZERO_SHIP=1  # bail after 1 zero-ship to keep the run short
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -1054,8 +1054,8 @@ TASKS
   git -C "$TEST_REPO" add TASKS.md other/TASKS.md
   git -C "$TEST_REPO" commit -q -m "chore: seed local and non-local queues"
 
-  local commit_devin="$TEST_DIR/commit-devin"
-  cat > "$commit_devin" <<SCRIPT
+  local commit_backend="$TEST_DIR/commit-backend"
+  cat > "$commit_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 cat > "$TEST_REPO/other/TASKS.md" <<'EOF'
@@ -1066,8 +1066,8 @@ echo "new work" >> "$TEST_REPO/code.txt"
 git -C "$TEST_REPO" add -A
 git -C "$TEST_REPO" commit -q -m "fix: clear non-local task"
 SCRIPT
-  chmod +x "$commit_devin"
-  export DVB_GRIND_CMD="$commit_devin"
+  chmod +x "$commit_backend"
+  export DVB_GRIND_CMD="$commit_backend"
 
   export DVB_DEADLINE_OFFSET=10
   export DVB_MAX_ZERO_SHIP=5
@@ -1086,8 +1086,8 @@ SCRIPT
 
   local counter_file="$TEST_DIR/commit-counter"
   echo "0" > "$counter_file"
-  local commit_devin="$TEST_DIR/commit-devin"
-  cat > "$commit_devin" <<SCRIPT
+  local commit_backend="$TEST_DIR/commit-backend"
+  cat > "$commit_backend" <<SCRIPT
 #!/bin/bash
 n=\$(cat "$counter_file")
 n=\$((n + 1))
@@ -1119,8 +1119,8 @@ if [ "\$n" -eq 3 ]; then
 EOF
 fi
 SCRIPT
-  chmod +x "$commit_devin"
-  export DVB_GRIND_CMD="$commit_devin"
+  chmod +x "$commit_backend"
+  export DVB_GRIND_CMD="$commit_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -1150,11 +1150,11 @@ TASKS
 }
 
 @test "zero-ship counter resets when a session ships a task" {
-  # Fake devin that removes a task each run by counting invocations and rewriting TASKS.md
-  local ship_devin="$TEST_DIR/ship-devin"
+  # Fake backend that removes a task each run by counting invocations and rewriting TASKS.md
+  local ship_backend="$TEST_DIR/ship-backend"
   local counter_file="$TEST_DIR/ship-counter"
   echo "0" > "$counter_file"
-  cat > "$ship_devin" <<SCRIPT
+  cat > "$ship_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 # Increment counter and rewrite TASKS.md with one fewer task
@@ -1173,8 +1173,8 @@ remaining=\$((30 - n))
   done
 } > "$TEST_REPO/TASKS.md"
 SCRIPT
-  chmod +x "$ship_devin"
-  export DVB_GRIND_CMD="$ship_devin"
+  chmod +x "$ship_backend"
+  export DVB_GRIND_CMD="$ship_backend"
 
   # Start with 30 tasks
   {
@@ -1206,13 +1206,13 @@ SCRIPT
 
 @test "grind_done is last log entry on Ctrl-C interrupt" {
   export DVB_DEADLINE_OFFSET=30
-  local slow_devin="$TEST_DIR/slow-devin"
-  cat > "$slow_devin" <<'SCRIPT'
+  local slow_backend="$TEST_DIR/slow-backend"
+  cat > "$slow_backend" <<'SCRIPT'
 #!/bin/bash
 sleep 10
 SCRIPT
-  chmod +x "$slow_devin"
-  export DVB_GRIND_CMD="$slow_devin"
+  chmod +x "$slow_backend"
+  export DVB_GRIND_CMD="$slow_backend"
 
   "$DVB_GRIND" 1 "$TEST_REPO" > "$TEST_DIR/int-output.txt" 2>&1 &
   local grind_pid=$!
@@ -1282,19 +1282,19 @@ SCRIPT
   # runs. Any other invocation — including `-p <prompt>` — falls through to
   # the real stubborn-session behaviour: trap SIGINT and sleep long enough
   # that the DVB_MAX_SESSION=1 watchdog has to escalate through grace.
-  local stubborn_devin="$TEST_DIR/stubborn-devin"
-  cat > "$stubborn_devin" <<'SCRIPT'
+  local stubborn_backend="$TEST_DIR/stubborn-backend"
+  cat > "$stubborn_backend" <<'SCRIPT'
 #!/bin/bash
 case "$1" in
-  --version) echo "stubborn-devin 1.0"; exit 0 ;;
+  --version) echo "stubborn-backend 1.0"; exit 0 ;;
 esac
 trap '' INT
 sleep 5
 SCRIPT
-  chmod +x "$stubborn_devin"
+  chmod +x "$stubborn_backend"
 
   unset DVB_GRIND_CMD
-  export TG_DEVIN_PATH="$stubborn_devin"
+  use_fake_claude_binary "$stubborn_backend"
   export DVB_MAX_SESSION=1
   export DVB_SESSION_GRACE=9
   export TG_SESSION_GRACE=0
@@ -1384,11 +1384,11 @@ TASKS
 }
 
 @test "productive timeout warning when shipped session hits timeout" {
-  # Fake devin that removes one task per invocation
-  local ship_devin="$TEST_DIR/ship-devin"
+  # Fake backend that removes one task per invocation
+  local ship_backend="$TEST_DIR/ship-backend"
   local counter_file="$TEST_DIR/ship-counter"
   echo "0" > "$counter_file"
-  cat > "$ship_devin" <<SCRIPT
+  cat > "$ship_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 n=\$(cat "$counter_file")
@@ -1406,8 +1406,8 @@ remaining=\$((5 - n))
   done
 } > "$TEST_REPO/TASKS.md"
 SCRIPT
-  chmod +x "$ship_devin"
-  export DVB_GRIND_CMD="$ship_devin"
+  chmod +x "$ship_backend"
+  export DVB_GRIND_CMD="$ship_backend"
 
   {
     echo "# Tasks"
@@ -1427,10 +1427,10 @@ SCRIPT
 }
 
 @test "productive timeout auto-increases max_session" {
-  local ship_devin="$TEST_DIR/ship-devin"
+  local ship_backend="$TEST_DIR/ship-backend"
   local counter_file="$TEST_DIR/ship-counter"
   echo "0" > "$counter_file"
-  cat > "$ship_devin" <<SCRIPT
+  cat > "$ship_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 n=\$(cat "$counter_file")
@@ -1448,8 +1448,8 @@ remaining=\$((3 - n))
   done
 } > "$TEST_REPO/TASKS.md"
 SCRIPT
-  chmod +x "$ship_devin"
-  export DVB_GRIND_CMD="$ship_devin"
+  chmod +x "$ship_backend"
+  export DVB_GRIND_CMD="$ship_backend"
 
   {
     echo "# Tasks"
@@ -1527,17 +1527,17 @@ SCRIPT
 - [ ] Signal abort test
 TASKS
 
-  # Slow fake devin that runs long enough for us to send a signal
-  local slow_devin="$TEST_DIR/slow-devin-abort"
-  cat > "$slow_devin" <<SCRIPT
+  # Slow fake backend that runs long enough for us to send a signal
+  local slow_backend="$TEST_DIR/slow-backend-abort"
+  cat > "$slow_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 echo "started" >> "$TEST_DIR/abort-lifecycle.log"
 sleep 30
 SCRIPT
-  chmod +x "$slow_devin"
+  chmod +x "$slow_backend"
 
-  export DVB_GRIND_CMD="$slow_devin"
+  export DVB_GRIND_CMD="$slow_backend"
   export DVB_BOSUN_HEARTBEAT_TEST=1
   export DVB_REGISTER_REAL_BOSUN_GRIND=1
   export TG_BOSUN_HEARTBEAT_INTERVAL=99

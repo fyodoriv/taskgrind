@@ -44,7 +44,7 @@
   [ "$status" -eq 0 ]
   run grep -nF 'taskgrind --resume --backend claude-code --model sonnet ~/apps/myrepo' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]
-  run grep -nF 'taskgrind --rotate-backends devin,claude-code,codex ~/apps/myrepo 8' "$BATS_TEST_DIRNAME/../README.md"
+  run grep -nF 'taskgrind --rotate-backends claude-code,codex ~/apps/myrepo 8' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]
   run grep -nF 'Claude Code fails before useful work starts' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]

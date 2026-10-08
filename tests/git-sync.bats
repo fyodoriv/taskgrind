@@ -1372,17 +1372,17 @@ SCRIPT
   git -C "$grind_repo" config core.hooksPath "$hook_dir"
 }
 
-# Fake-devin shim that no-ops; required for taskgrind's session loop to run
+# Fake-backend shim that no-ops; required for taskgrind's session loop to run
 # without trying to spawn a real backend during the test.
-_setup_fake_devin() {
+_setup_fake_backend() {
   local fake="$1"
-  mkdir -p "$TEST_HOME/.config/devin/skills/next-task"
-  printf '# next-task\n' > "$TEST_HOME/.config/devin/skills/next-task/SKILL.md"
+  mkdir -p "$TEST_HOME/.claude/skills/next-task"
+  printf '# next-task\n' > "$TEST_HOME/.claude/skills/next-task/SKILL.md"
   cat > "$fake" <<'SCRIPT'
 #!/bin/bash
 for arg in "$@"; do
   if [ "$arg" = "--version" ]; then
-    echo "fake-devin 1.0.0"
+    echo "fake-backend 1.0.0"
     exit 0
   fi
 done
@@ -1445,11 +1445,11 @@ exit 0
 SCRIPT
   chmod +x "$gh_stub_dir/gh"
 
-  local fake_devin="$TEST_DIR/fake-devin-pr-fallback"
-  _setup_fake_devin "$fake_devin"
+  local fake_backend="$TEST_DIR/fake-backend-pr-fallback"
+  _setup_fake_backend "$fake_backend"
 
   unset DVB_GRIND_CMD
-  export DVB_DEVIN_PATH="$fake_devin"
+  use_fake_claude_binary "$fake_backend"
   export DVB_CAFFEINATED=1
   export DVB_DEADLINE_OFFSET=20
   # Approval token is required for auto-PR creation.
@@ -1487,12 +1487,12 @@ exit 0
 SCRIPT
   chmod +x "$gh_stub_dir/gh"
 
-  local fake_devin="$TEST_DIR/fake-devin-notoken"
-  _setup_fake_devin "$fake_devin"
+  local fake_backend="$TEST_DIR/fake-backend-notoken"
+  _setup_fake_backend "$fake_backend"
 
   unset DVB_GRIND_CMD
   unset TG_PUBLIC_WRITE_TOKEN
-  export DVB_DEVIN_PATH="$fake_devin"
+  use_fake_claude_binary "$fake_backend"
   export DVB_CAFFEINATED=1
   export DVB_DEADLINE_OFFSET=20
   PATH="$gh_stub_dir:$PATH" "$DVB_GRIND" 1 "$grind_repo" >/dev/null 2>&1
@@ -1526,11 +1526,11 @@ exit 0
 SCRIPT
   chmod +x "$gh_stub_dir/gh"
 
-  local fake_devin="$TEST_DIR/fake-devin-no-pr-fallback"
-  _setup_fake_devin "$fake_devin"
+  local fake_backend="$TEST_DIR/fake-backend-no-pr-fallback"
+  _setup_fake_backend "$fake_backend"
 
   unset DVB_GRIND_CMD
-  export DVB_DEVIN_PATH="$fake_devin"
+  use_fake_claude_binary "$fake_backend"
   export DVB_CAFFEINATED=1
   export DVB_DEADLINE_OFFSET=20
   PATH="$gh_stub_dir:$PATH" "$DVB_GRIND" 1 "$grind_repo" --no-pr-fallback >/dev/null 2>&1
@@ -1560,11 +1560,11 @@ exit 0
 SCRIPT
   chmod +x "$gh_stub_dir/gh"
 
-  local fake_devin="$TEST_DIR/fake-devin-env-no-pr"
-  _setup_fake_devin "$fake_devin"
+  local fake_backend="$TEST_DIR/fake-backend-env-no-pr"
+  _setup_fake_backend "$fake_backend"
 
   unset DVB_GRIND_CMD
-  export DVB_DEVIN_PATH="$fake_devin"
+  use_fake_claude_binary "$fake_backend"
   export DVB_CAFFEINATED=1
   export DVB_DEADLINE_OFFSET=20
   PATH="$gh_stub_dir:$PATH" TG_NO_PR_FALLBACK=1 "$DVB_GRIND" 1 "$grind_repo" >/dev/null 2>&1

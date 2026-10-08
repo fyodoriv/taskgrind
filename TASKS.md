@@ -112,22 +112,6 @@
     - `taskgrind-2026-05-01-2245-dotfiles-37908.log` reproduction (a fake sweep that hangs for 30 s with a 5 s cap) ends with `sweep_done elapsed_in_window=true` and the watchdog escalation marker; without the fix, the elapsed exceeds 30 s
     - `make check` passes including the three new watchdog tests; PR description includes a `before/after` table showing the wedged-backend test now bounds runtime at `cap + 30 s` instead of running indefinitely
 
-- [ ] Translate the active model when `backend_rotated` switches between Devin and Claude Code so rotation does not silently fail
-  - **ID**: backend-rotation-translate-model-per-backend
-  - **Tags**: backend, rotation, claude-code, model, fast-fail, log-mining
-  - **Source**: `taskgrind-2026-05-01-1850-taskgrind-30444.log`. After `backend_rotated from=devin to=claude-code reason=rate_limit index=1` at 21:37, sessions 6, 7, and 8 each terminated in 4-6 s with the Claude Code error: *"There's an issue with the selected model (gpt-5-5-xhigh-priority). It may not exist or you may not have access to it. Run --model to pick a different model."* Three back-to-back fast-fails before `consecutive=3` triggered backoff, then `self_investigate anomaly=zero_ship_streak` rotated back to `devin`. The chosen model is Devin-specific (`gpt-5-5-xhigh-priority`); Claude Code rejects unknown ids outright. Today's `chore: set claude-opus-4-7-max as the default model` (commit `135f9b6`) split `DVB_DEFAULT_DEVIN_MODEL`/`DVB_DEFAULT_CLAUDE_CODE_MODEL` for the *zero-flag default* case, but explicit `--model` / `TG_MODEL` / `DVB_MODEL` values still pass through verbatim and break the same way during rotation. **Live re-reproduction 2026-05-03 00:10**: tech-lead's 10h grind session 7 wedged to cap at 90 min → `self_investigate anomaly=zero_ship_streak streak=3` → `backend_rotated from=devin to=claude-code reason=zero_ship_streak` → **session 8 died in 11 seconds** with the identical error, now against `claude-opus-4-7-max` (the new post-`135f9b6` default): *"There's an issue with the selected model (claude-opus-4-7-max). It may not exist or you may not have access to it."* → `consecutive_zero_ship=4` → rotated back to devin → session 9. One in-flight wedge burned 90 min + 11 s + another `self_investigate` cycle that this task would have prevented. The bug now reproduces on BOTH the pre-fix (`gpt-5-5-xhigh-priority`) and post-fix (`claude-opus-4-7-max`) defaults — which is the proof that "split per-backend *defaults*" doesn't help the rotation path.
-  - **Details**: When `dvb_select_backend` advances to a different backend mid-grind, the model passed to the new backend should be translated through the same per-backend default machinery (`dvb_default_model_for_backend`) when the active model is known to be invalid for the target backend. Two designs are viable, pick the smaller one:
-    1. **Translation table approach**: Maintain a `DVB_BACKEND_MODEL_TRANSLATIONS` table mapping (source_backend, source_model) → target_backend_model for known incompatibilities. Initial entries: `(devin, gpt-5-5-xhigh-priority) → (claude-code, claude-opus-4-7)`, `(devin, claude-opus-4-7-max) → (claude-code, claude-opus-4-7)`, `(*, gpt-*) → (claude-code, claude-opus-4-7)`. Falls back to `DVB_DEFAULT_<BACKEND>_MODEL` if no entry matches. Lives in `lib/constants.sh` next to the existing `DVB_MODEL_ALIASES`.
-    2. **Probe + fallback approach**: On rotation, probe the new backend with `claude --model X --print "ok"` (or `devin --model X --print "ok"`) on a 5-second timeout. If the probe rejects the model, fall back to the per-backend default and log `backend_rotated_model_fallback from=X to=Y backend=Z reason=rejected`. More resilient to future model changes but adds a probe cost on every rotation.
-    Either approach: emit a structured log marker `backend_rotated_model_translated from=devin/X to=claude-code/Y reason=incompatible` so operators see the translation in the log and can audit it. The current `backend_rotated` line should still appear; the translation line is additive context. Do not silently swallow rejection — if the translation produces the same error from the new backend, escalate to a `backend_rotated_failed` terminal reason after 1 fast-fail (not 3) since translation already removed the most likely cause.
-  - **Files**: `bin/taskgrind` (the rotation block plus the `dvb_default_model_for_backend` call sites), `lib/constants.sh` (translation table or probe helper), `tests/rotate-backends.bats` (add cases: devin→claude-code with explicit Devin-only model translates; explicit claude-code→devin keeps the Devin-compatible model; probe/translate is logged as a single line; rotation that still fails escalates after 1 fast-fail not 3), `tests/test_helper.bash` (extend the fake-backend fixture to simulate "model rejected" exit-1 with the exact error string), `README.md` (mention rotation-time translation under "Multi-backend support"), `man/taskgrind.1` (TROUBLESHOOTING entry: "Sessions fast-fail with `model not found` after `backend_rotated`: rotation translation didn't trigger; check `backend_rotated_model_translated` markers"), `docs/architecture.md` (note that rotation respects per-backend model compatibility)
-  - **Acceptance**:
-    - `tests/rotate-backends.bats` covers the three regression scenarios above; each fixture asserts the new `backend_rotated_model_translated` marker exactly once
-    - In the reproduction (`TG_BACKEND=devin TG_ROTATE_BACKENDS=devin,claude-code TG_MODEL=gpt-5-5-xhigh-priority` with a fake claude that rejects unknown models), the rotation produces a Claude-Code-compatible model and the next session is not a fast-fail
-    - The 3-session fast-fail loop observed in the source log (21:38:6s → 21:38:4s → 21:38:6s) cannot recur for *known* incompatibilities; the test harness verifies escalation to `backend_rotated_failed` after 1 fast-fail when translation also fails (defends against future model-rename without hiding it for 3 sessions)
-    - `man/taskgrind.1` and `README.md` document the marker and the translation table location
-    - `make check` passes; the new test suite stays under +5 s on the `make test` budget
-
 - [ ] Session-watchdog must escalate to `SIGKILL` so a single claude-code session cannot run 4× past `TG_MAX_SESSION`
   - **ID**: session-watchdog-escalate-to-sigkill
   - **Tags**: watchdog, deadline, signals, claude-code, log-mining
@@ -805,12 +789,12 @@
 
 ## P3
 
-- [ ] Add automated repo-local skill validation so invalid `.devin/skills/*/SKILL.md` files fail fast in `make audit`
+- [ ] Add automated repo-local skill validation so invalid `.agents/skills/*/SKILL.md` files fail fast in `make audit`
   - **ID**: validate-repo-local-skill-frontmatter
   - **Tags**: skills, audit, devex
   - **Source**: 2026-04-30 addition of `taskgrind-repo-setup` showed the Makefile audit can include repo-local skills in grep/docs-review, but it still does not validate skill names, frontmatter delimiters, or description length.
-  - **Details**: Add a lightweight validation script or Makefile target that scans every `.devin/skills/*/SKILL.md` file and verifies the basic Devin skill contract: directory/name alignment, lowercase hyphenated `name`, non-empty `description`, frontmatter delimiters, and a body with a `## Constraints` section. Keep it dependency-light; a short Python script is fine if shell parsing is brittle.
-  - **Files**: `Makefile`, `.devin/skills/*/SKILL.md`, optional `scripts/validate-skills.py`
+  - **Details**: Add a lightweight validation script or Makefile target that scans every `.agents/skills/*/SKILL.md` file and verifies the basic skill contract: directory/name alignment, lowercase hyphenated `name`, non-empty `description`, frontmatter delimiters, and a body with a `## Constraints` section. Keep it dependency-light; a short Python script is fine if shell parsing is brittle.
+  - **Files**: `Makefile`, `.agents/skills/*/SKILL.md`, optional `scripts/validate-skills.py`
   - **Acceptance**: `make audit` fails on a deliberately malformed temporary skill in a test fixture or scripted self-check, passes on all current repo-local skills, and documents the validation command in `AGENTS.md`
 
 - [ ] Add visible progress for long Bats files so `make check` does not look frozen
@@ -945,8 +929,8 @@
   - **Files**:
     - `AGENTS.md`
     - `Agentfile.yaml`
-    - `.devin/skills/grind-log-analyze/SKILL.md`
-    - `.devin/skills/standing-audit-gap-loop/SKILL.md`
+    - `.agents/skills/grind-log-analyze/SKILL.md`
+    - `.agents/skills/standing-audit-gap-loop/SKILL.md`
     - `TASKS.md`
   - **Acceptance**:
     - `AGENTS.md` has the shared baseline sections: purpose, layout,

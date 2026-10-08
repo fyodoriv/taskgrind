@@ -60,7 +60,7 @@ PY
   run_tiny_workload
   grep -q '# taskgrind started' "$TEST_LOG"
   grep -q "hours=1" "$TEST_LOG"
-  grep -q "model=claude-opus-4-7-max" "$TEST_LOG"
+  grep -q "model=claude-opus-4-7" "$TEST_LOG"
 }
 
 @test "log file records session start entries" {
@@ -87,9 +87,9 @@ assert data["repo"] == expected_repo
 assert data["current_phase"] == "complete"
 assert data["terminal_reason"] in (None, "deadline_expired", "queue_empty"), data["terminal_reason"]
 assert data["session"] >= 1
-assert data["backend"] == "devin"
+assert data["backend"] == "claude-code"
 assert data["skill"] == "next-task"
-assert data["model"] == "claude-opus-4-7-max"
+assert data["model"] == "claude-opus-4-7"
 assert data["last_session"]["number"] >= 1
 assert data["last_session"]["result"] == "success"
 assert data["last_session"]["completed_at"]
@@ -157,14 +157,14 @@ PY
 
 @test "status file updates while a session is running" {
   local status_file="$TEST_DIR/live-status.json"
-  local slow_devin="$TEST_DIR/slow-devin"
-  cat > "$slow_devin" <<'SCRIPT'
+  local slow_backend="$TEST_DIR/slow-backend"
+  cat > "$slow_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 sleep 2
 SCRIPT
-  chmod +x "$slow_devin"
-  export DVB_GRIND_CMD="$slow_devin"
+  chmod +x "$slow_backend"
+  export DVB_GRIND_CMD="$slow_backend"
   export DVB_STATUS_FILE="$status_file"
   export DVB_DEADLINE_OFFSET=10
 
@@ -192,16 +192,16 @@ PY
 
 @test "status file tracks empty-queue sweep phases and records the sweep result" {
   local status_file="$TEST_DIR/empty-queue-status.json"
-  local slow_sweep_devin="$TEST_DIR/slow-sweep-devin"
-  cat > "$slow_sweep_devin" <<'SCRIPT'
+  local slow_sweep_backend="$TEST_DIR/slow-sweep-backend"
+  cat > "$slow_sweep_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 if echo "$@" | grep -q "TASKS.md is empty"; then
   sleep 2
 fi
 SCRIPT
-  chmod +x "$slow_sweep_devin"
-  export DVB_GRIND_CMD="$slow_sweep_devin"
+  chmod +x "$slow_sweep_backend"
+  export DVB_GRIND_CMD="$slow_sweep_backend"
   export DVB_STATUS_FILE="$status_file"
   export DVB_EMPTY_QUEUE_WAIT=2
   export DVB_DEADLINE_OFFSET=15
@@ -230,8 +230,8 @@ PY
 @test "session banner and log entry include active model" {
   run_tiny_workload
   [[ "$output" == *"Session 1"* ]]
-  [[ "$output" == *"tasks queued — model=claude-opus-4-7-max"* ]]
-  grep -q 'session=1 .*model=claude-opus-4-7-max' "$TEST_LOG"
+  [[ "$output" == *"tasks queued — model=claude-opus-4-7"* ]]
+  grep -q 'session=1 .*model=claude-opus-4-7' "$TEST_LOG"
 }
 
 @test "log file records session end entries" {
@@ -285,7 +285,7 @@ TASKS
   run_tiny_workload
   [[ "$output" == *"taskgrind"* ]]
   [[ "$output" == *"1h"* ]]
-  [[ "$output" == *"claude-opus-4-7-max"* ]]
+  [[ "$output" == *"claude-opus-4-7"* ]]
 }
 
 @test "shows startup banner with repo path" {
@@ -330,9 +330,9 @@ TASKS
 
 @test "live model log includes resolved model and raw alias" {
   echo "sonnet" > "$TEST_REPO/.taskgrind-model"
-  run_tiny_workload --model claude-opus-4-7-max 1 "$TEST_REPO"
+  run_tiny_workload --model claude-opus-4-7 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  grep -q 'live_model=claude-sonnet-4.6 (alias=sonnet, startup=claude-opus-4-7-max)' "$TEST_LOG"
+  grep -q 'live_model=claude-sonnet-4.6 (alias=sonnet, startup=claude-opus-4-7)' "$TEST_LOG"
 }
 
 # ── DVB_DEADLINE override ────────────────────────────────────────────
@@ -384,15 +384,15 @@ SCRIPT
 
 # ── Working directory ────────────────────────────────────────────────
 
-@test "changes to repo directory for devin session" {
-  # Fake devin that records its cwd
-  local cwd_devin="$TEST_DIR/cwd-devin"
-  cat > "$cwd_devin" <<SCRIPT
+@test "changes to repo directory for backend session" {
+  # Fake backend that records its cwd
+  local cwd_backend="$TEST_DIR/cwd-backend"
+  cat > "$cwd_backend" <<SCRIPT
 #!/bin/bash
 pwd >> "$TEST_DIR/cwd.log"
 SCRIPT
-  chmod +x "$cwd_devin"
-  export DVB_GRIND_CMD="$cwd_devin"
+  chmod +x "$cwd_backend"
+  export DVB_GRIND_CMD="$cwd_backend"
   export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q "$TEST_REPO" "$TEST_DIR/cwd.log"

@@ -73,13 +73,13 @@ SCRIPT
 @test "--preflight runs health checks and exits 0 on healthy repo" {
   _preflight_git_init
   _install_fake_skill "next-task"
-  # Drop the fake DVB_GRIND_CMD and install a fake 'devin' on PATH so the
+  # Drop the fake DVB_GRIND_CMD and install a fake claude on PATH so the
   # real binary-resolution + model-validation paths run, but against a
-  # deterministic fixture instead of the operator's installed devin CLI
+  # deterministic fixture instead of the operator's installed claude CLI
   # (which fails model validation under HOME=$TEST_HOME because the
   # versioned install cannot be located).
   unset DVB_GRIND_CMD
-  _install_fake_backend_binary "devin"
+  _install_fake_backend_binary "claude"
   # Add TASKS.md
   echo "# Tasks" > "$TEST_REPO/TASKS.md"
   run "$DVB_GRIND" --preflight "$TEST_REPO"
@@ -101,34 +101,34 @@ SCRIPT
 @test "--preflight fails when selected backend cannot see fleet-grind skill" {
   _preflight_git_init
   unset DVB_GRIND_CMD
-  _install_fake_backend_binary "devin"
+  _install_fake_backend_binary "claude"
   _install_fake_network_watchdog
 
   run "$DVB_GRIND" --preflight --skill fleet-grind "$TEST_REPO"
 
   [ "$status" -eq 1 ]
-  [[ "$output" == *"Requested skill 'fleet-grind' is not visible to backend 'devin'"* ]]
-  [[ "$output" == *"$TEST_HOME/.config/devin/skills/fleet-grind/SKILL.md"* ]]
+  [[ "$output" == *"Requested skill 'fleet-grind' is not visible to backend 'claude-code'"* ]]
+  [[ "$output" == *"$TEST_HOME/.claude/skills/fleet-grind/SKILL.md"* ]]
   [[ "$output" == *"Preflight FAILED"* ]]
   [[ "$output" != *"Bosun server unreachable"* ]]
 }
 
-@test "--preflight accepts repo-local devin skill when skill validation is enabled in test mode" {
+@test "--preflight accepts repo-local skill when skill validation is enabled in test mode" {
   _preflight_git_init
-  mkdir -p "$TEST_REPO/.devin/skills/fleet-grind"
-  printf '# fleet-grind\n' > "$TEST_REPO/.devin/skills/fleet-grind/SKILL.md"
+  mkdir -p "$TEST_REPO/.agents/skills/fleet-grind"
+  printf '# fleet-grind\n' > "$TEST_REPO/.agents/skills/fleet-grind/SKILL.md"
   export DVB_VALIDATE_SKILL=1
 
   run "$DVB_GRIND" --preflight --skill fleet-grind "$TEST_REPO"
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Skill visible to devin: fleet-grind ($TEST_REPO/.devin/skills/fleet-grind/SKILL.md)"* ]]
+  [[ "$output" == *"Skill visible to claude-code: fleet-grind ($TEST_REPO/.agents/skills/fleet-grind/SKILL.md)"* ]]
 }
 
 @test "--preflight checks skill visibility against the selected backend" {
   _preflight_git_init
-  mkdir -p "$TEST_HOME/.config/devin/skills/fleet-grind"
-  printf '# fleet-grind\n' > "$TEST_HOME/.config/devin/skills/fleet-grind/SKILL.md"
+  mkdir -p "$TEST_HOME/.claude/skills/fleet-grind"
+  printf '# fleet-grind\n' > "$TEST_HOME/.claude/skills/fleet-grind/SKILL.md"
   export DVB_VALIDATE_SKILL=1
 
   run "$DVB_GRIND" --preflight --backend codex --skill fleet-grind "$TEST_REPO"
@@ -136,7 +136,7 @@ SCRIPT
   [ "$status" -eq 1 ]
   [[ "$output" == *"Requested skill 'fleet-grind' is not visible to backend 'codex'"* ]]
   [[ "$output" == *"$TEST_HOME/.codex/skills/fleet-grind/SKILL.md"* ]]
-  [[ "$output" != *"$TEST_HOME/.config/devin/skills/fleet-grind/SKILL.md"* ]]
+  [[ "$output" != *"$TEST_HOME/.claude/skills/fleet-grind/SKILL.md"* ]]
 }
 
 @test "--preflight shows prompt if provided" {
@@ -162,7 +162,7 @@ SCRIPT
   [ ! -f "$pf_log" ]
 }
 
-@test "--preflight does not launch any devin sessions" {
+@test "--preflight does not launch any backend sessions" {
   _preflight_git_init
   run "$DVB_GRIND" --preflight "$TEST_REPO"
   [ "$status" -eq 0 ]
@@ -458,7 +458,7 @@ EOF
   local fake_curl_log="$TEST_DIR/fake-curl.log"
   mkdir -p "$fake_bin"
 
-  create_fake_devin "$fake_bin/devin" <<'SCRIPT'
+  create_fake_backend "$fake_bin/claude" <<'SCRIPT'
 #!/bin/bash
 exit 0
 SCRIPT
@@ -483,8 +483,8 @@ SCRIPT
 }
 
 @test "preflight rejects unknown model before the session loop" {
-  local validating_devin="$TEST_DIR/validating-devin"
-  cat > "$validating_devin" <<'SCRIPT'
+  local validating_backend="$TEST_DIR/validating-backend"
+  cat > "$validating_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 if [[ "$*" == *"--help"* ]] && [[ "$*" == *"--model invalid-model"* ]]; then
@@ -493,8 +493,8 @@ if [[ "$*" == *"--help"* ]] && [[ "$*" == *"--model invalid-model"* ]]; then
 fi
 exit 0
 SCRIPT
-  chmod +x "$validating_devin"
-  export DVB_GRIND_CMD="$validating_devin"
+  chmod +x "$validating_backend"
+  export DVB_GRIND_CMD="$validating_backend"
   export DVB_VALIDATE_MODEL=1
   _preflight_git_init
 
@@ -520,7 +520,7 @@ SCRIPT
   [[ "$output" == *"backend said invalid model: invalid-model"* ]]
   [[ "$output" == *"Model rejected by claude-code before starting"* ]]
   [[ "$output" == *"Claude Code install and account"* ]]
-  [[ "$output" != *"Devin"* ]]
+  :
 
   # With backend_probe guarding startup, the binary is invoked twice before
   # preflight bails: once for '--version' (probe) and once for
@@ -560,11 +560,11 @@ SCRIPT
 }
 
 @test "main loop preflight blocks launch on failure" {
-  # Force preflight failure by pointing DVB_DEVIN_PATH to nonexistent binary.
+  # Force preflight failure by stripping claude from PATH.
   # Must unset DVB_GRIND_CMD so the binary check runs (not skipped in test mode).
-  # Can't rely on HOME alone — command -v devin finds the real binary in PATH.
+  # Can't rely on HOME alone — command -v claude finds the real binary in PATH.
   unset DVB_GRIND_CMD
-  export DVB_DEVIN_PATH="/nonexistent/bin/devin"
+  export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
   export DVB_CAFFEINATED=1
   export _DVB_SELF_COPY="/dev/null"
   export DVB_DEADLINE=$(($(date +%s) + 60))
@@ -574,16 +574,15 @@ SCRIPT
 }
 
 @test "startup probe aborts before session 1 when backend exits immediately with no output" {
-  local stub_devin="$TEST_DIR/stub-devin"
+  local stub_backend="$TEST_DIR/stub-backend"
   unset DVB_VALIDATE_MODEL
-  unset DVB_DEVIN_PATH
-  cat > "$stub_devin" <<'SCRIPT'
+  cat > "$stub_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 exit 0
 SCRIPT
-  chmod +x "$stub_devin"
-  export DVB_GRIND_CMD="$stub_devin"
+  chmod +x "$stub_backend"
+  export DVB_GRIND_CMD="$stub_backend"
   export DVB_VALIDATE_BACKEND_STARTUP=1
   # 5s is too tight under TEST_JOBS=2 parallel load: the deadline can fire
   # before the probe runs, so the script exits with 0
@@ -596,12 +595,12 @@ SCRIPT
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"backend binary may be a stub or broken"* ]]
-  [[ "$output" == *"reinstall or roll back"* ]]
+  [[ "$output" == *"Reinstall Claude Code"* ]]
   # Duration may be 0s, 1s, 2s, ... depending on parallel-test CPU
   # pressure; the probe detection no longer depends on it (output
   # emptiness is the authoritative stub signal). Assert everything else
   # about the log line literally but let the duration float.
-  grep -qE 'backend_probe_failed exit=0 duration=[0-9]+s backend=devin' "$TEST_LOG"
+  grep -qE 'backend_probe_failed exit=0 duration=[0-9]+s backend=claude-code' "$TEST_LOG"
 
   local invoke_count
   invoke_count=$(wc -l < "$DVB_GRIND_INVOKE_LOG" | tr -d ' ')
@@ -610,19 +609,18 @@ SCRIPT
 }
 
 @test "startup probe allows normal sessions when backend returns version output" {
-  local versioned_devin="$TEST_DIR/versioned-devin"
+  local versioned_backend="$TEST_DIR/versioned-backend"
   unset DVB_VALIDATE_MODEL
-  unset DVB_DEVIN_PATH
-  cat > "$versioned_devin" <<'SCRIPT'
+  cat > "$versioned_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 if [[ "${1:-}" == "--version" ]]; then
-  echo "Devin CLI 2026.4.9"
+  echo "Claude Code 2026.4.9"
 fi
 exit 0
 SCRIPT
-  chmod +x "$versioned_devin"
-  export DVB_GRIND_CMD="$versioned_devin"
+  chmod +x "$versioned_backend"
+  export DVB_GRIND_CMD="$versioned_backend"
   export DVB_VALIDATE_BACKEND_STARTUP=1
   # 5s would be too tight under TEST_JOBS=2 — session 1 needs to actually
   # run to completion here (we assert `session=1 ended`). 30s is plenty;

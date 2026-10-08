@@ -23,10 +23,10 @@ _source_constants() {
   source "$BATS_TEST_DIRNAME/../lib/constants.sh"
 }
 
-@test "dvb_resolve_model_alias: opus resolves to claude-opus-4-7-max" {
+@test "dvb_resolve_model_alias: opus resolves to claude-opus-4-7" {
   _source_constants
   result=$(dvb_resolve_model_alias "opus")
-  [[ "$result" == "claude-opus-4-7-max" ]]
+  [[ "$result" == "claude-opus-4-7" ]]
 }
 
 @test "dvb_resolve_model_alias: sonnet resolves to a claude-sonnet-* model id" {
@@ -39,12 +39,6 @@ _source_constants() {
   _source_constants
   result=$(dvb_resolve_model_alias "haiku")
   [[ "$result" == claude-haiku-* ]]
-}
-
-@test "dvb_resolve_model_alias: swe resolves to an swe-* model id" {
-  _source_constants
-  result=$(dvb_resolve_model_alias "swe")
-  [[ "$result" == swe-* ]]
 }
 
 @test "dvb_resolve_model_alias: codex resolves to the Codex GPT-5.5 model id" {

@@ -6,20 +6,16 @@
 # Variables below are sourced by bin/taskgrind.
 # shellcheck disable=SC2034  # used by sourcing scripts
 
-# Default AI model for Devin / Claude-compatible backends.
+# Default AI model for the default backend (Claude Code).
 #
-# Devin's "Claude Opus 4.7 Max" is the kebab-case ID `claude-opus-4-7-max`.
-# Claude Code rejects the `-max` suffix (it's a Devin product label that maps
-# to model `claude-opus-4-7` + max-effort thinking server-side). When taskgrind
-# launches the `claude-code` backend it must drop the suffix; Devin happily
-# accepts the full `-max` ID. Hence the per-backend split below.
-DVB_DEFAULT_MODEL="claude-opus-4-7-max"
-DVB_DEFAULT_DEVIN_MODEL="$DVB_DEFAULT_MODEL"
-DVB_DEFAULT_CLAUDE_CODE_MODEL="claude-opus-4-7"
+# Claude Code rejects the `-max` suffix, so the default is the plain
+# `claude-opus-4-7` ID. Codex has its own default below.
+DVB_DEFAULT_MODEL="claude-opus-4-7"
+DVB_DEFAULT_CLAUDE_CODE_MODEL="$DVB_DEFAULT_MODEL"
 DVB_DEFAULT_CODEX_MODEL="gpt-5.5"
 DVB_RESUME_STATE_VERSION="1"
 DVB_RESUME_STATE_BASENAME=".taskgrind-state"
-DVB_MODEL_ALIASES=$'opus=claude-opus-4-7-max\nsonnet=claude-sonnet-4.6\nhaiku=claude-haiku-4.5\nswe=swe-1.6\ncodex=gpt-5.5\ngpt=gpt-5-5-xhigh-priority'
+DVB_MODEL_ALIASES=$'opus=claude-opus-4-7\nsonnet=claude-sonnet-4.6\nhaiku=claude-haiku-4.5\ncodex=gpt-5.5\ngpt=gpt-5-5-xhigh-priority'
 
 # TG_COOL=5: short settle window between sessions without materially reducing grind time.
 DVB_DEFAULT_COOL="5"
@@ -79,7 +75,7 @@ dvb_default_model_for_backend() {
   case "$1" in
     codex) printf '%s' "$DVB_DEFAULT_CODEX_MODEL" ;;
     claude-code) printf '%s' "$DVB_DEFAULT_CLAUDE_CODE_MODEL" ;;
-    *) printf '%s' "$DVB_DEFAULT_DEVIN_MODEL" ;;
+    *) printf '%s' "$DVB_DEFAULT_MODEL" ;;
   esac
 }
 
@@ -97,17 +93,6 @@ dvb_resolve_model_alias() {
   done <<< "$DVB_MODEL_ALIASES"
   printf '%s' "$requested"
 }
-
-# Devin CLI binary location — resolved at source-time with fallback chain:
-# 1. DVB_DEVIN_PATH env override (user-set), 2. PATH lookup, 3. default install path
-_dvb_default_devin="$HOME/.local/share/devin/cli/_versions/current/bin/devin"
-if [[ -n "${DVB_DEVIN_PATH:-}" ]]; then
-  : # User override — use as-is
-elif command -v devin >/dev/null 2>&1; then
-  DVB_DEVIN_PATH="$(command -v devin)"
-else
-  DVB_DEVIN_PATH="$_dvb_default_devin"
-fi
 
 # Caffeinate flags — prevent system + disk sleep, allow display to sleep/lock
 DVB_CAFFEINATE_FLAGS="-ms"

@@ -359,7 +359,7 @@ _make_target_repo() {
   local t1 t2
   t1=$(_make_target_repo env-export-t1)
   t2=$(_make_target_repo env-export-t2)
-  # Replace the fake devin with one that records env vars too.
+  # Replace the fake backend with one that records env vars too.
   cat > "$DVB_GRIND_CMD" <<SCRIPT
 #!/bin/bash
 echo "args=\$*" >> "\${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"

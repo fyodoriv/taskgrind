@@ -9,13 +9,13 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 # ── Diagnostics and bail out ──────────────────────────────────────────
 
 @test "non-zero exit code is logged per session" {
-  local failing_devin="$TEST_DIR/fail-devin"
-  create_fake_devin "$failing_devin" <<'SCRIPT'
+  local failing_backend="$TEST_DIR/fail-backend"
+  create_fake_backend "$failing_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 exit 42
 SCRIPT
-  export DVB_GRIND_CMD="$failing_devin"
+  export DVB_GRIND_CMD="$failing_backend"
   export DVB_DEADLINE_OFFSET=5
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q 'exit=42' "$TEST_LOG"
@@ -67,12 +67,12 @@ SCRIPT
 }
 
 @test "bail out stops the loop (no more sessions after)" {
-  local counter_devin="$TEST_DIR/counter-devin"
-  create_fake_devin "$counter_devin" <<SCRIPT
+  local counter_backend="$TEST_DIR/counter-backend"
+  create_fake_backend "$counter_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 SCRIPT
-  export DVB_GRIND_CMD="$counter_devin"
+  export DVB_GRIND_CMD="$counter_backend"
   setup_network_sentinel "$TEST_DIR/net-up"
   export DVB_MIN_SESSION=999
   export DVB_MAX_FAST=3
@@ -87,8 +87,8 @@ SCRIPT
 }
 
 @test "fast failure captures session output to log" {
-  local err_devin="$TEST_DIR/err-devin"
-  create_fake_devin "$err_devin" <<'SCRIPT'
+  local err_backend="$TEST_DIR/err-backend"
+  create_fake_backend "$err_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 if [[ "$*" == *"--help"* ]]; then
@@ -97,7 +97,7 @@ fi
 echo "ERROR: something went wrong"
 exit 1
 SCRIPT
-  export DVB_GRIND_CMD="$err_devin"
+  export DVB_GRIND_CMD="$err_backend"
   setup_network_sentinel "$TEST_DIR/net-up"
   export DVB_MIN_SESSION=999
   export DVB_MAX_FAST=2
@@ -112,8 +112,8 @@ SCRIPT
 }
 
 @test "fast failure captures backend stderr to log" {
-  local err_devin="$TEST_DIR/stderr-devin"
-  create_fake_devin "$err_devin" <<'SCRIPT'
+  local err_backend="$TEST_DIR/stderr-backend"
+  create_fake_backend "$err_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 if [[ "$*" == *"--help"* ]]; then
@@ -122,7 +122,7 @@ fi
 echo "Error: Unknown model: 'broken-model'" >&2
 exit 1
 SCRIPT
-  export DVB_GRIND_CMD="$err_devin"
+  export DVB_GRIND_CMD="$err_backend"
   setup_network_sentinel "$TEST_DIR/net-up"
   export DVB_MIN_SESSION=999
   export DVB_MAX_FAST=2
@@ -136,14 +136,14 @@ SCRIPT
 }
 
 @test "bail out shows last session output in terminal" {
-  local err_devin="$TEST_DIR/err-devin"
-  create_fake_devin "$err_devin" <<'SCRIPT'
+  local err_backend="$TEST_DIR/err-backend"
+  create_fake_backend "$err_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 echo "FATAL: cannot connect to API"
 exit 1
 SCRIPT
-  export DVB_GRIND_CMD="$err_devin"
+  export DVB_GRIND_CMD="$err_backend"
   setup_network_sentinel "$TEST_DIR/net-up"
   export DVB_MIN_SESSION=999
   export DVB_MAX_FAST=3
@@ -439,7 +439,7 @@ SCRIPT
   [[ "$output" == *"--model requires a name"* ]]
   # (b) next step: shows an example model
   [[ "$output" == *"example:"* ]]
-  [[ "$output" == *"--model claude-opus-4-7-max"* ]]
+  [[ "$output" == *"--model claude-opus-4-7"* ]]
   # (c) doc pointer
   [[ "$output" == *"'taskgrind --help'"* ]]
 }
@@ -450,7 +450,7 @@ SCRIPT
   [ "$status" -ne 0 ]
   [[ "$output" == *"--model requires a non-empty name"* ]]
   [[ "$output" == *"example:"* ]]
-  [[ "$output" == *"--model claude-opus-4-7-max"* ]]
+  [[ "$output" == *"--model claude-opus-4-7"* ]]
   [[ "$output" == *"'taskgrind --help'"* ]]
 }
 
@@ -485,30 +485,29 @@ SCRIPT
   # (a) what
   [[ "$output" == *"unknown backend 'frontier'"* ]]
   # (b) next step: full supported list
-  [[ "$output" == *"Supported: devin, claude-code, codex"* ]]
+  [[ "$output" == *"Supported: claude-code, codex"* ]]
   # (b) concrete example
   [[ "$output" == *"example:"* ]]
-  [[ "$output" == *"--backend devin"* || "$output" == *"TG_BACKEND=claude-code"* ]]
+  [[ "$output" == *"--backend codex"* || "$output" == *"TG_BACKEND=claude-code"* ]]
   # (c) doc pointer
   [[ "$output" == *"'taskgrind --help'"* ]]
 }
 
 @test "error quality: backend-not-found preflight includes install guidance" {
   unset DVB_GRIND_CMD
-  # Point TG_DEVIN_PATH at something that cannot exist so preflight finds
-  # nothing. This bypasses the operator's real devin install.
-  export TG_DEVIN_PATH="/this/path/does/not/exist/devin"
+  # Strip PATH so preflight finds no claude binary, bypassing the
+  # operator's real install.
+  export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
   init_test_repo "$TEST_REPO"
   echo "# Tasks" > "$TEST_REPO/TASKS.md"
   run "$DVB_GRIND" --preflight "$TEST_REPO"
   # (a) what
   [[ "$output" == *"Backend binary not found"* ]]
   # (b) next step: install + PATH guidance
-  [[ "$output" == *"Install the"* ]]
+  [[ "$output" == *"Install Claude Code"* ]]
   [[ "$output" == *"on PATH"* ]]
-  # (c) doc pointer: README install section or TG_DEVIN_PATH override
+  # (c) doc pointer: README install section
   [[ "$output" == *"README.md"* ]]
-  [[ "$output" == *"TG_DEVIN_PATH"* ]]
 }
 
 @test "error quality: missing claude-code backend gives Claude-specific install guidance" {
@@ -523,7 +522,6 @@ SCRIPT
   [[ "$output" == *"Backend binary not found (claude-code)"* ]]
   [[ "$output" == *"expected 'claude' on PATH"* ]]
   [[ "$output" == *"npm install -g @anthropic-ai/claude-code"* ]]
-  [[ "$output" != *"TG_DEVIN_PATH"* ]]
 }
 
 @test "error quality: non-executable claude-code backend names the bad path" {
@@ -542,7 +540,6 @@ SCRIPT
   [ "$status" -eq 1 ]
   [[ "$output" == *"Backend binary is not executable (claude-code): $fake_bin/claude"* ]]
   [[ "$output" == *"ensure the 'claude' binary is executable and on PATH"* ]]
-  [[ "$output" != *"TG_DEVIN_PATH"* ]]
 }
 
 @test "numeric directory name treated as repo path not hours" {
@@ -698,7 +695,7 @@ SCRIPT
   [ ! -f "$dry_log" ]
 }
 
-@test "--dry-run does not launch any devin sessions" {
+@test "--dry-run does not launch any backend sessions" {
   run "$DVB_GRIND" --dry-run 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [ ! -f "$DVB_GRIND_INVOKE_LOG" ]
@@ -727,33 +724,19 @@ SCRIPT
   [[ "$output" == *"browser automation"* ]]
 }
 
-# ── Devin binary PATH fallback ────────────────────────────────────────
-
-@test "devin path resolution checks PATH before default" {
-  # Structural: lib/constants.sh has command -v devin fallback
-  local constants="$BATS_TEST_DIRNAME/../lib/constants.sh"
-  grep -q 'command -v devin' "$constants"
-}
-
-@test "DVB_DEVIN_PATH env override is respected" {
-  # Structural: lib/constants.sh checks DVB_DEVIN_PATH first
-  local constants="$BATS_TEST_DIRNAME/../lib/constants.sh"
-  grep -q 'DVB_DEVIN_PATH:-' "$constants" || grep -q 'DVB_DEVIN_PATH' "$constants"
-}
-
 # ── Zero-ship session diagnostics ─────────────────────────────────────
 
 @test "zero-ship session captures output tail to log" {
-  # Fake devin that prints diagnostic output but doesn't remove tasks
-  local diag_devin="$TEST_DIR/diag-devin"
-  cat > "$diag_devin" <<'SCRIPT'
+  # Fake backend that prints diagnostic output but doesn't remove tasks
+  local diag_backend="$TEST_DIR/diag-backend"
+  cat > "$diag_backend" <<'SCRIPT'
 #!/bin/bash
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
 echo "Working on hard task..."
 echo "STUCK: cannot resolve merge conflict"
 SCRIPT
-  chmod +x "$diag_devin"
-  export DVB_GRIND_CMD="$diag_devin"
+  chmod +x "$diag_backend"
+  export DVB_GRIND_CMD="$diag_backend"
 
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
@@ -770,8 +753,8 @@ TASKS
 
 @test "zero-ship diagnostics do not fire when tasks are shipped" {
   # Use sed '1,' (BSD-compatible) to delete the first task each session
-  local ship_devin="$TEST_DIR/ship-devin"
-  cat > "$ship_devin" <<SCRIPT
+  local ship_backend="$TEST_DIR/ship-backend"
+  cat > "$ship_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 REPO="$TEST_REPO"
@@ -780,8 +763,8 @@ if [ -f "\$REPO/TASKS.md" ]; then
   sed -i '1,/^- \[ \]/{/^- \[ \]/d;}' "\$REPO/TASKS.md" 2>/dev/null || true
 fi
 SCRIPT
-  chmod +x "$ship_devin"
-  export DVB_GRIND_CMD="$ship_devin"
+  chmod +x "$ship_backend"
+  export DVB_GRIND_CMD="$ship_backend"
 
   # Enough tasks that every session ships before the deadline
   {
@@ -835,15 +818,14 @@ TASKS
   grep -q 'sessions_zero_ship=3' "$TEST_LOG"
 }
 
-# ── Devin binary validation ────────────────────────────────────────────
+# ── Backend binary validation ────────────────────────────────────────────
 
-@test "missing devin binary exits immediately with clear error" {
+@test "missing backend binary exits immediately with clear error" {
   # Use production path (no DVB_GRIND_CMD) with nonexistent binary.
-  # Set DVB_DEVIN_PATH to a nonexistent path and strip real devin from PATH.
+  # Strip the real claude binary from PATH.
   unset DVB_GRIND_CMD
-  export DVB_DEVIN_PATH="/nonexistent/devin"
   export HOME="/nonexistent/home"
-  # Remove devin from PATH so command -v devin fails
+  # Remove claude from PATH so command -v claude fails
   export PATH="/usr/bin:/bin"
   # Skip caffeinate and self-copy by pre-setting the guards
   export DVB_CAFFEINATED=1
@@ -854,8 +836,8 @@ TASKS
 }
 
 @test "backend sanity probe blocks silent stub binaries before session 1" {
-  local silent_stub="$TEST_DIR/silent-stub-devin"
-  create_fake_devin "$silent_stub" <<'SCRIPT'
+  local silent_stub="$TEST_DIR/silent-stub-backend"
+  create_fake_backend "$silent_stub" <<'SCRIPT'
 #!/bin/bash
 if [[ "$1" == "--version" ]]; then
   exit 0
@@ -865,7 +847,7 @@ exit 0
 SCRIPT
 
   unset DVB_GRIND_CMD
-  export DVB_DEVIN_PATH="$silent_stub"
+  use_fake_claude_binary "$silent_stub"
   export DVB_CAFFEINATED=1
   export _DVB_SELF_COPY="/dev/null"
   export DVB_DEADLINE_OFFSET=20
@@ -876,7 +858,7 @@ SCRIPT
   [[ "$output" == *"backend binary may be a stub or broken"* ]]
   # Duration floats from 0s on a cold machine up to a couple seconds
   # under parallel load; detection no longer depends on it.
-  grep -qE 'backend_probe_failed exit=0 duration=[0-9]+s backend=devin' "$TEST_LOG"
+  grep -qE 'backend_probe_failed exit=0 duration=[0-9]+s backend=claude-code' "$TEST_LOG"
   ! [ -f "$DVB_GRIND_INVOKE_LOG" ]
 }
 
@@ -900,17 +882,16 @@ SCRIPT
   [ "$status" -eq 1 ]
   [[ "$output" == *"backend binary may be a stub or broken: 'claude-code'"* ]]
   [[ "$output" == *"npm install -g @anthropic-ai/claude-code"* ]]
-  [[ "$output" != *"Devin CLI"* ]]
   grep -qE 'backend_probe_failed exit=0 duration=[0-9]+s backend=claude-code' "$TEST_LOG"
   grep -q -- '--version' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "backend sanity probe allows versioned binaries to reach session 1" {
-  local versioned_devin="$TEST_DIR/versioned-devin"
-  create_fake_devin "$versioned_devin" <<'SCRIPT'
+  local versioned_backend="$TEST_DIR/versioned-backend"
+  create_fake_backend "$versioned_backend" <<'SCRIPT'
 #!/bin/bash
 if [[ "$1" == "--version" ]]; then
-  echo "Devin CLI 2026.4.9"
+  echo "Claude Code 2026.4.9"
   exit 0
 fi
 echo "$@" >> "${DVB_GRIND_INVOKE_LOG:-/tmp/taskgrind-invocations}"
@@ -918,7 +899,7 @@ exit 0
 SCRIPT
 
   unset DVB_GRIND_CMD
-  export DVB_DEVIN_PATH="$versioned_devin"
+  use_fake_claude_binary "$versioned_backend"
   export DVB_CAFFEINATED=1
   export _DVB_SELF_COPY="/dev/null"
   export DVB_DEADLINE_OFFSET=20
@@ -927,12 +908,12 @@ SCRIPT
   run "$DVB_GRIND" 1 "$TEST_REPO"
 
   [ "$status" -eq 0 ]
-  grep -Eq 'backend_probe_ok exit=0 duration=[0-9]+s backend=devin' "$TEST_LOG"
+  grep -Eq 'backend_probe_ok exit=0 duration=[0-9]+s backend=claude-code' "$TEST_LOG"
   [ -f "$DVB_GRIND_INVOKE_LOG" ]
   grep -q 'Run the next-task skill' "$DVB_GRIND_INVOKE_LOG"
 }
 
-@test "devin binary validation uses -x check (executable)" {
+@test "backend binary validation uses -x check (executable)" {
   grep -q '\-x "$_backend_binary"' "$DVB_GRIND"
 }
 
@@ -991,16 +972,16 @@ SCRIPT
   # Fake backend populates an empty queue when it sees the sweep prompt
   # so the run gets a real `tasks_added_total` increment from the
   # sweep block, even though `tasks_starting` was 0.
-  local sweep_devin="$TEST_DIR/sweep-devin"
-  cat > "$sweep_devin" <<SCRIPT
+  local sweep_backend="$TEST_DIR/sweep-backend"
+  cat > "$sweep_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 if echo "\$@" | grep -q 'TASKS.md is empty'; then
   printf '# Tasks\n## P0\n- [ ] Found one\n  **ID**: found-one\n- [ ] Found two\n  **ID**: found-two\n- [ ] Found three\n  **ID**: found-three\n' > "$TEST_REPO/TASKS.md"
 fi
 SCRIPT
-  chmod +x "$sweep_devin"
-  export DVB_GRIND_CMD="$sweep_devin"
+  chmod +x "$sweep_backend"
+  export DVB_GRIND_CMD="$sweep_backend"
   printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
   export DVB_DEADLINE_OFFSET=8
   export TG_NO_STALL_EXIT=1
@@ -1017,10 +998,10 @@ SCRIPT
   # both, then have a session add 1 task and ship 1 — the run can
   # legitimately end with shipped > (starting + added) because the
   # before/after diff misses the add+remove pair. The cap must hold.
-  local shipping_devin="$TEST_DIR/shipping-devin"
+  local shipping_backend="$TEST_DIR/shipping-backend"
   local counter_file="$TEST_DIR/ship-counter"
   echo "0" > "$counter_file"
-  cat > "$shipping_devin" <<SCRIPT
+  cat > "$shipping_backend" <<SCRIPT
 #!/bin/bash
 echo "\$@" >> "$DVB_GRIND_INVOKE_LOG"
 n=\$(cat "$counter_file")
@@ -1031,7 +1012,7 @@ case "\$n" in
   2) printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md" ;;
 esac
 SCRIPT
-  chmod +x "$shipping_devin"
+  chmod +x "$shipping_backend"
   cat > "$TEST_REPO/TASKS.md" <<'TASKS'
 # Tasks
 ## P0
@@ -1040,7 +1021,7 @@ SCRIPT
 - [ ] Beta
   **ID**: beta
 TASKS
-  export DVB_GRIND_CMD="$shipping_devin"
+  export DVB_GRIND_CMD="$shipping_backend"
   export DVB_DEADLINE_OFFSET=8
   export TG_NO_STALL_EXIT=1
   run "$DVB_GRIND" 1 "$TEST_REPO"
@@ -1054,7 +1035,7 @@ TASKS
 }
 
 @test "grind-log-analyze skill documents the new denominator" {
-  local skill="$BATS_TEST_DIRNAME/../.devin/skills/grind-log-analyze/SKILL.md"
+  local skill="$BATS_TEST_DIRNAME/../.agents/skills/grind-log-analyze/SKILL.md"
   grep -q 'tasks_starting=N tasks_added=N' "$skill"
   grep -q 'shipped \* 100 / (tasks_starting + tasks_added)' "$skill"
   grep -q 'capped at' "$skill"
@@ -1123,7 +1104,7 @@ TASKS
 }
 
 @test "grind-log-analyze skill documents sweeps and sweep_seconds in the summary template" {
-  local skill="$BATS_TEST_DIRNAME/../.devin/skills/grind-log-analyze/SKILL.md"
+  local skill="$BATS_TEST_DIRNAME/../.agents/skills/grind-log-analyze/SKILL.md"
   grep -q 'sweeps=N sweep_seconds=N' "$skill"
   grep -q 'sweep_seconds \* 100 / elapsed' "$skill"
 }
@@ -1138,7 +1119,7 @@ TASKS
 # credit to Roth's open-source analyzer fails this guard.
 
 @test "grind-log-analyze skill names all eight arc categories" {
-  local skill="$BATS_TEST_DIRNAME/../.devin/skills/grind-log-analyze/SKILL.md"
+  local skill="$BATS_TEST_DIRNAME/../.agents/skills/grind-log-analyze/SKILL.md"
   # Seven from Roth's "543 Hours" study plus the taskgrind-specific
   # Sweep and Idle categories. Each must appear in the Phase 3.5 rule
   # table.
@@ -1154,7 +1135,7 @@ TASKS
 }
 
 @test "grind-log-analyze report template surfaces arc_distribution and arc_hours" {
-  local skill="$BATS_TEST_DIRNAME/../.devin/skills/grind-log-analyze/SKILL.md"
+  local skill="$BATS_TEST_DIRNAME/../.agents/skills/grind-log-analyze/SKILL.md"
   # The aggregate lines are the only place Roth's power-law signal
   # surfaces — drop them and the leverage gap is invisible.
   grep -q 'arc_distribution: ' "$skill"
@@ -1164,7 +1145,7 @@ TASKS
 }
 
 @test "grind-log-analyze skill credits Roth's 543 Hours study and analyzer repo" {
-  local skill="$BATS_TEST_DIRNAME/../.devin/skills/grind-log-analyze/SKILL.md"
+  local skill="$BATS_TEST_DIRNAME/../.agents/skills/grind-log-analyze/SKILL.md"
   # The 7-pattern taxonomy is borrowed work; the credit + URLs must
   # stay inline with the rules so a future contributor can find the
   # source heuristic if they need to re-tune thresholds.
@@ -1175,7 +1156,7 @@ TASKS
 }
 
 @test "grind-log-analyze skill rules block requires arc classification on every session" {
-  local skill="$BATS_TEST_DIRNAME/../.devin/skills/grind-log-analyze/SKILL.md"
+  local skill="$BATS_TEST_DIRNAME/../.agents/skills/grind-log-analyze/SKILL.md"
   # Rule #9 is the contract: every arc must end up in exactly one
   # category. A skill rewrite that drops the rule silently turns the
   # arc-mix section into best-effort — fail the suite instead.

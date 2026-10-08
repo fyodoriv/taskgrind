@@ -7,13 +7,13 @@
 # Usage: taskgrind                              → 10h grind (default)
 #        taskgrind 10                          → 10h grind, current dir
 #        taskgrind ~/apps/myrepo 10            → 10h grind in specific repo
-#        taskgrind --model claude-opus-4-7-max 8 → 8h grind with specific model
+#        taskgrind --model claude-opus-4-7 8 → 8h grind with specific model
 #        taskgrind --model "Claude Opus 4.7 Max" 8
 #                                               → quote multi-word model names
 #        taskgrind --skill pipeline-ops ~/apps/bosun 10
 #                                             → 10h run with a custom skill
 #        taskgrind --backend claude-code 8     → 8h grind with Claude Code
-#        taskgrind --rotate-backends devin,claude-code,codex 8
+#        taskgrind --rotate-backends claude-code,codex 8
 #                                             → override auto-detected backend rotation.
 #        taskgrind --prompt "focus on test coverage" 8
 #        taskgrind --target-repo ~/apps/frontend --target-repo ~/apps/backend ~/apps/control 8
@@ -47,10 +47,10 @@
 #
 #        Args can appear in any order. Hours is any bare integer (1-24).
 #
-# Env:   TG_BACKEND     — AI backend: devin, claude-code, codex (default: devin)
+# Env:   TG_BACKEND     — AI backend: claude-code, codex (default: claude-code)
 #        TG_ROTATE_BACKENDS — comma-separated list overriding auto-detected
 #                            mid-flight rotation.
-#        TG_MODEL       — AI model (default: "claude-opus-4-7-max")
+#        TG_MODEL       — AI model (default: "claude-opus-4-7")
 #        TG_COOL        — seconds between sessions (default: 5; short settle
 #                         window for filesystem/git-hook cleanup)
 #        TG_SKILL       — skill to run (default: next-task)
@@ -88,7 +88,6 @@
 #        TG_NET_CHECK_URL — override the fallback connectivity check URL
 #        TG_MIN_SESSION — fast-failure threshold in seconds (default: 30;
 #                         shorter sessions are usually startup/network faults)
-#        TG_DEVIN_PATH  — override devin binary path (default: auto-detect from PATH)
 #        TG_GIT_SYNC_TIMEOUT — max seconds for between-session git sync
 #                         (default: 30; hangs need operator action)
 #        TG_STASH_WARN_THRESHOLD — preflight warns when `git stash list` shows
@@ -223,7 +222,7 @@ fi
 # The full cleanup() trap replaces this later once all variables are initialized.
 trap '[[ -n "${_DVB_SELF_COPY:-}" && -f "${_DVB_SELF_COPY}" ]] && rm -f "$_DVB_SELF_COPY"' EXIT
 
-# Shared constants (model, devin path, caffeinate flags, format_duration)
+# Shared constants (model, caffeinate flags, format_duration)
 # shellcheck source=../lib/constants.sh
 source "$TASKGRIND_DIR/lib/constants.sh"
 _dvb_is_tty="${_dvb_is_tty:-0}"
@@ -238,7 +237,7 @@ source "$TASKGRIND_DIR/lib/watchdog.sh"
 # TG_ is the canonical prefix; DVB_ is kept for backward compat.
 # If TG_X is set, it takes precedence over DVB_X. Internal/test-only vars
 # (DVB_GRIND_CMD, DVB_DEADLINE, DVB_NET_FILE, DVB_CAFFEINATED) stay as DVB_.
-for _tg_var in BACKEND BACKOFF_BASE BACKOFF_MAX COOL DEVIN_PATH \
+for _tg_var in BACKEND BACKOFF_BASE BACKOFF_MAX COOL \
                EARLY_EXIT_ON_STALL EMPTY_QUEUE_WAIT EXIT_ON_STALL FROM_PROMPT \
                GIT_SYNC_TIMEOUT LOG MAX_FAST MAX_INSTANCES \
                MAX_SESSION MAX_ZERO_SHIP MIN_SESSION MODEL NET_CHECK_URL NET_MAX_WAIT \
@@ -322,13 +321,13 @@ while [[ $# -gt 0 ]]; do
       [[ -z "$supervise_status_file" ]] && { echo "Error: --supervise requires a non-empty TG_STATUS_FILE path" >&2; exit 1; }
       shift 2
       ;;
-    --model=*) _cli_model="${1#--model=}"; [[ -z "$_cli_model" ]] && { echo "Error: --model requires a non-empty name (example: --model claude-opus-4-7-max). See 'taskgrind --help'." >&2; exit 1; }; shift ;;
+    --model=*) _cli_model="${1#--model=}"; [[ -z "$_cli_model" ]] && { echo "Error: --model requires a non-empty name (example: --model claude-opus-4-7). See 'taskgrind --help'." >&2; exit 1; }; shift ;;
     --model)
       if [[ $# -lt 2 ]]; then
-        echo "Error: --model requires a name (example: --model claude-opus-4-7-max). See 'taskgrind --help'." >&2; exit 1
+        echo "Error: --model requires a name (example: --model claude-opus-4-7). See 'taskgrind --help'." >&2; exit 1
       fi
       _cli_model="$2"
-      [[ -z "$_cli_model" ]] && { echo "Error: --model requires a non-empty name (example: --model claude-opus-4-7-max). See 'taskgrind --help'." >&2; exit 1; }
+      [[ -z "$_cli_model" ]] && { echo "Error: --model requires a non-empty name (example: --model claude-opus-4-7). See 'taskgrind --help'." >&2; exit 1; }
       shift 2
       ;;
     --skill=*) skill="${1#--skill=}"; [[ -z "$skill" ]] && { echo "Error: --skill requires a non-empty name" >&2; exit 1; }; _cli_skill_set=1; shift ;;
@@ -341,19 +340,19 @@ while [[ $# -gt 0 ]]; do
       _cli_skill_set=1
       shift 2
       ;;
-    --backend=*) _cli_backend="${1#--backend=}"; [[ -z "$_cli_backend" ]] && { echo "Error: --backend requires a name (devin, claude-code, codex)" >&2; exit 1; }; shift ;;
+    --backend=*) _cli_backend="${1#--backend=}"; [[ -z "$_cli_backend" ]] && { echo "Error: --backend requires a name (claude-code, codex)" >&2; exit 1; }; shift ;;
     --backend)
       if [[ $# -lt 2 ]]; then
-        echo "Error: --backend requires a name (devin, claude-code, codex)" >&2; exit 1
+        echo "Error: --backend requires a name (claude-code, codex)" >&2; exit 1
       fi
       _cli_backend="$2"
-      [[ -z "$_cli_backend" ]] && { echo "Error: --backend requires a name (devin, claude-code, codex)" >&2; exit 1; }
+      [[ -z "$_cli_backend" ]] && { echo "Error: --backend requires a name (claude-code, codex)" >&2; exit 1; }
       shift 2
       ;;
-    --rotate-backends=*) _cli_rotate_backends="${1#--rotate-backends=}"; [[ -z "$_cli_rotate_backends" ]] && { echo "Error: --rotate-backends requires comma-separated list (e.g. devin,claude-code,codex)" >&2; exit 1; }; shift ;;
+    --rotate-backends=*) _cli_rotate_backends="${1#--rotate-backends=}"; [[ -z "$_cli_rotate_backends" ]] && { echo "Error: --rotate-backends requires comma-separated list (e.g. claude-code,codex)" >&2; exit 1; }; shift ;;
     --rotate-backends)
       if [[ $# -lt 2 ]]; then
-        echo "Error: --rotate-backends requires comma-separated list (e.g. devin,claude-code,codex)" >&2; exit 1
+        echo "Error: --rotate-backends requires comma-separated list (e.g. claude-code,codex)" >&2; exit 1
       fi
       _cli_rotate_backends="$2"
       [[ -z "$_cli_rotate_backends" ]] && { echo "Error: --rotate-backends requires comma-separated list" >&2; exit 1; }
@@ -424,7 +423,7 @@ translate_from_prompt() {
   # default. We deliberately do NOT use prompt-derived model/backend (that
   # would be circular — we are running this CALL to learn what they are).
   local _trans_model _trans_backend _trans_model_source
-  _trans_backend="${_cli_backend:-${DVB_BACKEND:-devin}}"
+  _trans_backend="${_cli_backend:-${DVB_BACKEND:-claude-code}}"
   _trans_model_source="${_cli_model:-${DVB_MODEL:-}}"
   if [[ -n "$_trans_model_source" ]]; then
     _trans_model="$(dvb_resolve_model_alias "$_trans_model_source")"
@@ -454,8 +453,8 @@ lines for fields the request did not specify:
   hours=<integer 1-24>
   repo=<absolute path to control repo>
   target_repos=<colon-separated absolute paths to extra target repos>
-  model=<opus | sonnet | haiku | swe | codex | gpt | full model id>
-  backend=<devin | claude-code | codex>
+  model=<opus | sonnet | haiku | codex | gpt | full model id>
+  backend=<claude-code | codex>
   skill=<skill name; default is next-task>
   focus=<agent focus prompt — the residue of intent that is not config>
   no_push=<0 or 1>
@@ -513,10 +512,9 @@ EOF
       fi
     else
       case "$_trans_backend" in
-        devin) _trans_bin="$DVB_DEVIN_PATH" ;;
         claude-code) _trans_bin=$(command -v claude 2>/dev/null || echo "") ;;
         codex) _trans_bin=$(command -v codex 2>/dev/null || echo "") ;;
-        *) echo "Error: --from-prompt translation: unknown backend '$_trans_backend'. Set --backend or TG_BACKEND to devin, claude-code, or codex." >&2; exit 1 ;;
+        *) echo "Error: --from-prompt translation: unknown backend '$_trans_backend'. Set --backend or TG_BACKEND to claude-code or codex." >&2; exit 1 ;;
       esac
       if [[ ! -x "$_trans_bin" ]]; then
         echo "Error: --from-prompt translation: backend binary not found ($_trans_backend): ${_trans_bin:-not in PATH}. Install the $_trans_backend CLI or pass config flags explicitly without --from-prompt." >&2
@@ -526,7 +524,6 @@ EOF
 
     local -a _trans_args=()
     case "$_trans_backend" in
-      devin) _trans_args=(--model "$_trans_model" --permission-mode dangerous -p "$_trans_input") ;;
       claude-code) _trans_args=(--model "$_trans_model" --dangerously-skip-permissions -p "$_trans_input") ;;
       codex) _trans_args=(--model "$_trans_model" -q "$_trans_input") ;;
     esac
@@ -612,7 +609,7 @@ if [[ -z "$extra_prompt" && -n "$_fp_focus" ]]; then
   extra_prompt="$_fp_focus"
 fi
 
-requested_backend="${_cli_backend:-${DVB_BACKEND:-${_fp_backend:-devin}}}"
+requested_backend="${_cli_backend:-${DVB_BACKEND:-${_fp_backend:-claude-code}}}"
 _requested_model_source="${_cli_model:-${DVB_MODEL:-${_fp_model:-}}}"
 if [[ -n "$_requested_model_source" ]]; then
   requested_model="$(dvb_resolve_model_alias "$_requested_model_source")"
@@ -635,7 +632,7 @@ _rotation_raw="${_cli_rotate_backends:-${DVB_ROTATE_BACKENDS:-}}"
 # When --rotate-backends is NOT set, auto-detect which backend binaries are
 # present on PATH and build the rotation list from whatever's installed.
 # This makes auto-rotation the OUT-OF-BOX behaviour: a user who installs
-# devin + claude + codex automatically gets graceful failover when one of
+# claude + codex automatically gets graceful failover when one of
 # them is rate-limited or unavailable, with no flag required.
 #
 # Empty list → single-backend mode (no rotation, equivalent to the old
@@ -644,7 +641,6 @@ _rotation_raw="${_cli_rotate_backends:-${DVB_ROTATE_BACKENDS:-}}"
 # independent of the real binaries on the runner's PATH.
 if [[ -z "$_rotation_raw" && -z "${DVB_GRIND_CMD:-}" ]]; then
   _autodetected=()
-  [[ -x "$DVB_DEVIN_PATH" ]] && _autodetected+=("devin")
   command -v claude >/dev/null 2>&1 && _autodetected+=("claude-code")
   command -v codex  >/dev/null 2>&1 && _autodetected+=("codex")
   if [[ ${#_autodetected[@]} -ge 2 ]]; then
@@ -656,7 +652,7 @@ fi
 
 if [[ -n "$_rotation_raw" ]]; then
   IFS=',' read -ra _rotation_backends <<< "$_rotation_raw"
-  # Trim whitespace from each entry — users naturally type "devin, claude-code".
+  # Trim whitespace from each entry — users naturally type "claude-code, codex".
   for ((_i = 0; _i < ${#_rotation_backends[@]}; _i++)); do
     _rotation_backends[_i]="${_rotation_backends[_i]// /}"
   done
@@ -872,8 +868,8 @@ fi
 
 # Validate backend
 case "$backend" in
-  devin|claude-code|codex) ;;
-  *) echo "Error: unknown backend '$backend'. Supported: devin, claude-code, codex (example: --backend devin or TG_BACKEND=claude-code). See 'taskgrind --help'." >&2; exit 1 ;;
+  claude-code|codex) ;;
+  *) echo "Error: unknown backend '$backend'. Supported: claude-code, codex (example: --backend codex or TG_BACKEND=claude-code). See 'taskgrind --help'." >&2; exit 1 ;;
 esac
 
 # Warn when codex backend uses a Claude model
@@ -1211,14 +1207,11 @@ check_network() {
 # ── Backend session args builder ──────────────────────────────────────
 # Builds the CLI argument array for the configured backend.
 # Sets the global _session_args array.
-# Usage: build_session_args "$prompt"; "${devin_cmd[@]}" "${_session_args[@]}"
+# Usage: build_session_args "$prompt"; "${backend_cmd[@]}" "${_session_args[@]}"
 _session_args=()
 build_session_args() {
   local prompt="$1"
   case "$backend" in
-    devin)
-      _session_args=(--model "$model" --permission-mode dangerous -p "$prompt")
-      ;;
     claude-code)
       _session_args=(--model "$model" --dangerously-skip-permissions -p "$prompt")
       ;;
@@ -1230,7 +1223,6 @@ build_session_args() {
 
 backend_binary_name() {
   case "$1" in
-    devin) printf '%s' "devin" ;;
     claude-code) printf '%s' "claude" ;;
     codex) printf '%s' "codex" ;;
     *) printf '%s' "$1" ;;
@@ -1239,9 +1231,6 @@ backend_binary_name() {
 
 backend_install_hint() {
   case "$1" in
-    devin)
-      printf '%s' "Install the Devin CLI, ensure 'devin' is executable and on PATH, or set TG_DEVIN_PATH to an executable custom path. See README.md 'Install' for setup steps."
-      ;;
     claude-code)
       printf '%s' "Install Claude Code with 'npm install -g @anthropic-ai/claude-code', then ensure the 'claude' binary is executable and on PATH. See README.md 'Install' for setup steps."
       ;;
@@ -1269,9 +1258,6 @@ backend_binary_error() {
 
 backend_model_hint() {
   case "$1" in
-    devin)
-      printf '%s' "Check the model name with 'devin --model <name> --help' for this Devin install."
-      ;;
     claude-code)
       printf '%s' "Check that the Claude model is available to this Claude Code install and account with 'claude --model <name> --help'."
       ;;
@@ -1286,9 +1272,6 @@ backend_model_hint() {
 
 backend_probe_hint() {
   case "$1" in
-    devin)
-      printf '%s' "reinstall or roll back the Devin CLI before starting another grind."
-      ;;
     claude-code)
       printf '%s' "Reinstall Claude Code with 'npm install -g @anthropic-ai/claude-code' and confirm 'claude --version' prints output before retrying."
       ;;
@@ -1311,7 +1294,7 @@ run_backend_probe() {
   _backend_probe_summary=""
 
   probe_start=$(date +%s)
-  probe_output=$("${devin_cmd[@]}" --version 2>&1) || probe_status=$?
+  probe_output=$("${backend_cmd[@]}" --version 2>&1) || probe_status=$?
   probe_status=${probe_status:-0}
   probe_elapsed=$(( $(date +%s) - probe_start ))
   probe_output_clean=$(printf '%s\n' "$probe_output" | sed '/^[[:space:]]*$/d')
@@ -1403,7 +1386,6 @@ validate_model() {
 _backend_binary=""
 resolve_backend_binary() {
   case "$backend" in
-    devin) _backend_binary="$DVB_DEVIN_PATH" ;;
     claude-code) _backend_binary=$(command -v claude 2>/dev/null || echo "") ;;
     codex) _backend_binary=$(command -v codex 2>/dev/null || echo "") ;;
   esac
@@ -1412,7 +1394,7 @@ resolve_backend_binary() {
 # ── Mid-flight backend rotation ──────────────────────────────────────
 # Scan the just-completed session's output for rate-limit / quota / throttle
 # patterns. If a pattern matches, advance the rotation cursor to the next
-# backend in the list and re-resolve `devin_cmd` so the next session launches
+# backend in the list and re-resolve `backend_cmd` so the next session launches
 # with a different backend. Patterns mirror the bosun BackendHealthService
 # RATE_LIMIT_PATTERNS list (kept in sync — if bosun adds a pattern we want to
 # react here too).
@@ -1460,7 +1442,7 @@ _maybe_rotate_backend() {
     return 1
   fi
 
-  devin_cmd=("$_backend_binary")
+  backend_cmd=("$_backend_binary")
   _current_rotation_index="$next_index"
   echo "   ⤷ Backend rotated: $prev_backend → $next_backend (reason: $trigger_reason)"
   log_write "[$(date '+%H:%M')] backend_rotated from=$prev_backend to=$next_backend reason=$trigger_reason index=$next_index"
@@ -1598,24 +1580,8 @@ _add_skill_search_path() {
 }
 
 _build_skill_search_paths() {
-  local channel_dir
   _skill_search_paths=()
   case "$backend" in
-    devin)
-      _add_skill_search_path "$repo/.agents/skills"
-      _add_skill_search_path "$repo/.devin/skills"
-      _add_skill_search_path "$repo/.windsurf/skills"
-      if [[ -n "${HOME:-}" ]]; then
-        _add_skill_search_path "$HOME/.agents/skills"
-        _add_skill_search_path "$HOME/.config/devin/skills"
-        _add_skill_search_path "$HOME/.codeium/windsurf/skills"
-        _add_skill_search_path "$HOME/.codeium/windsurf-next/skills"
-        _add_skill_search_path "$HOME/.codeium/windsurf-insiders/skills"
-        for channel_dir in "$HOME"/.codeium/*/skills; do
-          [[ -d "$channel_dir" ]] && _add_skill_search_path "$channel_dir"
-        done
-      fi
-      ;;
     claude-code)
       _add_skill_search_path "$repo/.agents/skills"
       _add_skill_search_path "$repo/.claude/skills"
@@ -3234,11 +3200,11 @@ supervisor_run_repair_session() {
   resolve_session_runner_command
   build_session_args "$repair_prompt"
   if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
-    run_test_backend "${devin_cmd[@]}" "${_session_args[@]}" || repair_exit=$?
+    run_test_backend "${backend_cmd[@]}" "${_session_args[@]}" || repair_exit=$?
     return "$repair_exit"
   fi
 
-  "${devin_cmd[@]}" "${_session_args[@]}" \
+  "${backend_cmd[@]}" "${_session_args[@]}" \
     > >(tee -a "$session_output") \
     2> >(tee -a "$session_output" >> "$log_file" >&2) &
   _dvb_pid=$!
@@ -3292,7 +3258,7 @@ run_supervisor_once() {
 # Resolve the session runner command — injectable for testing.
 # Supervisor mode defers this until it knows a repair is needed so a healthy
 # watched run can be observed even on a machine without the backend installed.
-devin_cmd=()
+backend_cmd=()
 _session_runner_resolved=0
 resolve_session_runner_command() {
   [[ "$_session_runner_resolved" -eq 1 ]] && return 0
@@ -3301,14 +3267,14 @@ resolve_session_runner_command() {
       echo "Error: $_test_backend_error" >&2
       exit 1
     fi
-    devin_cmd=("${_resolved_test_backend_cmd[@]}")
+    backend_cmd=("${_resolved_test_backend_cmd[@]}")
   else
     resolve_backend_binary
     if [[ ! -x "$_backend_binary" ]]; then
       echo "Error: $(backend_binary_error)" >&2
       exit 1
     fi
-    devin_cmd=("$_backend_binary")
+    backend_cmd=("$_backend_binary")
   fi
   _session_runner_resolved=1
 }
@@ -3332,7 +3298,7 @@ if [[ -z "${DVB_GRIND_CMD:-}" && -z "${DVB_CAFFEINATED:-}" ]]; then
 fi
 
 # Boost to interactive scheduling tier — max CPU/IO priority for the grind
-# and all child devin sessions (macOS taskpolicy throughput/latency flags).
+# and all child backend sessions (macOS taskpolicy throughput/latency flags).
 # shellcheck source=../lib/fullpower.sh
 source "$TASKGRIND_DIR/lib/fullpower.sh"
 boost_priority "$$"
@@ -3768,7 +3734,7 @@ graceful_shutdown() {
     echo ""
     echo "   ⏳ Waiting for session $session to finish (up to ${_shutdown_grace}s)..."
     log_write "[$(date '+%H:%M')] graceful_shutdown waiting pid=$_dvb_pid grace=${_shutdown_grace}s"
-    # Send SIGINT — tells devin to wrap up and commit
+    # Send SIGINT — tells the backend to wrap up and commit
     kill -INT "$_dvb_pid" 2>/dev/null || true
     # Wait with timeout
     local waited=0
@@ -4079,7 +4045,7 @@ if [[ -n "$_from_prompt_text" ]]; then
   fi
 fi
 
-# Export instance slot so child processes (devin sessions) can see it
+# Export instance slot so child processes (backend sessions) can see it
 export TG_INSTANCE_ID="$_dvb_slot"
 # Workspace mode: export the target repo list so skills, hooks, and wrapper
 # scripts can branch on it. `TG_TARGET_REPOS` is colon-separated like PATH;
@@ -4747,9 +4713,9 @@ while [[ $(date +%s) -lt $deadline ]]; do
     session_exit=0
     build_session_args "$sweep_prompt"
     if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
-      run_test_backend "${devin_cmd[@]}" "${_session_args[@]}" || session_exit=$?
+      run_test_backend "${backend_cmd[@]}" "${_session_args[@]}" || session_exit=$?
     else
-      "${devin_cmd[@]}" "${_session_args[@]}" \
+      "${backend_cmd[@]}" "${_session_args[@]}" \
         > >(tee -a "$session_output") \
         2> >(tee -a "$session_output" >> "$log_file" >&2) &
       _dvb_pid=$!
@@ -5015,14 +4981,14 @@ while [[ $(date +%s) -lt $deadline ]]; do
   build_session_args "$prompt"
   if [[ -n "${DVB_GRIND_CMD:-}" ]]; then
     # Test mode stays foreground for deterministic output capture without tee.
-    run_test_backend "${devin_cmd[@]}" "${_session_args[@]}" || session_exit=$?
+    run_test_backend "${backend_cmd[@]}" "${_session_args[@]}" || session_exit=$?
   else
     # Production: background with timeout watchdog as safety valve.
     # The backend's -p exits on its own, but the timeout catches infinite tool
     # loops or API outages. Uses sleep &; wait so SIGTERM interrupts
     # the watchdog immediately (no orphaned sleep processes).
     # Capture stdout to session_output for post-mortem diagnostics.
-    "${devin_cmd[@]}" "${_session_args[@]}" \
+    "${backend_cmd[@]}" "${_session_args[@]}" \
       > >(tee -a "$session_output") \
       2> >(tee -a "$session_output" >> "$log_file" >&2) &
     _dvb_pid=$!
@@ -5037,7 +5003,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
     # The 4th arg is the legacy marker — the helper emits this verbatim
     # at the moment the cap fires (before SIGINT). Preserves the
     # `session_timeout session=N max=Ms` log line that
-    # .devin/skills/grind-log-analyze/SKILL.md greps for.
+    # .agents/skills/grind-log-analyze/SKILL.md greps for.
     ( dvb_watchdog_run "session" "$max_session" "$_dvb_pid" \
         "session_timeout session=$session max=${max_session}s" ) &
     _dvb_timeout_pid=$!

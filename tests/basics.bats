@@ -207,13 +207,13 @@ EOF
   [[ "$output" == *"docs/resume-state.md"* ]]
   [[ "$output" == *"AGENTS.md"* ]]
   [[ "$output" == *"Agentfile.yaml"* ]]
-  [[ "$output" == *".devin/skills/standing-audit-gap-loop/SKILL.md"* ]]
-  [[ "$output" == *".devin/skills/grind-log-analyze/SKILL.md"* ]]
-  [[ "$output" == *".devin/skills/taskgrind-repo-setup/SKILL.md"* ]]
+  [[ "$output" == *".agents/skills/standing-audit-gap-loop/SKILL.md"* ]]
+  [[ "$output" == *".agents/skills/grind-log-analyze/SKILL.md"* ]]
+  [[ "$output" == *".agents/skills/taskgrind-repo-setup/SKILL.md"* ]]
 }
 
 @test "make audit TODO/FIXME scan covers the docs review queue files" {
-  run grep -n 'grep -RInE.*TODO:|FIXME:.*SECURITY.md.*AGENTS.md.*Agentfile.yaml.*man/taskgrind.1.*\.devin/skills/\*/SKILL.md' "$BATS_TEST_DIRNAME/../Makefile"
+  run grep -n 'grep -RInE.*TODO:|FIXME:.*SECURITY.md.*AGENTS.md.*Agentfile.yaml.*man/taskgrind.1.*\.agents/skills/\*/SKILL.md' "$BATS_TEST_DIRNAME/../Makefile"
   [ "$status" -eq 0 ]
 
   [[ "$output" != *"tests"* ]]
@@ -228,7 +228,7 @@ EOF
   [[ "$output" != *"CONTRIBUTING.md:68:"* ]]
   [[ "$output" != *"CONTRIBUTING.md:69:"* ]]
   [[ "$output" != *"man/taskgrind.1:356:"* ]]
-  [[ "$output" != *".devin/skills/standing-audit-gap-loop/SKILL.md:47:"* ]]
+  [[ "$output" != *".agents/skills/standing-audit-gap-loop/SKILL.md:47:"* ]]
   [[ "$output" != *"tests/basics.bats:111:"* ]]
   [[ "$output" != *"Makefile:56:"* ]]
 }
@@ -246,10 +246,10 @@ EOF
   run grep -nF 'docs/resume-state.md' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
   [ "$status" -eq 0 ]
 
-  run grep -nF '.devin/skills/standing-audit-gap-loop/SKILL.md' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
+  run grep -nF '.agents/skills/standing-audit-gap-loop/SKILL.md' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
   [ "$status" -eq 0 ]
 
-  run grep -nF '.devin/skills/grind-log-analyze/SKILL.md' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
+  run grep -nF '.agents/skills/grind-log-analyze/SKILL.md' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
   [ "$status" -eq 0 ]
 }
 
@@ -268,10 +268,10 @@ EOF
   run grep -n 'Contributor audit shortcut:.*README.md.*CONTRIBUTING.md.*SECURITY.md.*AGENTS.md.*Agentfile.yaml.*docs/architecture.md.*docs/resume-state.md.*docs/user-stories.md.*man/taskgrind.1' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]
 
-  run grep -nF '.devin/skills/standing-audit-gap-loop/SKILL.md' "$BATS_TEST_DIRNAME/../README.md"
+  run grep -nF '.agents/skills/standing-audit-gap-loop/SKILL.md' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]
 
-  run grep -nF '.devin/skills/grind-log-analyze/SKILL.md' "$BATS_TEST_DIRNAME/../README.md"
+  run grep -nF '.agents/skills/grind-log-analyze/SKILL.md' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]
 }
 
@@ -387,13 +387,13 @@ EOF
 }
 
 @test "operator docs keep sample model examples aligned with current defaults" {
-  run grep -nF 'model:    claude-opus-4-7-max' "$BATS_TEST_DIRNAME/../README.md"
+  run grep -nF 'model:    claude-opus-4-7' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]
 
-  run grep -nF 'model:    claude-opus-4-7-max' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
+  run grep -nF 'model:    claude-opus-4-7' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
   [ "$status" -eq 0 ]
 
-  run grep -nF 'alias resolves to claude-opus-4-7-max' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  run grep -nF 'alias resolves to claude-opus-4-7' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
   [ "$status" -eq 0 ]
 
   run grep -nF 'alias resolves to claude-sonnet-4.6' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
@@ -508,10 +508,10 @@ EOF
 }
 
 @test "repo layout docs mention repo-local audit skills" {
-  run grep -nF '.devin/skills/' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
+  run grep -nF '.agents/skills/' "$BATS_TEST_DIRNAME/../CONTRIBUTING.md"
   [ "$status" -eq 0 ]
 
-  run grep -nF '.devin/skills/' "$BATS_TEST_DIRNAME/../AGENTS.md"
+  run grep -nF '.agents/skills/' "$BATS_TEST_DIRNAME/../AGENTS.md"
   [ "$status" -eq 0 ]
 }
 
@@ -598,10 +598,10 @@ PY
   run grep -nF 'SECURITY.md' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
   [ "$status" -eq 0 ]
 
-  run grep -nF '.devin/skills/standing-audit-gap-loop/SKILL.md' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  run grep -nF '.agents/skills/standing-audit-gap-loop/SKILL.md' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
   [ "$status" -eq 0 ]
 
-  run grep -nF '.devin/skills/grind-log-analyze/SKILL.md' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
+  run grep -nF '.agents/skills/grind-log-analyze/SKILL.md' "$BATS_TEST_DIRNAME/../man/taskgrind.1"
   [ "$status" -eq 0 ]
 }
 
@@ -751,16 +751,16 @@ PY
 }
 
 @test "live model override docs use the shipped default model id" {
-  run grep -nF 'taskgrind --model claude-opus-4-7-max 8' "$BATS_TEST_DIRNAME/../README.md"
+  run grep -nF 'taskgrind --model claude-opus-4-7 8' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]
 
   run grep -nF 'taskgrind --model "Claude Opus 4.7 Max" 8' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]
 
-  run grep -nF -- '--model claude-opus-4-7-max' "$BATS_TEST_DIRNAME/../README.md"
+  run grep -nF -- '--model claude-opus-4-7' "$BATS_TEST_DIRNAME/../README.md"
   [ "$status" -eq 0 ]
 
-  run grep -nF 'model=claude-opus-4-7-max' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
+  run grep -nF 'model=claude-opus-4-7' "$BATS_TEST_DIRNAME/../docs/user-stories.md"
   [ "$status" -eq 0 ]
 
   run grep -nF 'echo "claude-sonnet-4.6" > ~/apps/myrepo/.taskgrind-model' "$BATS_TEST_DIRNAME/../README.md"
@@ -774,7 +774,7 @@ PY
 }
 
 @test "script usage examples use the shipped default model id" {
-  run grep -nF '#        taskgrind --model claude-opus-4-7-max 8' "$BATS_TEST_DIRNAME/../bin/taskgrind"
+  run grep -nF '#        taskgrind --model claude-opus-4-7 8' "$BATS_TEST_DIRNAME/../bin/taskgrind"
   [ "$status" -eq 0 ]
 
   run grep -nF '#        taskgrind --model "Claude Opus 4.7 Max" 8' "$BATS_TEST_DIRNAME/../bin/taskgrind"
@@ -897,13 +897,13 @@ PY
 
 # ── Model selection ──────────────────────────────────────────────────
 
-@test "defaults to claude-opus-4-7-max" {
+@test "defaults to claude-opus-4-7" {
   export DVB_DEADLINE_OFFSET=30
   export DVB_MAX_ZERO_SHIP=1
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Must be the exact default model string
-  grep -q -- '--model claude-opus-4-7-max' "$DVB_GRIND_INVOKE_LOG"
+  grep -q -- '--model claude-opus-4-7' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "default model does not use 'opus' shortname" {
@@ -922,19 +922,11 @@ PY
   grep -q 'source.*lib/constants.sh' "$DVB_GRIND"
 }
 
-@test "devin binary path is defined in lib/constants.sh" {
-  grep -q 'DVB_DEVIN_PATH=' "$BATS_TEST_DIRNAME/../lib/constants.sh"
-}
 
-@test "taskgrind uses DVB_DEVIN_PATH from shared constants" {
-  grep -q 'DVB_DEVIN_PATH' "$DVB_GRIND"
-}
-
-
-@test "default model is claude-opus-4-7-max" {
+@test "default model is claude-opus-4-7" {
   local grind_default
   grind_default=$(grep '^DVB_DEFAULT_MODEL=' "$BATS_TEST_DIRNAME/../lib/constants.sh" | sed 's/.*="\(.*\)"/\1/')
-  [[ "$grind_default" == "claude-opus-4-7-max" ]]
+  [[ "$grind_default" == "claude-opus-4-7" ]]
 }
 
 @test "default model has no -1m suffix" {
@@ -943,7 +935,7 @@ PY
   [[ "$grind_default" != *-1m ]]
 }
 
-@test "default model is a valid devin model id" {
+@test "default model is a valid backend model id" {
   local grind_default
   grind_default=$(grep '^DVB_DEFAULT_MODEL=' "$BATS_TEST_DIRNAME/../lib/constants.sh" | sed 's/.*="\(.*\)"/\1/')
   # Must be lowercase kebab-case (no spaces, no uppercase)
@@ -958,7 +950,7 @@ PY
   # The default model string must appear in the invocation log
   local invocation
   invocation=$(head -1 "$DVB_GRIND_INVOKE_LOG")
-  [[ "$invocation" == *"--model claude-opus-4-7-max"* ]]
+  [[ "$invocation" == *"--model claude-opus-4-7"* ]]
 }
 
 @test "every session gets the same model flag" {
@@ -968,7 +960,7 @@ PY
   run "$DVB_GRIND" 1 "$TEST_REPO"
   # Every invocation line must contain the exact model flag
   while IFS= read -r line; do
-    [[ "$line" == *"--model claude-opus-4-7-max"* ]] || {
+    [[ "$line" == *"--model claude-opus-4-7"* ]] || {
       echo "Session missing model flag: $line"; return 1
     }
   done < "$DVB_GRIND_INVOKE_LOG"
@@ -981,7 +973,7 @@ PY
   run "$DVB_GRIND" 1 "$TEST_REPO"
   grep -q -- '--model claude-sonnet-4.6' "$DVB_GRIND_INVOKE_LOG"
   # And the default must not appear
-  ! grep -q -- '--model claude-opus-4-7-max ' "$DVB_GRIND_INVOKE_LOG"
+  ! grep -q -- '--model claude-opus-4-7 ' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "DVB_MODEL=claude-sonnet-4.5 passes through exactly" {
@@ -1035,14 +1027,14 @@ PY
   export DVB_DEADLINE_OFFSET=5
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
-  [[ "$output" == *"claude-opus-4-7-max"* ]]
+  [[ "$output" == *"claude-opus-4-7"* ]]
 }
 
 @test "model shows in log file header" {
   export DVB_DEADLINE_OFFSET=5
   unset DVB_MODEL 2>/dev/null || true
   run "$DVB_GRIND" 1 "$TEST_REPO"
-  grep -q 'model=claude-opus-4-7-max' "$TEST_LOG"
+  grep -q 'model=claude-opus-4-7' "$TEST_LOG"
 }
 
 @test "repo defaults to current directory" {

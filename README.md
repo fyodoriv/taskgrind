@@ -5,7 +5,7 @@
 ## TL;DR
 
 Taskgrind is an autonomous multi-backend coding marathon for repos that keep
-their queue in `TASKS.md`. It repeatedly launches fresh Devin, Claude Code, or
+their queue in `TASKS.md`. It repeatedly launches fresh Claude Code or
 Codex sessions until the deadline, queue state, or stall guard stops the run.
 
 Use `taskgrind --preflight` to verify the backend and repo before a long run,
@@ -15,7 +15,7 @@ restarting the whole grind.
 Sessions should exit before context fills; context exhaustion can crash the
 process and lose uncommitted work.
 
-Taskgrind ships built-in backends for Devin, Claude Code, and Codex, and it works with any repo that uses the [tasks.md spec](https://tasks.md) for task management.
+Taskgrind ships built-in backends for Claude Code and Codex, and it works with any repo that uses the [tasks.md spec](https://tasks.md) for task management.
 
 ## Prerequisites
 
@@ -25,11 +25,12 @@ You need at least one AI coding backend installed:
 
 | Backend | Install |
 |---------|---------|
-| [Devin CLI](https://cli.devin.ai/docs) | `curl -fsSL https://cli.devin.ai/install.sh \| sh` |
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `npm install -g @anthropic-ai/claude-code` |
 | [Codex](https://github.com/openai/codex) | `npm install -g @openai/codex` |
 
-Taskgrind defaults to Devin. Use `--backend claude-code` or `--backend codex` to switch.
+Taskgrind defaults to Claude Code. Use `--backend codex` to switch to Codex.
+
+> **Breaking change (2026-10-08):** Devin and Windsurf support was removed. The default backend changed from `devin` to `claude-code` and the default model from `claude-opus-4-7-max` to `claude-opus-4-7`. `--backend devin`, `TG_BACKEND=devin`, and `TG_DEVIN_PATH` are no longer accepted.
 
 ### Backend setup matrix
 
@@ -39,7 +40,6 @@ binary, model, and network assumptions for the backend you chose.
 
 | Backend | Binary taskgrind looks for | Model validation before session 1 | Most actionable setup failures |
 |---------|----------------------------|-----------------------------------|--------------------------------|
-| `devin` | `devin` from `PATH`, or `TG_DEVIN_PATH` if you override it | Validates the requested model by running `devin --model "$TG_MODEL" --help` during preflight | `Backend binary not found (devin)` means the CLI is missing or `TG_DEVIN_PATH` points at the wrong file. `Model rejected by devin before starting` means the model string is wrong for your Devin install. If the startup probe says the binary is a stub or broken after `--version`, reinstall or roll back the Devin CLI before retrying. |
 | `claude-code` | `claude` from `PATH` | Validates the requested model by running `claude --model "$TG_MODEL" --help` during preflight | `Backend binary not found (claude-code)` usually means `@anthropic-ai/claude-code` is not installed globally or `claude` is not on `PATH`; run `npm install -g @anthropic-ai/claude-code` and confirm `claude --version` prints output. `Backend binary is not executable (claude-code)` means a `claude` file was found but cannot run. `Model rejected by claude-code before starting` means the selected Claude model is unavailable to that install or account. If the startup probe says the binary is a stub or broken after `--version`, reinstall Claude Code and retry. |
 | `codex` | `codex` from `PATH` | Validates the requested model by running `codex --model "$TG_MODEL" --help` during preflight | `Backend binary not found (codex)` means the Codex CLI is missing from `PATH`. If you explicitly choose a Claude model while using `--backend codex`, taskgrind warns before launch because Codex expects an OpenAI model such as `o3` or `gpt-5.5`. A later `Model rejected by codex before starting` failure means the chosen OpenAI model name is not accepted by your local Codex install. |
 
@@ -57,7 +57,7 @@ lane looks like:
 ```bash
 taskgrind --preflight --backend claude-code --model claude-sonnet-4.6 ~/apps/myrepo
 TG_BACKEND=claude-code TG_MODEL=sonnet taskgrind ~/apps/myrepo 8
-taskgrind --rotate-backends devin,claude-code,codex ~/apps/myrepo 8
+taskgrind --rotate-backends claude-code,codex ~/apps/myrepo 8
 taskgrind --resume --backend claude-code --model sonnet ~/apps/myrepo
 ```
 
@@ -93,7 +93,7 @@ export PATH="$HOME/apps/taskgrind/bin:$PATH"
 
 To update: `brew upgrade taskgrind` (Homebrew) or `cd ~/apps/taskgrind && git pull --rebase` (manual)
 
-Contributor audit shortcut: run `make audit` to reproduce the local repo-audit pass (an actionable scan for real task markers, plus the core docs and repo-local audit skills, shellcheck, and the core docs review queue, including `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `AGENTS.md`, `Agentfile.yaml`, `docs/architecture.md`, `docs/resume-state.md`, `docs/user-stories.md`, `man/taskgrind.1`, `.devin/skills/standing-audit-gap-loop/SKILL.md`, and `.devin/skills/grind-log-analyze/SKILL.md`) without any network-only dependencies.
+Contributor audit shortcut: run `make audit` to reproduce the local repo-audit pass (an actionable scan for real task markers, plus the core docs and repo-local audit skills, shellcheck, and the core docs review queue, including `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `AGENTS.md`, `Agentfile.yaml`, `docs/architecture.md`, `docs/resume-state.md`, `docs/user-stories.md`, `man/taskgrind.1`, `.agents/skills/standing-audit-gap-loop/SKILL.md`, and `.agents/skills/grind-log-analyze/SKILL.md`) without any network-only dependencies.
 
 ## Usage
 
@@ -101,12 +101,12 @@ Contributor audit shortcut: run `make audit` to reproduce the local repo-audit p
 taskgrind                              # 10h grind (default), current dir
 taskgrind 10                           # 10h grind
 taskgrind ~/apps/myrepo 10             # 10h grind in specific repo
-taskgrind --model claude-opus-4-7-max 8 # use specific model
+taskgrind --model claude-opus-4-7 8 # use specific model
 taskgrind --model "Claude Opus 4.7 Max" 8  # quote multi-word model names
 taskgrind --skill pipeline-ops ~/apps/bosun 10  # custom installed skill
 taskgrind --prompt "focus on test coverage" 8  # focus prompt
 taskgrind --backend claude-code 8       # use Claude Code backend
-taskgrind --rotate-backends devin,claude-code,codex 8  # override auto-detected backend rotation
+taskgrind --rotate-backends claude-code,codex 8  # override auto-detected backend rotation
 taskgrind --target-repo ~/apps/frontend --target-repo ~/apps/backend ~/apps/control 8  # workspace mode: control repo holds TASKS.md, agent has read/write access to target repos
 taskgrind --from-prompt "8h on agentbrew with frontend backend, focus on tests, use opus"  # natural-language brief; backend translates to config, then launches
 taskgrind --dry-run 8 ~/apps/myrepo    # print config without running
@@ -184,8 +184,8 @@ Use `**Blocked by**` only when another task or external dependency truly prevent
 
 ## Features
 
-- **Multi-backend support** — works with Devin, Claude Code, and Codex via `--backend`
-- **Model selection** — `--model claude-opus-4-7-max` or `TG_MODEL=claude-opus-4-7-max` to use any model the backend supports; quote multi-word model names such as `--model "Claude Opus 4.7 Max"`; short aliases `opus`, `sonnet`, `haiku`, `swe`, `codex`, and `gpt` resolve to the current preferred model IDs
+- **Multi-backend support** — works with Claude Code and Codex via `--backend`
+- **Model selection** — `--model claude-opus-4-7` or `TG_MODEL=claude-opus-4-7` to use any model the backend supports; quote multi-word model names such as `--model "Claude Opus 4.7"`; short aliases `opus`, `sonnet`, `haiku`, `codex`, and `gpt` resolve to the current preferred model IDs
 - **Live model switching** — create/edit `.taskgrind-model` in the repo while running; changes take effect at the next session, including short alias resolution. Delete the file to revert to the startup model. Files larger than 1 KB are ignored with a warning.
 - **Fleet-grind context profiles** — when `--skill fleet-grind` is active, taskgrind injects a `CONTEXT_BUDGET` prompt guard. The GPT-5.5/default standard profile tells the session to keep to one merge/fill/fix cycle plus at most one narrow sweep and to checkpoint before expanding scope; the Opus 4.7 alias gets a large-context profile while still preferring clean session boundaries.
 - **Live prompt injection** — create/edit `.taskgrind-prompt` in the repo while running; changes take effect at the next session. Files larger than 10 KB are ignored with a warning.
@@ -212,7 +212,7 @@ Use `**Blocked by**` only when another task or external dependency truly prevent
 
 ## Security
 
-Taskgrind runs AI backends with **unrestricted permissions** (`--permission-mode dangerous` for Devin, `--dangerously-skip-permissions` for Claude Code). This is required because sessions need full filesystem and network access to implement tasks autonomously.
+Taskgrind runs AI backends with **unrestricted permissions** (`--dangerously-skip-permissions` for Claude Code). This is required because sessions need full filesystem and network access to implement tasks autonomously.
 
 Before deploying, ensure:
 - You trust the AI backend and the tasks in `TASKS.md`
@@ -225,9 +225,9 @@ Before deploying, ensure:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TG_BACKEND` | `devin` | AI backend: `devin`, `claude-code`, `codex` |
-| `TG_ROTATE_BACKENDS` | (auto-detected) | Comma-separated list of backends to cycle through when the active backend hits rate-limit / quota / throttle / zero-ship-streak patterns. **Default since 2026-04-29: auto-detected from PATH** — if 2+ of `devin` / `claude` / `codex` are installed, taskgrind enables rotation automatically. Set explicitly to override; set a single backend to disable cycling. Same effect as `--rotate-backends`. |
-| `TG_MODEL` | `claude-opus-4-7-max` (`gpt-5.5` for `--backend codex`) | AI model. Explicit values override the backend-specific default. |
+| `TG_BACKEND` | `claude-code` | AI backend: `claude-code`, `codex` |
+| `TG_ROTATE_BACKENDS` | (auto-detected) | Comma-separated list of backends to cycle through when the active backend hits rate-limit / quota / throttle / zero-ship-streak patterns. **Default since 2026-04-29: auto-detected from PATH** — if both `claude` and `codex` are installed, taskgrind enables rotation automatically. Set explicitly to override; set a single backend to disable cycling. Same effect as `--rotate-backends`. |
+| `TG_MODEL` | `claude-opus-4-7` (`gpt-5.5` for `--backend codex`) | AI model. Explicit values override the backend-specific default. |
 | `TG_SKILL` | `next-task` | Skill to run each session |
 | `TG_PROMPT` | (none) | Focus prompt for every session |
 | `TG_COOL` | `5` | Seconds between sessions |
@@ -249,7 +249,6 @@ Before deploying, ensure:
 | `TG_EMPTY_QUEUE_WAIT` | `600` | Seconds to wait after an empty sweep before giving up; gives external agents time to inject follow-up work. |
 | `TG_STALL_EXIT` | `second` | When to auto-exit on the `diminishing_returns` signal. `second` (default) exits on the second consecutive trip with `diminishing_returns_exit consecutive=2 reason=default-2x`; `first` exits on the first trip with the `early_exit_stall` marker; `never` keeps the warning advisory and never auto-exits. Three legacy stall-exit env vars still translate to the matching policy with a one-shot deprecation notice; setting two contradictory legacy vars is a hard error at startup. See `man taskgrind` for the deprecation table. |
 | `TG_MAX_INSTANCES` | `2` | Max concurrent instances per repo; one sync owner plus one conflict-avoiding worker. |
-| `TG_DEVIN_PATH` | auto | Override devin binary path |
 | `TG_LOG` | auto | Override log file path |
 | `TG_STATUS_FILE` | (disabled) | Write machine-readable runtime status JSON to this path |
 | `TG_NOTIFY` | `1` | Desktop notification on completion |
@@ -274,7 +273,7 @@ tail -f "${TMPDIR:-/tmp}"/taskgrind-*.log   # watch live progress
 cat "${TMPDIR:-/tmp}"/taskgrind-*.log       # review completed sessions
 ```
 
-**Log file retention.** Each grind writes a primary log to `${TMPDIR:-/tmp}/taskgrind-<date>-<repo>-<pid>.log` plus short-lived sidecars (`taskgrind-exec.*`, `taskgrind-lock-*`, `taskgrind-ses-*`, `taskgrind-att-*`, `taskgrind-gsy-*`, `taskgrind-*.session.out`, `taskgrind-*.git-sync`, `taskgrind-*.task-attempts*`). On startup, taskgrind sweeps every sidecar older than one day from `$TMPDIR` but **explicitly leaves the primary `*.log` files in place** so the [`grind-log-analyze`](.devin/skills/grind-log-analyze/SKILL.md) skill can run post-mortems against them. On macOS the OS rotates `$TMPDIR` periodically; on Linux and inside long-lived CI containers these logs accumulate, so point a `logrotate` rule, a periodic cron sweep, or `systemd-tmpfiles` at `${TMPDIR:-/tmp}/taskgrind-*.log` if you need bounded growth.
+**Log file retention.** Each grind writes a primary log to `${TMPDIR:-/tmp}/taskgrind-<date>-<repo>-<pid>.log` plus short-lived sidecars (`taskgrind-exec.*`, `taskgrind-lock-*`, `taskgrind-ses-*`, `taskgrind-att-*`, `taskgrind-gsy-*`, `taskgrind-*.session.out`, `taskgrind-*.git-sync`, `taskgrind-*.task-attempts*`). On startup, taskgrind sweeps every sidecar older than one day from `$TMPDIR` but **explicitly leaves the primary `*.log` files in place** so the [`grind-log-analyze`](.agents/skills/grind-log-analyze/SKILL.md) skill can run post-mortems against them. On macOS the OS rotates `$TMPDIR` periodically; on Linux and inside long-lived CI containers these logs accumulate, so point a `logrotate` rule, a periodic cron sweep, or `systemd-tmpfiles` at `${TMPDIR:-/tmp}/taskgrind-*.log` if you need bounded growth.
 
 Each session logs: start time, remaining minutes, task count, exit code, duration, and shipped count. When a session removes a completed task but concurrent additions, rollover, or non-local queue churn hide that work from the raw before/after task count, taskgrind logs both `productive_zero_ship` and `shipped_inferred` so operators can see why the session still counted as shipped. The `grind_done` summary includes ship rate, remaining tasks, and average session duration.
 
@@ -352,7 +351,7 @@ Status payload fields:
 | `pid` | number | Process ID of the current `taskgrind` run |
 | `log_file` | string | Primary log path for the current run; supervisor mode uses this to include watched-run context in repair prompts |
 | `slot` | number | Claimed concurrency slot for this repo (`0` owns git sync) |
-| `backend` | string | Active backend such as `devin`, `claude-code`, or `codex` |
+| `backend` | string | Active backend such as `claude-code` or `codex` |
 | `skill` | string | Skill prompt sent to each session |
 | `model` | string | Resolved model name currently in use |
 | `session` | number | Session counter for the current grind run |
@@ -375,9 +374,9 @@ Example lifecycle snapshots:
   "pid": 48122,
   "log_file": "/tmp/taskgrind-myrepo.log",
   "slot": 0,
-  "backend": "devin",
+  "backend": "claude-code",
   "skill": "next-task",
-  "model": "claude-opus-4-7-max",
+  "model": "claude-opus-4-7",
   "session": 0,
   "remaining_minutes": 479,
   "current_phase": "preflight",
@@ -400,9 +399,9 @@ Example lifecycle snapshots:
   "pid": 48122,
   "log_file": "/tmp/taskgrind-myrepo.log",
   "slot": 0,
-  "backend": "devin",
+  "backend": "claude-code",
   "skill": "next-task",
-  "model": "claude-opus-4-7-max",
+  "model": "claude-opus-4-7",
   "session": 3,
   "remaining_minutes": 451,
   "current_phase": "running_session",
@@ -424,9 +423,9 @@ Example lifecycle snapshots:
   "pid": 48122,
   "log_file": "/tmp/taskgrind-myrepo.log",
   "slot": 0,
-  "backend": "devin",
+  "backend": "claude-code",
   "skill": "next-task",
-  "model": "claude-opus-4-7-max",
+  "model": "claude-opus-4-7",
   "session": 3,
   "remaining_minutes": 449,
   "current_phase": "waiting_for_network",
@@ -448,9 +447,9 @@ Example lifecycle snapshots:
   "pid": 48122,
   "log_file": "/tmp/taskgrind-myrepo.log",
   "slot": 0,
-  "backend": "devin",
+  "backend": "claude-code",
   "skill": "next-task",
-  "model": "claude-opus-4-7-max",
+  "model": "claude-opus-4-7",
   "session": 7,
   "remaining_minutes": 0,
   "current_phase": "complete",
@@ -505,7 +504,7 @@ Switch models mid-grind without restarting — useful for switching from a power
 echo "claude-sonnet-4.6" > ~/apps/myrepo/.taskgrind-model
 ```
 
-The file is re-read before each session. Overrides `--model` and `TG_MODEL` when present. Short aliases such as `opus`, `sonnet`, `haiku`, `codex`, `gpt`, and `swe` resolve to the current preferred model IDs. Delete the file to revert to the original startup model. Files larger than 1 KB are skipped as a safety guard, and taskgrind logs a warning like `⚠ .taskgrind-model too large (2048B > 1024B) — skipping`.
+The file is re-read before each session. Overrides `--model` and `TG_MODEL` when present. Short aliases such as `opus`, `sonnet`, `haiku`, `codex`, and `gpt` resolve to the current preferred model IDs. Delete the file to revert to the original startup model. Files larger than 1 KB are skipped as a safety guard, and taskgrind logs a warning like `⚠ .taskgrind-model too large (2048B > 1024B) — skipping`.
 
 Both override files are only applied between sessions. The current in-flight
 session keeps its original prompt and model, and the next session picks up the
@@ -540,9 +539,9 @@ Expected preflight header while two grinds are already active:
 ```text
 taskgrind --preflight
   repo:     /Users/you/apps/myrepo
-  backend:  devin
+  backend:  claude-code
   skill:    next-task
-  model:    claude-opus-4-7-max
+  model:    claude-opus-4-7
   slots:    2/3 active
 ```
 
