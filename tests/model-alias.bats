@@ -23,10 +23,15 @@ _source_constants() {
   source "$BATS_TEST_DIRNAME/../lib/constants.sh"
 }
 
-@test "dvb_resolve_model_alias: opus resolves to claude-opus-4-7" {
+@test "dvb_resolve_model_alias: opus resolves to claude-opus-5-5" {
   _source_constants
   result=$(dvb_resolve_model_alias "opus")
-  [[ "$result" == "claude-opus-4-7" ]]
+  [[ "$result" == "claude-opus-5-5" ]]
+}
+
+@test "default worker model is claude-sonnet-5 for claude-code" {
+  source "$BATS_TEST_DIRNAME/../lib/constants.sh"
+  [[ "$(dvb_default_model_for_backend claude-code)" == "claude-sonnet-5" ]]
 }
 
 @test "dvb_resolve_model_alias: sonnet resolves to a claude-sonnet-* model id" {

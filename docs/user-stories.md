@@ -52,7 +52,7 @@ What happens:
 
 Sample banner:
 ```
-☕ taskgrind: 4h (until 13:00) — backend=claude-code, skill=next-task, model=claude-opus-4-7, repo=/Users/you/apps/myproject
+☕ taskgrind: 4h (until 13:00) — backend=claude-code, skill=next-task, model=claude-sonnet-5, repo=/Users/you/apps/myproject
    Each session runs next-task. Git sync every 5 sessions.
    Focus: focus on test coverage
    Log: ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
@@ -88,7 +88,7 @@ backend.
 
 ```bash
 # Prove the local Claude Code install before starting a long run
-taskgrind --preflight --backend claude-code --model claude-sonnet-4.6 ~/apps/myproject
+taskgrind --preflight --backend claude-code --model claude-opus-5-5 ~/apps/myproject
 
 # Keep Claude Code as the reusable default for wrapper restarts
 TG_BACKEND=claude-code TG_MODEL=sonnet taskgrind ~/apps/myproject 6
@@ -288,7 +288,7 @@ taskgrind --dry-run
   repo:     /Users/you/apps/myproject
   backend:  claude-code
   skill:    next-task
-  model:    claude-opus-4-7
+  model:    claude-sonnet-5
   cooldown: 5s
   log:      ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
   status:   disabled
@@ -303,7 +303,7 @@ taskgrind --preflight
   repo:     /Users/you/apps/myproject
   backend:  claude-code
   skill:    next-task
-  model:    claude-opus-4-7
+  model:    claude-sonnet-5
   slots:    0/2 active
 
 Preflight checks for: /Users/you/apps/myproject
@@ -359,7 +359,7 @@ What happens:
 
 Sample output:
 ```
-☕ taskgrind: 6h (until 15:00) — backend=claude-code, skill=next-task, model=claude-opus-4-7, repo=/Users/you/apps/myproject
+☕ taskgrind: 6h (until 15:00) — backend=claude-code, skill=next-task, model=claude-sonnet-5, repo=/Users/you/apps/myproject
    Resuming: session=3 shipped=2 zero-ship=1
    Each session runs next-task. Git sync every 5 sessions.
    Log: ${TMPDIR:-/tmp}/taskgrind-2025-01-15-0900-myproject-38291.log
@@ -472,7 +472,7 @@ You start a long grind with a stronger model for ambiguous work, then switch to 
 taskgrind --model opus ~/apps/myproject 6
 
 # Later, switch future sessions to a faster model
-echo "claude-sonnet-4.6" > ~/apps/myproject/.taskgrind-model
+echo "claude-opus-5-5" > ~/apps/myproject/.taskgrind-model
 ```
 
 What happens:
@@ -485,10 +485,10 @@ What happens:
 
 Sample log:
 ```
-[pid=38291] [09:00] session=1 remaining=360m tasks=9 model=claude-opus-4-7
+[pid=38291] [09:00] session=1 remaining=360m tasks=9 model=claude-sonnet-5
 [pid=38291] [09:42] session=1 ended exit=0 duration=2520s tasks_after=8 shipped=1
-[pid=38291] [09:47] live_model=claude-sonnet-4.6 (startup=claude-opus-4-7)
-[pid=38291] [09:47] session=2 remaining=313m tasks=8 model=claude-sonnet-4.6
+[pid=38291] [09:47] live_model=claude-opus-5-5 (startup=claude-sonnet-5)
+[pid=38291] [09:47] session=2 remaining=313m tasks=8 model=claude-opus-5-5
 ```
 
 ## 9. Redirecting focus mid-grind
@@ -515,10 +515,10 @@ What happens:
 
 Sample log:
 ```
-[pid=38291] [14:00] session=3 remaining=240m tasks=7 model=claude-sonnet-4.6
+[pid=38291] [14:00] session=3 remaining=240m tasks=7 model=claude-opus-5-5
 [pid=38291] [14:36] session=3 ended exit=0 duration=2160s tasks_after=6 shipped=1
 [pid=38291] [14:41] live_prompt=.taskgrind-prompt loaded bytes=58
-[pid=38291] [14:41] session=4 remaining=199m tasks=6 model=claude-sonnet-4.6
+[pid=38291] [14:41] session=4 remaining=199m tasks=6 model=claude-opus-5-5
 ```
 
 If the file is too large, the log instead shows a warning such as:
@@ -542,14 +542,14 @@ keep moving.
 
 Sample log showing the transition:
 ```
-[pid=38291] [11:00] session=4 remaining=420m tasks=9 model=claude-opus-4-7
+[pid=38291] [11:00] session=4 remaining=420m tasks=9 model=claude-sonnet-5
 [pid=38291] [11:45] session=4 ended exit=0 duration=2700s tasks_after=9 shipped=0
-[pid=38291] [11:50] session=5 remaining=375m tasks=9 model=claude-opus-4-7
+[pid=38291] [11:50] session=5 remaining=375m tasks=9 model=claude-sonnet-5
 [pid=38291] [12:35] session=5 ended exit=0 duration=2700s tasks_after=9 shipped=0
-[pid=38291] [12:40] session=6 remaining=330m tasks=9 model=claude-opus-4-7
+[pid=38291] [12:40] session=6 remaining=330m tasks=9 model=claude-sonnet-5
 [pid=38291] [13:25] session=6 ended exit=0 duration=2700s tasks_after=9 shipped=0
 [pid=38291] [13:25] task_skip_threshold ids=refactor-auth-adapter
-[pid=38291] [13:30] session=7 remaining=285m tasks=9 model=claude-opus-4-7
+[pid=38291] [13:30] session=7 remaining=285m tasks=9 model=claude-sonnet-5
 ```
 
 Session 7's prompt (shown by `taskgrind --dry-run` style expansion) now
@@ -743,7 +743,7 @@ What happens:
 
 Sample banner:
 ```
-☕ taskgrind: 8h (until 17:00) — backend=claude-code, skill=next-task, model=claude-opus-4-7, repo=/Users/you/apps/control
+☕ taskgrind: 8h (until 17:00) — backend=claude-code, skill=next-task, model=claude-sonnet-5, repo=/Users/you/apps/control
    Workspace: control + 2 target(s)
      - /Users/you/apps/frontend
      - /Users/you/apps/backend
@@ -853,7 +853,7 @@ taskgrind --dry-run
   repo:     /Users/you/apps/agentbrew
   backend:  claude-code
   skill:    next-task
-  model:    claude-opus-4-7
+  model:    claude-sonnet-5
   ...
   workspace: control + 2 target(s)
   target:   /Users/you/apps/frontend

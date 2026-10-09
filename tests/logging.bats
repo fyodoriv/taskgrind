@@ -60,7 +60,7 @@ PY
   run_tiny_workload
   grep -q '# taskgrind started' "$TEST_LOG"
   grep -q "hours=1" "$TEST_LOG"
-  grep -q "model=claude-opus-4-7" "$TEST_LOG"
+  grep -q "model=claude-sonnet-5" "$TEST_LOG"
 }
 
 @test "log file records session start entries" {
@@ -89,7 +89,7 @@ assert data["terminal_reason"] in (None, "deadline_expired", "queue_empty"), dat
 assert data["session"] >= 1
 assert data["backend"] == "claude-code"
 assert data["skill"] == "next-task"
-assert data["model"] == "claude-opus-4-7"
+assert data["model"] == "claude-sonnet-5"
 assert data["last_session"]["number"] >= 1
 assert data["last_session"]["result"] == "success"
 assert data["last_session"]["completed_at"]
@@ -230,8 +230,8 @@ PY
 @test "session banner and log entry include active model" {
   run_tiny_workload
   [[ "$output" == *"Session 1"* ]]
-  [[ "$output" == *"tasks queued — model=claude-opus-4-7"* ]]
-  grep -q 'session=1 .*model=claude-opus-4-7' "$TEST_LOG"
+  [[ "$output" == *"tasks queued — model=claude-sonnet-5"* ]]
+  grep -q 'session=1 .*model=claude-sonnet-5' "$TEST_LOG"
 }
 
 @test "log file records session end entries" {
@@ -285,7 +285,7 @@ TASKS
   run_tiny_workload
   [[ "$output" == *"taskgrind"* ]]
   [[ "$output" == *"1h"* ]]
-  [[ "$output" == *"claude-opus-4-7"* ]]
+  [[ "$output" == *"claude-sonnet-5"* ]]
 }
 
 @test "shows startup banner with repo path" {
@@ -329,10 +329,10 @@ TASKS
 }
 
 @test "live model log includes resolved model and raw alias" {
-  echo "sonnet" > "$TEST_REPO/.taskgrind-model"
-  run_tiny_workload --model claude-opus-4-7 1 "$TEST_REPO"
+  echo "opus" > "$TEST_REPO/.taskgrind-model"
+  run_tiny_workload --model claude-sonnet-5 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  grep -q 'live_model=claude-sonnet-4.6 (alias=sonnet, startup=claude-opus-4-7)' "$TEST_LOG"
+  grep -q 'live_model=claude-opus-5-5 (alias=opus, startup=claude-sonnet-5)' "$TEST_LOG"
 }
 
 # ── DVB_DEADLINE override ────────────────────────────────────────────

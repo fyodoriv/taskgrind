@@ -86,7 +86,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
   export DVB_FROM_PROMPT_RESPONSE='model=opus'
   run "$DVB_GRIND" --dry-run --from-prompt "use opus" "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"model:    claude-opus-4-7"* ]]
+  [[ "$output" == *"model:    claude-opus-5-5"* ]]
   # hours should still be the default (10)
   [[ "$output" == *"hours:    10"* ]]
 }
@@ -110,7 +110,7 @@ no_push=1"
   [[ "$output" == *"repo:     $TEST_REPO"* ]]
   [[ "$output" == *"backend:  claude-code"* ]]
   [[ "$output" == *"skill:    pipeline-ops"* ]]
-  [[ "$output" == *"model:    claude-opus-4-7"* ]]
+  [[ "$output" == *"model:    claude-opus-5-5"* ]]
   [[ "$output" == *"no_push:  1"* ]]
   [[ "$output" == *"target:   $target1"* ]]
   [[ "$output" == *"target:   $target2"* ]]
@@ -121,7 +121,7 @@ no_push=1"
   export DVB_FROM_PROMPT_RESPONSE='model=sonnet'
   run "$DVB_GRIND" --dry-run --from-prompt "sonnet please" "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"model:    claude-sonnet-4.6"* ]]
+  [[ "$output" == *"model:    claude-sonnet-5"* ]]
 }
 
 @test "unknown keys in response are ignored (defensive)" {
@@ -139,7 +139,7 @@ random_extra=junk'
   run "$DVB_GRIND" --dry-run --from-prompt "windows-y output" "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"hours:    8"* ]]
-  [[ "$output" == *"model:    claude-opus-4-7"* ]]
+  [[ "$output" == *"model:    claude-opus-5-5"* ]]
 }
 
 @test "empty value for a key sets the slot to empty (no crash)" {
@@ -176,14 +176,14 @@ focus='
   export DVB_FROM_PROMPT_RESPONSE='model=opus'
   run "$DVB_GRIND" --dry-run --from-prompt "use opus" --model sonnet "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"model:    claude-sonnet-4.6"* ]]
+  [[ "$output" == *"model:    claude-sonnet-5"* ]]
 }
 
 @test "TG_MODEL env beats prompt-translated model" {
   export DVB_FROM_PROMPT_RESPONSE='model=opus'
   TG_MODEL=sonnet run "$DVB_GRIND" --dry-run --from-prompt "use opus" "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"model:    claude-sonnet-4.6"* ]]
+  [[ "$output" == *"model:    claude-sonnet-5"* ]]
 }
 
 @test "explicit --backend beats prompt-translated backend" {

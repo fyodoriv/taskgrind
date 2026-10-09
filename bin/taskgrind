@@ -7,7 +7,7 @@
 # Usage: taskgrind                              → 10h grind (default)
 #        taskgrind 10                          → 10h grind, current dir
 #        taskgrind ~/apps/myrepo 10            → 10h grind in specific repo
-#        taskgrind --model claude-opus-4-7 8 → 8h grind with specific model
+#        taskgrind --model claude-sonnet-5 8 → 8h grind with specific model
 #        taskgrind --model "Claude Opus 4.7 Max" 8
 #                                               → quote multi-word model names
 #        taskgrind --skill pipeline-ops ~/apps/bosun 10
@@ -50,7 +50,7 @@
 # Env:   TG_BACKEND     — AI backend: claude-code, codex (default: claude-code)
 #        TG_ROTATE_BACKENDS — comma-separated list overriding auto-detected
 #                            mid-flight rotation.
-#        TG_MODEL       — AI model (default: "claude-opus-4-7")
+#        TG_MODEL       — AI model (default: "claude-sonnet-5")
 #        TG_COOL        — seconds between sessions (default: 5; short settle
 #                         window for filesystem/git-hook cleanup)
 #        TG_SKILL       — skill to run (default: next-task)
@@ -321,13 +321,13 @@ while [[ $# -gt 0 ]]; do
       [[ -z "$supervise_status_file" ]] && { echo "Error: --supervise requires a non-empty TG_STATUS_FILE path" >&2; exit 1; }
       shift 2
       ;;
-    --model=*) _cli_model="${1#--model=}"; [[ -z "$_cli_model" ]] && { echo "Error: --model requires a non-empty name (example: --model claude-opus-4-7). See 'taskgrind --help'." >&2; exit 1; }; shift ;;
+    --model=*) _cli_model="${1#--model=}"; [[ -z "$_cli_model" ]] && { echo "Error: --model requires a non-empty name (example: --model claude-sonnet-5). See 'taskgrind --help'." >&2; exit 1; }; shift ;;
     --model)
       if [[ $# -lt 2 ]]; then
-        echo "Error: --model requires a name (example: --model claude-opus-4-7). See 'taskgrind --help'." >&2; exit 1
+        echo "Error: --model requires a name (example: --model claude-sonnet-5). See 'taskgrind --help'." >&2; exit 1
       fi
       _cli_model="$2"
-      [[ -z "$_cli_model" ]] && { echo "Error: --model requires a non-empty name (example: --model claude-opus-4-7). See 'taskgrind --help'." >&2; exit 1; }
+      [[ -z "$_cli_model" ]] && { echo "Error: --model requires a non-empty name (example: --model claude-sonnet-5). See 'taskgrind --help'." >&2; exit 1; }
       shift 2
       ;;
     --skill=*) skill="${1#--skill=}"; [[ -z "$skill" ]] && { echo "Error: --skill requires a non-empty name" >&2; exit 1; }; _cli_skill_set=1; shift ;;
@@ -1136,7 +1136,7 @@ _refresh_model
 
 model_context_profile() {
   case "$model" in
-    *opus-4-7*|*opus-4.7*|*opus*1m*|*opus*1M*) printf '%s' "large" ;;
+    *opus-5-5*|*opus-5.5*|*opus-4-7*|*opus-4.7*|*opus*1m*|*opus*1M*) printf '%s' "large" ;;
     *) printf '%s' "standard" ;;
   esac
 }

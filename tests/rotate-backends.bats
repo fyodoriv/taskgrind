@@ -194,7 +194,7 @@ PY
   git -C "$TEST_REPO" push -u origin main --quiet
 
   echo "LIVE_ROTATION_PROMPT" > "$TEST_REPO/.taskgrind-prompt"
-  echo "sonnet" > "$TEST_REPO/.taskgrind-model"
+  echo "opus" > "$TEST_REPO/.taskgrind-model"
   export DVB_STATUS_FILE="$TEST_DIR/status.json"
   export DVB_DEADLINE_OFFSET=12
   export ROTATION_SCENARIO="rate-limit-then-ship"
@@ -212,8 +212,8 @@ PY
   grep -q 'final_sync would_push commits=1' "$TEST_LOG"
   grep -q 'grind_done sessions=2 shipped=1' "$TEST_LOG"
 
-  grep -q -- 'codex --model claude-sonnet-4.6 -q' "$DVB_GRIND_INVOKE_LOG"
-  grep -q -- 'claude-code --model claude-sonnet-4.6 --dangerously-skip-permissions' "$DVB_GRIND_INVOKE_LOG"
+  grep -q -- 'codex --model claude-opus-5-5 -q' "$DVB_GRIND_INVOKE_LOG"
+  grep -q -- 'claude-code --model claude-opus-5-5 --dangerously-skip-permissions' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'CLI_ROTATION_PROMPT' "$DVB_GRIND_INVOKE_LOG"
   grep -q 'LIVE_ROTATION_PROMPT' "$DVB_GRIND_INVOKE_LOG"
   grep -q '"backend": "claude-code"' "$DVB_STATUS_FILE"
