@@ -66,8 +66,8 @@ sessions_zero_ship=1
 consecutive_zero_ship=0
 backend=claude-code
 skill=next-task
-model=claude-opus-4-7
-startup_model=claude-opus-4-7
+model=claude-sonnet-5
+startup_model=claude-sonnet-5
 startup_prompt=focus on reliability
 no_push=0
 ```

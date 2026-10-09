@@ -30,7 +30,7 @@ You need at least one AI coding backend installed:
 
 Taskgrind defaults to Claude Code. Use `--backend codex` to switch to Codex.
 
-> **Breaking change (2026-10-08):** Devin and Windsurf support was removed. The default backend changed from `devin` to `claude-code` and the default model from `claude-opus-4-7-max` to `claude-opus-4-7`. `--backend devin`, `TG_BACKEND=devin`, and `TG_DEVIN_PATH` are no longer accepted.
+> **Breaking change (2026-10-08):** Devin and Windsurf support was removed. The default backend changed from `devin` to `claude-code` and the default model from `claude-opus-4-7-max` to `claude-opus-4-7`, then to the worker model `claude-sonnet-5`. `--backend devin`, `TG_BACKEND=devin`, and `TG_DEVIN_PATH` are no longer accepted.
 
 ### Backend setup matrix
 
@@ -47,7 +47,7 @@ Practical examples:
 
 ```bash
 taskgrind --preflight ~/apps/myrepo
-taskgrind --preflight --backend claude-code --model claude-sonnet-4.6 ~/apps/myrepo
+taskgrind --preflight --backend claude-code --model claude-opus-5-5 ~/apps/myrepo
 taskgrind --preflight --backend codex --model o3 ~/apps/myrepo
 ```
 
@@ -55,7 +55,7 @@ Claude Code is a first-class backend, not a special case. A typical Claude Code
 lane looks like:
 
 ```bash
-taskgrind --preflight --backend claude-code --model claude-sonnet-4.6 ~/apps/myrepo
+taskgrind --preflight --backend claude-code --model claude-opus-5-5 ~/apps/myrepo
 TG_BACKEND=claude-code TG_MODEL=sonnet taskgrind ~/apps/myrepo 8
 taskgrind --rotate-backends claude-code,codex ~/apps/myrepo 8
 taskgrind --resume --backend claude-code --model sonnet ~/apps/myrepo
@@ -101,7 +101,7 @@ Contributor audit shortcut: run `make audit` to reproduce the local repo-audit p
 taskgrind                              # 10h grind (default), current dir
 taskgrind 10                           # 10h grind
 taskgrind ~/apps/myrepo 10             # 10h grind in specific repo
-taskgrind --model claude-opus-4-7 8 # use specific model
+taskgrind --model claude-sonnet-5 8 # use specific model
 taskgrind --model "Claude Opus 4.7 Max" 8  # quote multi-word model names
 taskgrind --skill pipeline-ops ~/apps/bosun 10  # custom installed skill
 taskgrind --prompt "focus on test coverage" 8  # focus prompt
@@ -185,7 +185,7 @@ Use `**Blocked by**` only when another task or external dependency truly prevent
 ## Features
 
 - **Multi-backend support** — works with Claude Code and Codex via `--backend`
-- **Model selection** — `--model claude-opus-4-7` or `TG_MODEL=claude-opus-4-7` to use any model the backend supports; quote multi-word model names such as `--model "Claude Opus 4.7"`; short aliases `opus`, `sonnet`, `haiku`, `codex`, and `gpt` resolve to the current preferred model IDs
+- **Model selection** — `--model claude-sonnet-5` or `TG_MODEL=claude-sonnet-5` to use any model the backend supports; quote multi-word model names such as `--model "Claude Sonnet 5"`; short aliases `opus`, `sonnet`, `haiku`, `codex`, and `gpt` resolve to the current preferred model IDs
 - **Live model switching** — create/edit `.taskgrind-model` in the repo while running; changes take effect at the next session, including short alias resolution. Delete the file to revert to the startup model. Files larger than 1 KB are ignored with a warning.
 - **Fleet-grind context profiles** — when `--skill fleet-grind` is active, taskgrind injects a `CONTEXT_BUDGET` prompt guard. The GPT-5.5/default standard profile tells the session to keep to one merge/fill/fix cycle plus at most one narrow sweep and to checkpoint before expanding scope; the Opus 4.7 alias gets a large-context profile while still preferring clean session boundaries.
 - **Live prompt injection** — create/edit `.taskgrind-prompt` in the repo while running; changes take effect at the next session. Files larger than 10 KB are ignored with a warning.
@@ -227,7 +227,7 @@ Before deploying, ensure:
 |----------|---------|-------------|
 | `TG_BACKEND` | `claude-code` | AI backend: `claude-code`, `codex` |
 | `TG_ROTATE_BACKENDS` | (auto-detected) | Comma-separated list of backends to cycle through when the active backend hits rate-limit / quota / throttle / zero-ship-streak patterns. **Default since 2026-04-29: auto-detected from PATH** — if both `claude` and `codex` are installed, taskgrind enables rotation automatically. Set explicitly to override; set a single backend to disable cycling. Same effect as `--rotate-backends`. |
-| `TG_MODEL` | `claude-opus-4-7` (`gpt-5.5` for `--backend codex`) | AI model. Explicit values override the backend-specific default. |
+| `TG_MODEL` | `claude-sonnet-5` (`gpt-5.5` for `--backend codex`) | AI model. Explicit values override the backend-specific default. |
 | `TG_SKILL` | `next-task` | Skill to run each session |
 | `TG_PROMPT` | (none) | Focus prompt for every session |
 | `TG_COOL` | `5` | Seconds between sessions |
@@ -376,7 +376,7 @@ Example lifecycle snapshots:
   "slot": 0,
   "backend": "claude-code",
   "skill": "next-task",
-  "model": "claude-opus-4-7",
+  "model": "claude-sonnet-5",
   "session": 0,
   "remaining_minutes": 479,
   "current_phase": "preflight",
@@ -401,7 +401,7 @@ Example lifecycle snapshots:
   "slot": 0,
   "backend": "claude-code",
   "skill": "next-task",
-  "model": "claude-opus-4-7",
+  "model": "claude-sonnet-5",
   "session": 3,
   "remaining_minutes": 451,
   "current_phase": "running_session",
@@ -425,7 +425,7 @@ Example lifecycle snapshots:
   "slot": 0,
   "backend": "claude-code",
   "skill": "next-task",
-  "model": "claude-opus-4-7",
+  "model": "claude-sonnet-5",
   "session": 3,
   "remaining_minutes": 449,
   "current_phase": "waiting_for_network",
@@ -449,7 +449,7 @@ Example lifecycle snapshots:
   "slot": 0,
   "backend": "claude-code",
   "skill": "next-task",
-  "model": "claude-opus-4-7",
+  "model": "claude-sonnet-5",
   "session": 7,
   "remaining_minutes": 0,
   "current_phase": "complete",
@@ -501,7 +501,7 @@ can see why the override did not apply.
 Switch models mid-grind without restarting — useful for switching from a powerful model to a faster one for simpler tasks:
 
 ```bash
-echo "claude-sonnet-4.6" > ~/apps/myrepo/.taskgrind-model
+echo "claude-opus-5-5" > ~/apps/myrepo/.taskgrind-model
 ```
 
 The file is re-read before each session. Overrides `--model` and `TG_MODEL` when present. Short aliases such as `opus`, `sonnet`, `haiku`, `codex`, and `gpt` resolve to the current preferred model IDs. Delete the file to revert to the original startup model. Files larger than 1 KB are skipped as a safety guard, and taskgrind logs a warning like `⚠ .taskgrind-model too large (2048B > 1024B) — skipping`.
@@ -541,7 +541,7 @@ taskgrind --preflight
   repo:     /Users/you/apps/myrepo
   backend:  claude-code
   skill:    next-task
-  model:    claude-opus-4-7
+  model:    claude-sonnet-5
   slots:    2/3 active
 ```
 
@@ -628,7 +628,7 @@ story in the log named in the startup banner.
 | Another terminal says the repo is busy or a new worker will not start | `taskgrind --preflight ~/apps/myrepo` for `slots: N/M active`; the active-slot owner list in preflight output; `current_phase` in `TG_STATUS_FILE` for the active worker | Wait for a slot to free up, or raise `TG_MAX_INSTANCES` before starting another grind. Keep slot `0` as the sync owner; point higher slots at docs, audits, `TASKS.md` maintenance, or status-file supervision instead of overlapping code edits. |
 | Sessions keep ending with zero shipped tasks | `last_session.result`, `last_session.shipped`, and log markers such as `productive_zero_ship`, `shipped_inferred`, or repeated `tasks_after=` counts | Read the last few session summaries before killing the run. If the queue is churning under another agent, taskgrind may still be shipping work. If the same task is being retried without progress, tighten the prompt, split the task, or remove the blocker in `TASKS.md` before resuming. |
 | Same task retried for hours with no progress | `task_skip_threshold ids=<id>` in the log; the next session banner + prompt contains `SKIP these stuck tasks (attempted 3+ times): <id>` | Taskgrind automatically skips tasks after 3 unproductive sessions on them. Read the task itself: if it is genuinely ambiguous, split it into 2–3 sub-tasks (the smaller IDs start fresh counters). If it is actually blocked on an external event, add `**Blocked by**:` metadata so the grind uses `blocked_wait` instead of the skip list. Shipping or removing the task clears its counter. |
-| Claude Code fails before useful work starts | `taskgrind --preflight --backend claude-code --model claude-sonnet-4.6 ~/apps/myrepo`; stderr/log lines containing `Backend binary not found (claude-code)`, `Backend binary is not executable (claude-code)`, or `Model rejected by claude-code before starting` | Install or repair `@anthropic-ai/claude-code`, confirm `claude --version` prints output, and choose a Claude model the account can use. If the failed run was resumable, rerun `taskgrind --resume --backend claude-code --model sonnet ~/apps/myrepo` with the same startup backend/model/skill/prompt choices saved in `.taskgrind-state`. |
+| Claude Code fails before useful work starts | `taskgrind --preflight --backend claude-code --model claude-opus-5-5 ~/apps/myrepo`; stderr/log lines containing `Backend binary not found (claude-code)`, `Backend binary is not executable (claude-code)`, or `Model rejected by claude-code before starting` | Install or repair `@anthropic-ai/claude-code`, confirm `claude --version` prints output, and choose a Claude model the account can use. If the failed run was resumable, rerun `taskgrind --resume --backend claude-code --model sonnet ~/apps/myrepo` with the same startup backend/model/skill/prompt choices saved in `.taskgrind-state`. |
 | Network outages pause progress for too long | `current_phase=waiting_for_network`; log lines around connectivity retries and `network_restored` | Let taskgrind hold the deadline open during short outages. If the outage exceeds `TG_NET_MAX_WAIT`, restore connectivity first, then resume with the same repo plus the original startup overrides so the saved backend/model/skill/prompt contract still matches. |
 | `--resume` refuses to continue | The rejection message in stderr; `.taskgrind-state`; `docs/resume-state.md` for the saved field contract | Fix the mismatch the message calls out: rerun with the same repo plus the same `--backend`, `--model`, `--skill`, and baseline `--prompt` / `TG_PROMPT` inputs, restore the missing state file, or start a fresh grind if the deadline already expired. Do not copy stale state across repos. |
 | Final push or sync fails during shutdown | The final `git push` / `git pull --rebase` lines in the log; `git status --short`; `git log --oneline --decorate -5` | Resolve the git problem in the repo first, usually with `git pull --rebase` for incoming changes or by fixing the rejected push target. Then rerun resume with the same repo plus the original startup overrides if the interrupted run did not use pure defaults. |

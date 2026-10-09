@@ -8,14 +8,14 @@
 
 # Default AI model for the default backend (Claude Code).
 #
-# Claude Code rejects the `-max` suffix, so the default is the plain
-# `claude-opus-4-7` ID. Codex has its own default below.
-DVB_DEFAULT_MODEL="claude-opus-4-7"
+# The default is the owner's worker model, `claude-sonnet-5`. Claude Code
+# rejects effort suffixes such as `-max`. Codex has its own default below.
+DVB_DEFAULT_MODEL="claude-sonnet-5"
 DVB_DEFAULT_CLAUDE_CODE_MODEL="$DVB_DEFAULT_MODEL"
 DVB_DEFAULT_CODEX_MODEL="gpt-5.5"
 DVB_RESUME_STATE_VERSION="1"
 DVB_RESUME_STATE_BASENAME=".taskgrind-state"
-DVB_MODEL_ALIASES=$'opus=claude-opus-4-7\nsonnet=claude-sonnet-4.6\nhaiku=claude-haiku-4.5\ncodex=gpt-5.5\ngpt=gpt-5-5-xhigh-priority'
+DVB_MODEL_ALIASES=$'opus=claude-opus-5-5\nsonnet=claude-sonnet-5\nhaiku=claude-haiku-5-5\ncodex=gpt-5.5\ngpt=gpt-5-5-xhigh-priority'
 
 # TG_COOL=5: short settle window between sessions without materially reducing grind time.
 DVB_DEFAULT_COOL="5"

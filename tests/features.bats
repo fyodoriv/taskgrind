@@ -187,7 +187,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 }
 
 @test "codex backend warns when model contains claude" {
-  export DVB_MODEL=claude-opus-4-7
+  export DVB_MODEL=claude-sonnet-5
   run "$DVB_GRIND" --dry-run --backend codex 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Warning"*"Anthropic model"*"codex"* ]]
@@ -280,7 +280,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 
 @test "--model alias resolves before backend invocation" {
   run_tiny_workload --model opus 1 "$TEST_REPO"
-  grep -q -- '--model claude-opus-4-7' "$DVB_GRIND_INVOKE_LOG"
+  grep -q -- '--model claude-opus-5-5' "$DVB_GRIND_INVOKE_LOG"
 }
 
 @test "--model works with --backend and --skill" {
@@ -323,7 +323,7 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 @test "fleet-grind opus dry-run includes large context profile" {
   run "$DVB_GRIND" --dry-run --skill fleet-grind --model opus 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"model:    claude-opus-4-7"* ]]
+  [[ "$output" == *"model:    claude-opus-5-5"* ]]
   [[ "$output" == *"CONTEXT_BUDGET: Model profile large"* ]]
 }
 
@@ -479,11 +479,11 @@ exit 0
 SCRIPT
   chmod +x "$FAKE_BACKEND_V2"
   export DVB_GRIND_CMD="$FAKE_BACKEND_V2"
-  echo "sonnet" > "$TEST_REPO/.taskgrind-model"
+  echo "opus" > "$TEST_REPO/.taskgrind-model"
   export DVB_MODEL_FILE_PATH="$TEST_REPO/.taskgrind-model"
   run "$DVB_GRIND" --model opus 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  head -1 "$DVB_GRIND_INVOKE_LOG" | grep -q -- '--model claude-sonnet-4.6'
+  head -1 "$DVB_GRIND_INVOKE_LOG" | grep -q -- '--model claude-opus-5-5'
 }
 
 @test "model file alias resolves on live reload" {
@@ -509,7 +509,7 @@ SCRIPT
   rm -f "$DVB_MODEL_FILE_PATH"
   run "$DVB_GRIND" --model gpt-5-5 1 "$TEST_REPO"
   [ "$status" -eq 0 ]
-  sed -n '2p' "$DVB_GRIND_INVOKE_LOG" | grep -q -- '--model claude-sonnet-4.6'
+  sed -n '2p' "$DVB_GRIND_INVOKE_LOG" | grep -q -- '--model claude-sonnet-5'
 }
 
 @test "model file with trailing whitespace is trimmed" {
@@ -519,17 +519,17 @@ SCRIPT
 }
 
 @test "model file shown in startup banner when active" {
-  echo "sonnet" > "$TEST_REPO/.taskgrind-model"
+  echo "opus" > "$TEST_REPO/.taskgrind-model"
   run_tiny_workload
   [[ "$output" == *"Live model:"* ]]
-  [[ "$output" == *"claude-sonnet-4.6"* ]]
+  [[ "$output" == *"claude-opus-5-5"* ]]
 }
 
 @test "model file alias is shown in the session banner as the resolved model" {
-  echo "sonnet" > "$TEST_REPO/.taskgrind-model"
+  echo "opus" > "$TEST_REPO/.taskgrind-model"
   run_tiny_workload
   [[ "$output" == *"Session 1"* ]]
-  [[ "$output" == *"tasks queued — model=claude-sonnet-4.6"* ]]
+  [[ "$output" == *"tasks queued — model=claude-opus-5-5"* ]]
   [[ "$output" != *"tasks queued — model=sonnet"* ]]
 }
 

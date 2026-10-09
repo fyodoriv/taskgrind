@@ -37,7 +37,7 @@ SCRIPT
   grep -q "^status=running$" "$state_file"
   grep -q "^backend=claude-code$" "$state_file"
   grep -q "^skill=next-task$" "$state_file"
-  grep -q "^model=claude-opus-4-7$" "$state_file"
+  grep -q "^model=claude-sonnet-5$" "$state_file"
   grep -q "^startup_prompt=$" "$state_file"
 
   kill -9 "$grind_pid"
@@ -95,8 +95,8 @@ sessions_zero_ship=0
 consecutive_zero_ship=0
 backend=claude-code
 skill=next-task
-model=claude-opus-4-7
-startup_model=claude-opus-4-7
+model=claude-sonnet-5
+startup_model=claude-sonnet-5
 EOF
 
   run "$DVB_GRIND" --resume "$TEST_REPO"
@@ -119,8 +119,8 @@ sessions_zero_ship=0
 consecutive_zero_ship=0
 backend=claude-code
 skill=next-task
-model=claude-opus-4-7
-startup_model=claude-opus-4-7
+model=claude-sonnet-5
+startup_model=claude-sonnet-5
 EOF
 
   run "$DVB_GRIND" --resume "$TEST_REPO"

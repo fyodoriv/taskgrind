@@ -49,7 +49,7 @@ swap target. Same effect as setting
 .BR TG_ROTATE_BACKENDS .
 .TP
 .BR \-\-model " " \fIname\fR
-AI model to use (default: "claude\-opus\-4\-7"; "gpt\-5.5" for codex). Overrides TG_MODEL env var. Short aliases such as
+AI model to use (default: "claude\-sonnet\-5"; "gpt\-5.5" for codex). Overrides TG_MODEL env var. Short aliases such as
 \fBopus\fR, \fBsonnet\fR, \fBhaiku\fR, \fBgpt\fR, and \fBcodex\fR resolve to the
 current preferred model IDs. Quote multi-word model names, for example
 \fB\-\-model "gpt\-5.5 XHigh thinking fast"\fR.
@@ -154,7 +154,7 @@ Same effect as
 .BR \-\-rotate\-backends .
 .TP
 .B TG_MODEL
-AI model (default: "claude\-opus\-4\-7"; "gpt\-5.5" for codex).
+AI model (default: "claude\-sonnet\-5"; "gpt\-5.5" for codex).
 .TP
 .B TG_SKILL
 Skill to run (default: next\-task).
@@ -480,7 +480,7 @@ long grind starts.
 To run Claude Code as the primary lane, use the same preflight, env-default,
 rotation, and resume shapes as the other supported backends:
 .nf
-taskgrind \-\-preflight \-\-backend claude\-code \-\-model claude\-sonnet\-4.6 ~/apps/myrepo
+taskgrind \-\-preflight \-\-backend claude\-code \-\-model claude\-sonnet\-5 ~/apps/myrepo
 TG_BACKEND=claude\-code TG_MODEL=sonnet taskgrind ~/apps/myrepo 8
 taskgrind \-\-rotate\-backends claude\-code,codex ~/apps/myrepo 8
 .fi
@@ -847,7 +847,7 @@ Lifecycle example:
   "slot": 0,
   "backend": "claude-code",
   "skill": "next-task",
-  "model": "claude-opus-4-7",
+  "model": "claude-sonnet-5",
   "session": 3,
   "remaining_minutes": 451,
   "current_phase": "running_session",
@@ -938,7 +938,7 @@ taskgrind \-\-model gpt\-5\-5\-xhigh\-priority 8
                                    # use specific model
 taskgrind \-\-model "gpt\-5.5 XHigh thinking fast" 8
                                    # quote multi\-word model names
-taskgrind \-\-model opus 8          # alias resolves to claude-opus-4-7
+taskgrind \-\-model opus 8          # alias resolves to claude-opus-5-5
 taskgrind \-\-skill pipeline\-ops ~/apps/bosun 10
                                    # custom installed skill
 taskgrind \-\-backend claude\-code 8  # use Claude Code backend
@@ -961,8 +961,8 @@ taskgrind \-\-help / \-h            # show usage and environment variables
 taskgrind \-\-version / \-V         # print version
 TG_STATUS_FILE=/tmp/taskgrind-status.json taskgrind ~/apps/myrepo 8
                                    # write machine-readable status snapshots
-TG_MODEL=sonnet taskgrind 8        # alias resolves to claude-sonnet-4.6
-echo "claude\-sonnet\-4.6" > .taskgrind\-model  # switch model mid\-grind
+TG_MODEL=sonnet taskgrind 8        # alias resolves to claude-sonnet-5
+echo "claude\-opus\-5\-5" > .taskgrind\-model  # switch model mid\-grind
 .fi
 .SH EXIT STATUS
 .TP
@@ -1070,7 +1070,7 @@ instead of chewing attempts.
 .TP
 .B Claude Code preflight/session startup failure
 Run
-.B taskgrind \-\-preflight \-\-backend claude\-code \-\-model claude\-sonnet\-4.6 ~/apps/myrepo
+.B taskgrind \-\-preflight \-\-backend claude\-code \-\-model claude\-sonnet\-5 ~/apps/myrepo
 and inspect stderr plus the session log for
 .BR "Backend binary not found (claude\-code)" ,
 .BR "Backend binary is not executable (claude\-code)" ,
