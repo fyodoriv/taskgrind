@@ -1,98 +1,102 @@
-# AGENTS.md — Taskgrind Codebase Guide
+# AGENTS.md — taskgrind guide for agents
 
-## What This Repo Is
+## Start here
 
-Autonomous multi-session grind tool. Runs sequential AI coding sessions against any `TASKS.md` repo until a deadline. Shell script + bats tests. No build step.
+taskgrind runs AI coding sessions one after another against any repo that keeps
+its queue in `TASKS.md`, until a deadline, an empty queue, or the stall guard
+stops it. It is a Bash script with bats tests and no build step. The canonical
+repo is `github.com/fyodoriv/taskgrind`, branch `main`.
 
-## Repo Layout
+Read this file first. Then open only the doc that the routing table names. Do
+not read `README.md` end to end; it is the user manual. `CLAUDE.md` is a symlink
+to this file. The full docs map is [`docs/README.md`](docs/README.md).
 
-```
-taskgrind/
-├── bin/taskgrind           Main script (runs AI sessions in a loop)
-├── lib/constants.sh        Shared constants (model/backend/caffeinate + canonical TG_* defaults)
-├── lib/fullpower.sh        Priority boosting (taskpolicy for macOS)
-├── lib/watchdog.sh         Session/sweep/repair watchdog (SIGINT→SIGTERM→SIGKILL escalation)
-├── tests/*.bats            Focused bats suites by subsystem (basics, preflight, session, git-sync, logging, network, ...)
-├── tests/preflight.bats    Preflight coverage for backend, repo, slot, and startup validation
-├── tests/installer-output.bats  Install-script output coverage for local and PATH guidance
-├── tests/test_helper.bash  Shared test helpers and fake backend/session fixtures
-├── tests/verify-bash32-compat.sh  Bash 3.2 compatibility guard used by the bats suite
-├── docs/user-stories.md    Core usage patterns
-├── docs/resume-state.md    Resume-file lifecycle and stale-state notes
-├── docs/architecture.md    Design decision rationales
-├── man/taskgrind.1         Man page
-├── install.sh              One-liner install script
-├── .agents/skills/         Repo-local audit loop skills used by taskgrind sessions
-├── .github/workflows/      CI (shellcheck + bats on macOS + Linux)
-├── Makefile                lint + test targets
-├── README.md               Usage, install, env vars
-├── CONTRIBUTING.md         Contributor guide
-├── SECURITY.md             Security policy
-├── LICENSE                 MIT license
-├── TASKS.md                Task queue (present when tasks exist)
-└── Agentfile.yaml          Agent config (MCP servers, skills)
-```
+## Commands
 
-## Development
+Run every command from the repo root.
+
+| Task | Command |
+|---|---|
+| Gate before a commit | `env -u BASH_ENV make check` (shellcheck + the bats suite; see Gotchas) |
+| One test file | `make test TESTS=tests/<file>.bats` (cached per target) |
+| One test, no cache | `bats -f '<test name>' tests/<file>.bats` |
+| Full suite without the cache | `make test-force` (several minutes; run it in the background) |
+| Shellcheck only | `make lint` |
+| Repo audit (TODO scan, shellcheck, `tasks-lint` on TASKS.md, docs review queue) | `make audit` |
+| Dry run of a grind | `bin/taskgrind --dry-run 1 <repo>` |
+| Install locally | `make install` (symlink to `/usr/local/bin` + man page); `make uninstall` |
+| Stress parallel tests | `make test TEST_JOBS=4` (diagnostics only) |
 
 ```bash
-make install    # symlink to /usr/local/bin + install man page
 make audit      # run the local repo audit workflow (TODO scan + shellcheck + tasks-lint)
-make lint       # shellcheck (run from bin/ with -x for source resolution)
-make test       # bats suite across tests/*.bats (cached, skips when unchanged)
-make test-force # bats suite without cache
-make test TESTS=tests/bash-compat.bats  # targeted rerun with its own cache key
-make test TEST_JOBS=4                   # stress-test higher parallelism for diagnostics
-make check      # lint + test (run before committing)
-make uninstall  # remove symlink and man page
 ```
 
-## Rules for Editing
+## Where to change what
 
-1. **Run `make check` before committing** — shellcheck + bats must pass
-2. **Commit on `main`** — this repo doesn't use feature branches for small changes
-3. **Env vars use `TG_` prefix (primary)** — `DVB_` is supported as a backward-compatible alias. Internal/test-only vars keep the `DVB_` prefix.
-4. **Source paths are relative** — `$TASKGRIND_DIR/lib/constants.sh`, derived from script location
-5. **Test with `DVB_GRIND_CMD`** — all tests use a fake backend stub, never the real binary
-6. **Use `TESTS=...` for tight loops** — `make test TESTS=tests/bash-compat.bats` or another file reruns just that selection and caches it separately from the full suite
-7. **Parallel bats is auto-capped at 2** — `make test` / `make check` cap `TEST_JOBS` at 2 by default to match GitHub Actions and avoid deadline-sensitive flakes on slower shared runners or busy local machines. Use `TEST_JOBS=4` or `TEST_JOBS=8` only as explicit stress diagnostics; going past 8 historically hit `signal 15` terminations from `bats --jobs 9+` because of the macOS per-user soft process limit (~709 by default) during teardown + next-test-dispatch overlap.
-8. **Keep runtime files `/bin/bash` 3.2 compatible** — `tests/bash-compat.bats` smokes `/bin/bash bin/taskgrind --dry-run` and rejects common Bash-4-only syntax in sourced runtime files
-9. **Every session adds tasks** — any user prompt, log review, incident debrief, or interactive investigation in this repo (or its sibling personal repos `agentbrew`, `bosun`) should produce at least one TASKS.md addition. Observations that surface failure modes, ergonomic friction, missing telemetry, or "huh, that's odd" findings are durable work — file them with full Details / Files / Acceptance per the template style of existing entries before the session ends. The default state is "this prompt produced N new tasks"; "no new tasks" is acceptable only if the prompt was purely informational (`--help` / status query) and explicitly noted. Failure mode this prevents: agent reasons about a problem, the user accepts the analysis, and the lesson dies with the session because nobody filed it
+| I want to… | Change | Update this doc too |
+|---|---|---|
+| Change the session loop, flags, or prompt | `bin/taskgrind` | `man/taskgrind.1`, README "Usage", [`docs/architecture.md`](docs/architecture.md) |
+| Change a `TG_*` default | `lib/constants.sh` | README "Environment Variables", [`docs/defaults-rationale.md`](docs/defaults-rationale.md) |
+| Change session timeouts or kill escalation | `lib/watchdog.sh` | [`docs/architecture.md`](docs/architecture.md) |
+| Change macOS priority boosting | `lib/fullpower.sh` | README "Features" |
+| Change resume behavior | `bin/taskgrind` resume code | [`docs/resume-state.md`](docs/resume-state.md) |
+| Change preflight checks | `bin/taskgrind` preflight code | `tests/preflight.bats`, README "Troubleshooting" |
+| Change install | `install.sh` | README "Install", `tests/installer-output.bats` |
+| Add or change a test | `tests/<subsystem>.bats`, helpers in `tests/test_helper.bash` | none |
+| Change a repo-local skill | `.agents/skills/<name>/SKILL.md` | README pointers |
+| Change CI | `.github/workflows/check.yml`, `Makefile` | this file's `## Commands` |
+| Add a usage pattern | [`docs/user-stories.md`](docs/user-stories.md) | none |
+| Add a doc | `docs/<name>.md` | a row in [`docs/README.md`](docs/README.md) (test-enforced) |
 
-## Local Test Notes
+## Rules
 
-- The suite now lives in many focused `tests/*.bats` files instead of a single monolithic bats file; when you touch one subsystem, prefer `make test TESTS=tests/<file>.bats` before the full `make check` gate.
-- Docs and startup work usually land in `tests/basics.bats`, `tests/preflight.bats`, or `tests/installer-output.bats`; start with the narrowest one before rerunning the whole suite.
-- Avoid hardcoding suite counts in docs. The total bats count changes as focused files land, so agents should treat `tests/*.bats` plus the current `make test` output as the source of truth.
-- `make test` caches passing results per `TESTS` target and `TEST_JOBS` value, while `make test-force` always reruns the selected suite from scratch.
-- `make test` and `make check` auto-cap `TEST_JOBS` at 2 unless you override it explicitly for diagnostics. The `RUN_BATS` recipe still raises the per-user soft process limit (`ulimit -Su unlimited`) before invoking bats.
-- GitHub Actions pins the full bats suite to `TEST_JOBS=2`, matching the local default so CI and local `make check` exercise the same stable parallelism.
-- Use `run_tiny_workload` from `tests/test_helper.bash` for CLI-shape, banner, prompt, log-header, and status-field tests that only need one representative session. It creates a one-task queue, runs a fake backend that removes that task, disables cooldown/sweep/git-sync waits, and exits after one loop.
-- Keep the full loop for tests whose subject is time or orchestration behavior: timeout watchdogs, signal handling, network outage accounting, git sync/final sync, queue-empty sweeps, multi-session prompt evolution, backend rotation, workspace fan-out, and multi-instance locking.
+1. Run `make check` before you commit. Shellcheck and bats must pass.
+2. Commit on `main` for small changes; this repo does not need feature branches for them. Use a branch and PR for larger work.
+3. Env vars use the `TG_` prefix. `DVB_` is a backward-compatible alias. Internal and test-only vars keep the `DVB_` prefix.
+4. Source paths are relative: `$TASKGRIND_DIR/lib/constants.sh`, derived from the script location.
+5. Tests use a fake backend through `DVB_GRIND_CMD`, never a real backend binary.
+6. Use `TESTS=...` for tight loops. Each selection has its own cache key.
+7. Parallel bats is capped at 2 by default, to match GitHub Actions. Use `TEST_JOBS=4` or `8` only for diagnostics; above 8, the macOS per-user process limit kills tests with `signal 15`.
+8. Keep runtime files `/bin/bash` 3.2 compatible. `tests/bash-compat.bats` checks it.
+9. Every session adds tasks. A prompt, log review, or investigation in this repo (or in `agentbrew`, `bosun`) files at least one TASKS.md task with Details, Files, and Acceptance, unless it was purely informational.
 
-## Architecture
+Test helper: use `run_tiny_workload` from `tests/test_helper.bash` for CLI-shape, banner, prompt, log-header, and status tests that need one session. Keep the full loop only for time and orchestration tests (watchdogs, signals, network, git sync, sweeps, rotation, workspaces, locking).
 
-The script runs a `while` loop until deadline:
-
-```
-preflight → [session: launch backend → wait → count shipped] → cooldown → git sync → repeat
-```
-
-Key subsystems:
-- **Self-copy protection** — copies itself to `$TMPDIR` before running (bash reads scripts lazily by byte offset)
-- **Network resilience** — pauses timer on network loss, extends deadline on recovery
-- **Stall detection** — consecutive zero-ship counter + per-task retry cap via ID tracking
-- **Git sync** — every N sessions (configurable), stash/checkout/rebase/restore
-- **Caffeinate** — prevents system sleep (`-ms` flags: system+disk, display can sleep)
-
-## Env Vars (internal/test-only)
+Internal and test-only env vars:
 
 | Variable | Purpose |
-|----------|---------|
-| `DVB_GRIND_CMD` | Override backend binary (for testing) |
-| `DVB_DEADLINE` | Override deadline epoch (for testing) |
+|---|---|
+| `DVB_GRIND_CMD` | Override the backend binary (tests) |
+| `DVB_DEADLINE` | Override the deadline epoch (tests) |
 | `DVB_NET_FILE` | Sentinel file for network state in tests |
-| `DVB_CAFFEINATED` | Re-exec guard to prevent double caffeinate |
-| `TASKGRIND_DIR` | Repo root (auto-detected from `$0`) |
+| `DVB_CAFFEINATED` | Re-exec guard against double caffeinate |
+| `TASKGRIND_DIR` | Repo root, found from `$0` |
 
-See `taskgrind --help` for user-facing env vars.
+User-facing env vars: `taskgrind --help`. Loop design: [`docs/architecture.md`](docs/architecture.md).
+
+## Gotchas
+
+- **Agent sandbox**: the bats helper's `mktemp` fails inside it (`mkdtemp failed … Operation not permitted`). Run `make test` and `bats` outside the sandbox.
+- **`BASH_ENV` breaks test stubs**: dotfiles sets `BASH_ENV=~/.config/dotfiles/bash-env.sh`, which re-exports `PATH` in every child bash, so tests reach real `git`, `curl`, and backends instead of their stubs (preflight, git-sync, signals, rotation, diagnostics fail). Run `env -u BASH_ENV make check`.
+- **`make test` can skip**: it caches a pass per `TESTS` and `TEST_JOBS` target and prints "(cached)". Use `make test-force` to rerun.
+- **Global gitignore lists `TASKS.md`** on the owner's machine. Fixture repos must use `git add -f TASKS.md` (see `tests/git-sync.bats`), or the file is never committed.
+- **Slow full suite**: `make check` runs the whole bats suite with 2 jobs; it takes about 16 minutes on this Mac. Run one file with `TESTS=` while you iterate.
+- **Line-pinned audit test**: `tests/basics.bats` asserts that `make audit` prints no `TODO:` match at certain `README.md` and `CONTRIBUTING.md` line numbers. After you move text, run `make audit`.
+- **Text pins**: `tests/basics.bats` greps README, CONTRIBUTING, AGENTS.md, `docs/architecture.md`, and `docs/user-stories.md` for exact phrases. Run `make test TESTS=tests/basics.bats` after any docs edit.
+
+## Delivery
+
+1. Small change: commit on `main` (rule 2). Larger change: branch `type/short-description` in a worktree under `~/apps/tooling/wt/`, then a PR.
+2. Make the change with its tests and its docs.
+3. Run `make check`. GitHub Actions also runs `make lint`, `make audit`, and the bats suite on macOS and Linux for every push and PR.
+4. Commit with a conventional header (`type: description`, 72 chars max) and the pre-registered hypothesis in the body.
+5. PR body: `## Summary`, `## Details`, `## Docs`, and `## Visual proof` (a pasted terminal transcript). Squash-merge when CI is green, then remove the worktree and branch.
+
+## Docs upkeep
+
+- Every behavior change updates its docs in the same commit or PR. The routing table names the doc. User-facing flags and env vars also go in `man/taskgrind.1`.
+- A gotcha that cost you time goes into `## Gotchas`, or becomes a test when a machine can check it.
+- Every PR body has a `## Docs` section: the docs you changed, or `Docs: none — <reason>`.
+- A new `docs/*.md` file needs a row in [`docs/README.md`](docs/README.md). `tests/docs-contract.bats` checks this file's sections and size, the docs map, and the README opening.
+- Do not write test or file counts in docs; they go stale. Treat `make test` output as the source of truth.
+- Contract for any repo: agentbrew `docs/agent-guide-baseline.md`.
