@@ -17,6 +17,19 @@ process and lose uncommitted work.
 
 Taskgrind ships built-in backends for Claude Code and Codex, and it works with any repo that uses the [tasks.md spec](https://tasks.md) for task management.
 
+**Who it is for:** developers who want an AI coding agent to work through a
+repo's `TASKS.md` queue for hours, unattended, with guards against stalls and
+lost work.
+
+```bash
+brew install fyodoriv/tap/taskgrind      # or see Install below
+taskgrind --preflight ~/apps/myrepo      # check the backend and repo first
+taskgrind ~/apps/myrepo 8                # grind for 8 hours
+```
+
+**Documentation:** start at the [documentation map](docs/README.md).
+Contributors and coding agents: read [`AGENTS.md`](AGENTS.md) first.
+
 ## Prerequisites
 
 Requires **macOS** or **Linux** (or WSL on Windows).
@@ -688,6 +701,8 @@ On Linux, the supported `bats` install path is the npm flow above so local
 Extracted from [dotfiles](https://github.com/fyodoriv/dotfiles) where it lived as `dvb-grind`. The `dvb-grind` name still works as a shell alias in dotfiles for backward compatibility.
 
 ## Docs
+
+The [documentation map](docs/README.md) lists every doc.
 
 - [User Stories](docs/user-stories.md) — real usage patterns with commands and sample output
 - [Architecture](docs/architecture.md) — design decisions and rationale
