@@ -23,7 +23,8 @@ Run every command from the repo root.
 | Full suite without the cache | `make test-force` (several minutes; run it in the background) |
 | Shellcheck only | `make lint` |
 | Refresh the README Proof section (field data from the local usage log) | `scripts/proof.sh` |
-| Repo audit (TODO scan, shellcheck, `tasks-lint` on TASKS.md, docs review queue) | `make audit` |
+| Repo audit (TODO scan, shellcheck, `tasks-lint` on TASKS.md, repo-local skill check, docs review queue) | `make audit` |
+| Repo-local skill check only (frontmatter, name, description, constraints section) | `python3 scripts/validate-skills.py` |
 | Dry run of a grind | `bin/taskgrind --dry-run 1 <repo>` |
 | Install locally | `make install` (symlink to `/usr/local/bin` + man page); `make uninstall` |
 | Stress parallel tests | `make test TEST_JOBS=4` (diagnostics only) |
