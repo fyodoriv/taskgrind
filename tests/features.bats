@@ -572,7 +572,8 @@ SCRIPT
 }
 
 @test "structural: pre-session git state recovery checks for merge" {
-  grep -q 'pre_session_recovery merge_aborted' "$DVB_GRIND"
+  grep -q 'emit_merge_abort_logs .*pre_session_recovery' "$DVB_GRIND"
+  grep -q '${scope} merge_aborted' "$DVB_GRIND"
 }
 
 # ── Stability: final_sync detached HEAD guard ─────────────────────────
@@ -756,7 +757,6 @@ SCRIPT
     "graceful_shutdown duplicate_signal"
 
     # Pre-session recovery
-    "pre_session_recovery merge_aborted"
     "repo_missing"
 
     # Final sync
@@ -808,6 +808,7 @@ SCRIPT
   local -a scope_markers=(
     "pre_session_recovery rebase_aborted"
     "pre_session_recovery rebase_conflicts"
+    "pre_session_recovery merge_aborted"
   )
 
   local marker missing=()
