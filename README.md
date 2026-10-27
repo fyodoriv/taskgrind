@@ -1,6 +1,101 @@
 # taskgrind
 
+taskgrind runs fresh AI coding sessions (Claude Code or Codex) one after another on a repo's `TASKS.md` queue, for hours, with no person watching. It stops at a deadline, an empty queue, or a stall, and each session commits its own work, so a crash loses little.
+
+In the repo taskgrind should work on, tell Claude Code (or Codex):
+
+```text
+Install or update taskgrind by following https://github.com/fyodoriv/taskgrind/blob/main/INSTALL.md (it updates an existing install). Ask whether I only use taskgrind or also contribute to it. Then run `taskgrind --preflight .` in this repo and fix every failing line with me. Audit the agent skills already on this machine against taskgrind's repo-local skills and propose adopt or merge for each one. Then start a first short grind here (`taskgrind --dry-run 1 .`, then `taskgrind 1 .`) and walk me through what it needs from me. At the end, list anything that could work better and offer an issue or PR for each.
+```
+
+No agent? One line, safe to rerun, ends with the preflight check:
+
+```bash
+brew install fyodoriv/tap/taskgrind && taskgrind --preflight "$PWD"  # the preflight check
+```
+
 [![check](https://github.com/fyodoriv/taskgrind/actions/workflows/check.yml/badge.svg)](https://github.com/fyodoriv/taskgrind/actions/workflows/check.yml)
+
+**Documentation:** start at the [documentation map](docs/README.md).
+Contributors and coding agents: read [`AGENTS.md`](AGENTS.md) first.
+
+## Use cases
+
+- **Overnight grind**: `taskgrind ~/apps/myrepo 8` works through the queue while you sleep.
+- **Focused grind**: `--prompt "focus on test coverage"` steers every session.
+- **Check before a long run**: `taskgrind --preflight` and `--dry-run` show problems and the config first.
+- **Resume after a reboot**: `taskgrind --resume` continues from the last clean commit.
+- **Steer a running grind**: edit `.taskgrind-prompt` or `.taskgrind-model` in the repo.
+- **Several grinds on one repo**: `TG_MAX_INSTANCES` gives each its own slot.
+- **One queue, several repos**: `--target-repo` opens a workspace across linked repos.
+- **Work for review only**: `--no-push` commits locally and never pushes.
+- **A plain-language brief**: `--from-prompt` turns one sentence into the run config.
+
+The [user stories](docs/user-stories.md) show each one with sample output.
+
+## Features
+
+- **Multi-backend support** — works with Claude Code and Codex via `--backend`
+- **Model selection** — `--model claude-sonnet-5` or `TG_MODEL=claude-sonnet-5` to use any model the backend supports; quote multi-word model names such as `--model "Claude Sonnet 5"`; short aliases `opus`, `sonnet`, `haiku`, `codex`, and `gpt` resolve to the current preferred model IDs
+- **Live model switching** — create/edit `.taskgrind-model` in the repo while running; changes take effect at the next session, including short alias resolution. Delete the file to revert to the startup model. Files larger than 1 KB are ignored with a warning.
+- **Fleet-grind context profiles** — when `--skill fleet-grind` is active, taskgrind injects a `CONTEXT_BUDGET` prompt guard. The GPT-5.5/default standard profile tells the session to keep to one merge/fill/fix cycle plus at most one narrow sweep. It also tells the session to checkpoint before it expands scope. The Opus 4.7 alias gets a large-context profile, and it still prefers clean session boundaries.
+- **Live prompt injection** — create/edit `.taskgrind-prompt` in the repo while running; changes take effect at the next session. Files larger than 10 KB are ignored with a warning.
+- **Preflight checks** — validates the backend, selected skill visibility, network, repo, disk, queue, and optional watchdog setup before launch, plus active slot reporting. `network-watchdog` is optional; if missing, taskgrind falls back to `curl` for connectivity checks.
+- **Pipeline-rate cross-check** — for skills that require bosun pipelines (`fleet-grind`, `full-sweep`, `bosun*`, `pipeline-*`, etc.), taskgrind captures a baseline of bosun's completed/waiting-for-merge pipeline count at preflight and compares to the end-of-session count at cleanup. The primary signal is **session-scoped**: when `BOSUN_GRIND_SESSION_ID` is set, the verifier queries `GET /api/v1/pipelines?grindSessionId=<id>`. It counts only pipelines tagged with this Taskgrind grind session, so an unrelated fleet pipeline finishing during the run cannot mask a session-local bypass. The fleet-wide (`global_*`) counts are still logged for debugging. The API probe uses `BOSUN_TOKEN` when set, otherwise `~/.orchestrator/auth-token`, matching Bosun's authenticated `/api/v1/pipelines` routes. Two results count as an anomaly. First: the session shipped tasks, but bosun saw zero new pipeline completions for THIS grind session. Second: a new non-markdown commit lacks Bosun pipeline attribution (the Apr 28-29 incident shape — agent direct-committed code instead of going through pipelines). Then taskgrind logs `pipeline_verify ANOMALY` / `DIRECT_CODE_BYPASS` and auto-files a TASKS.md investigation entry. Best-effort: silent no-op when bosun is unreachable, when the skill doesn't need bosun, or when no baseline was captured.
+- **Bosun grind-session lifecycle** — for the same Bosun-dependent skills, taskgrind registers a `bosun grind` session at preflight. While the controller runs, it posts heartbeats every `TG_BOSUN_HEARTBEAT_INTERVAL` seconds (default 60s, well under Bosun's 5-minute disconnect timeout). It calls `bosun grind done --reason completed` on a normal exit / `--reason aborted` on a signal or error exit. Heartbeats keep `lastHeartbeatAt` advancing so multi-minute child sessions don't get marked `disconnected` mid-grind (the 2026-04-30 fleet-grind canary failure shape). Caller-provided sessions (operator already exported `BOSUN_GRIND_SESSION_ID` before launching taskgrind) are heartbeated but **never** deregistered — the caller owns the slot. Heartbeat failures are logged as warnings and don't crash the grind.
+- **One-shot supervisor repair** — `taskgrind --supervise <TG_STATUS_FILE path>` reads another run's status JSON, ignores healthy/progressing phases, and launches one bounded repair session when the watched run is failed or stale. The repair prompt carries the watched status path, log path, repo, stuck reason, normal completion protocol, `TG_NO_PUSH` semantics, and the public-write gate. Use this first slice for targeted unblockers; continuous polling and richer repair states are tracked as follow-up tasks.
+- **Self-copy protection** — copies itself to `$TMPDIR` before running, survives script edits mid-grind
+- **Slot-based per-repo locking** — `TG_MAX_INSTANCES` allows multiple concurrent grinds on the same repo; slot 0 owns between-session git sync, higher slots get conflict-avoidance prompt guidance
+- **Blocked-queue detection** — when every remaining task has `**Blocked by**:` metadata, taskgrind sets the status phase to `blocked_wait`. It pauses the marathon timer for 600 s (capped at the remaining deadline), so an external event (CI, merged PR, another agent) can unblock work. It extends the deadline by the wait duration, so no time budget is lost. Then it re-checks the queue, and only then exits with the `all_tasks_blocked` phase and terminal reason if nothing changed
+- **Caffeinate integration** — prevents system sleep on macOS (`caffeinate`) and Linux (`systemd-inhibit`)
+- **Git sync with stash/rebase** — between-session sync stashes dirty work and auto-detects the repo default branch. It reads `origin/HEAD`, remote HEAD probes, upstream tracking, or local branch fallbacks, then rebases there and cleans merged branches. Tests can force the branch with `DVB_DEFAULT_BRANCH`. If stash creation fails, taskgrind logs the original git error and skips `stash pop`; if `stash pop` fails after a successful stash, it leaves the stash intact for manual recovery. When a rebase conflict only touches `TASKS.md`, taskgrind now auto-resolves it by keeping the local queue edit so queue churn does not leave the repo stuck mid-rebase.
+- **Empty-queue sweep** — when `TASKS.md` is empty, launches a sweep session to find work, then waits for external task injection before exiting
+- **Network resilience** — pauses on network loss, extends deadline on recovery
+- **Stall detection** — bails after consecutive zero-ship sessions (configurable via `TG_MAX_ZERO_SHIP`)
+- **Diminishing-returns guard** — tracks shipped counts in a 5-session rolling window; once `session >= 5` and fewer than 2 tasks shipped across the window, logs `diminishing_returns window=5 shipped=N consecutive=N` and prints a low-throughput warning. Two trips in a row cause an automatic exit with `diminishing_returns_exit consecutive=2 reason=default-2x` and the `failed` status phase. A single productive session resets the consecutive counter. Use `TG_STALL_EXIT={never|first|second}` to tune the auto-exit policy: `never` keeps the warning advisory, `first` exits on the first trip with the `early_exit_stall` marker, `second` (the default) exits on the second consecutive trip. The legacy `TG_NO_STALL_EXIT`, `TG_EXIT_ON_STALL`, and `TG_EARLY_EXIT_ON_STALL` vars still translate to the matching policy with a one-shot deprecation notice.
+- **Per-task retry cap** — each `**ID**:` in `TASKS.md` has a per-session attempt counter. A task removed from `TASKS.md` clears its counter (that is how shipping a task resets it). Once a task hits 3 attempts without being removed, taskgrind logs `task_skip_threshold ids=<id>` once and prepends `SKIP these stuck tasks (attempted 3+ times): <id>. Work on other tasks instead.` to every following session prompt until the task ships or is deleted. The 3-attempt threshold is a built-in constant today — not an env var
+- **Fast-failure backoff** — linear backoff with cap when sessions crash quickly
+- **Ship-rate tracking** — logs cumulative effectiveness in `grind_done` summary, including inferred shipped work when a session removes a completed task but concurrent queue churn keeps the raw task count flat
+- **Productive timeout auto-increase** — when a session ships work but hits `TG_MAX_SESSION`, taskgrind logs a `productive_timeout` marker. It adds 1800 s (30 min) to the next session's budget, up to a hard cap of 7200 s (2 h). Operators who need a strict time budget should plan around the cap instead of the initial value.
+- **Unique log names** — includes repo basename + PID to prevent collisions
+- **External injection detection** — logs when other processes add tasks mid-run
+- **Graceful shutdown** — SIGINT/SIGTERM waits for running session, pushes commits, ignores duplicate shutdown signals, then exits. See [Interrupting a grind with Ctrl+C](docs/user-stories.md#11-interrupting-a-grind-with-ctrlc) for sample output on happy, timeout, and impatient-operator paths.
+
+## Proof
+
+<!-- proof:start -->
+Every number below comes from `docs/proof/metrics.json`. `scripts/proof.sh` writes that file and this section.
+Headline rows are field outcomes from real grinds, never test numbers.
+Each finished grind appends one content-free line to a local usage log (`TG_USAGE_LOG`): counts, seconds, the backend, and the stop reason.
+
+Nothing is uploaded. Each machine aggregates its own log.
+
+| Claim | Theory | Metric | Result | Source |
+|---|---|---|---|---|
+| It works through `TASKS.md` unattended | Small batches that each end in a commit keep work flowing (Forsgren, Humble, Kim 2018, *Accelerate*) | tasks shipped, last 30 days | not measured yet (field recording on since 2026-10-27) | not measured yet |
+| It runs for hours without a person | A deadline plus guards replaces a person who restarts each session | grinds and their wall hours, last 30 days | not measured yet (field recording on since 2026-10-27) | not measured yet |
+| Sessions ship at a steady rate | Throughput is the outcome a work queue promises (Little 1961, queueing law) | tasks shipped per grind hour | not measured yet (field recording on since 2026-10-27) | not measured yet |
+| Grinds end cleanly, not in a crash | Guards (stall, network, resume) turn failures into clean stops | grinds that did not end in the failed phase | not measured yet (field recording on since 2026-10-27) | not measured yet |
+| The stall guard limits wasted sessions | A run that ships nothing should stop early, not burn hours | sessions that shipped nothing | not measured yet (field recording on since 2026-10-27) | not measured yet |
+| Preflight catches setup errors before a long run | Fail fast: a check before launch is cheaper than a failed hour | preflight failures that a real grind would have hit | not measured yet (preflight writes no usage line; task `proof-preflight-field` in TASKS.md) | not measured yet |
+| `--resume` recovers an interrupted grind | Resume from the last commit keeps the deadline and counters | resumed grinds and their outcome | not measured yet (the usage line does not mark a resume; task `proof-resume-field` in TASKS.md) | not measured yet |
+
+Field data so far: 0 machine(s) with grinds. Machines seen, each named by a salted hash: `m-d697d4fe80` (0 grinds in 30 days, log since no event yet, as of 2026-10-27).
+
+Engineering health (a local run, not field proof):
+
+- `taskgrind --dry-run` start: 4968 ms (median of 5 `taskgrind --dry-run` starts on a scratch repo); local run, 2026-10-27, m-d697d4fe80 (darwin arm64)
+
+No field chart yet: no grind has finished since recording started. The chart below is the dry-run start time per proof run (local run).
+
+```mermaid
+xychart-beta
+  title "Dry-run start time (ms)"
+  x-axis ["10-27"]
+  y-axis "ms"
+  line [4968]
+```
+<!-- proof:end -->
 
 ## TL;DR
 
@@ -26,9 +121,6 @@ brew install fyodoriv/tap/taskgrind      # or see Install below
 taskgrind --preflight ~/apps/myrepo      # check the backend and repo first
 taskgrind ~/apps/myrepo 8                # grind for 8 hours
 ```
-
-**Documentation:** start at the [documentation map](docs/README.md).
-Contributors and coding agents: read [`AGENTS.md`](AGENTS.md) first.
 
 ## Prerequisites
 
@@ -106,7 +198,7 @@ export PATH="$HOME/apps/taskgrind/bin:$PATH"
 
 To update: `brew upgrade taskgrind` (Homebrew) or `cd ~/apps/taskgrind && git pull --rebase` (manual)
 
-Contributor audit shortcut: run `make audit` to reproduce the local repo-audit pass (an actionable scan for real task markers, plus the core docs and repo-local audit skills, shellcheck, and the core docs review queue, including `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `AGENTS.md`, `Agentfile.yaml`, `docs/architecture.md`, `docs/resume-state.md`, `docs/user-stories.md`, `man/taskgrind.1`, `.agents/skills/standing-audit-gap-loop/SKILL.md`, and `.agents/skills/grind-log-analyze/SKILL.md`) without any network-only dependencies.
+Contributor audit shortcut: run `make audit` to reproduce the local repo-audit pass without network-only dependencies. It scans for real task markers and runs shellcheck. It lists the core docs review queue, with the repo-local audit skills: `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `AGENTS.md`, `Agentfile.yaml`, `docs/architecture.md`, `docs/resume-state.md`, `docs/user-stories.md`, `man/taskgrind.1`, `.agents/skills/standing-audit-gap-loop/SKILL.md`, and `.agents/skills/grind-log-analyze/SKILL.md`.
 
 ## Usage
 
@@ -195,34 +287,6 @@ Taskgrind reads `TASKS.md` following the [tasks.md spec](https://github.com/task
 
 Use `**Blocked by**` only when another task or external dependency truly prevents progress. Completed tasks are removed (not checked off). History lives in git log. See the [tasks.md spec](https://github.com/tasksmd/tasks.md/blob/main/spec.md) for the full format.
 
-## Features
-
-- **Multi-backend support** — works with Claude Code and Codex via `--backend`
-- **Model selection** — `--model claude-sonnet-5` or `TG_MODEL=claude-sonnet-5` to use any model the backend supports; quote multi-word model names such as `--model "Claude Sonnet 5"`; short aliases `opus`, `sonnet`, `haiku`, `codex`, and `gpt` resolve to the current preferred model IDs
-- **Live model switching** — create/edit `.taskgrind-model` in the repo while running; changes take effect at the next session, including short alias resolution. Delete the file to revert to the startup model. Files larger than 1 KB are ignored with a warning.
-- **Fleet-grind context profiles** — when `--skill fleet-grind` is active, taskgrind injects a `CONTEXT_BUDGET` prompt guard. The GPT-5.5/default standard profile tells the session to keep to one merge/fill/fix cycle plus at most one narrow sweep and to checkpoint before expanding scope; the Opus 4.7 alias gets a large-context profile while still preferring clean session boundaries.
-- **Live prompt injection** — create/edit `.taskgrind-prompt` in the repo while running; changes take effect at the next session. Files larger than 10 KB are ignored with a warning.
-- **Preflight checks** — validates the backend, selected skill visibility, network, repo, disk, queue, and optional watchdog setup before launch, plus active slot reporting. `network-watchdog` is optional; if missing, taskgrind falls back to `curl` for connectivity checks.
-- **Pipeline-rate cross-check** — for skills that require bosun pipelines (`fleet-grind`, `full-sweep`, `bosun*`, `pipeline-*`, etc.), taskgrind captures a baseline of bosun's completed/waiting-for-merge pipeline count at preflight and compares to the end-of-session count at cleanup. The primary signal is **session-scoped**: when `BOSUN_GRIND_SESSION_ID` is set, the verifier queries `GET /api/v1/pipelines?grindSessionId=<id>` and only counts pipelines tagged with this Taskgrind grind session, so an unrelated fleet pipeline finishing during the run cannot mask a session-local bypass. The fleet-wide (`global_*`) counts are still logged for debugging. The API probe uses `BOSUN_TOKEN` when set, otherwise `~/.orchestrator/auth-token`, matching Bosun's authenticated `/api/v1/pipelines` routes. If the session shipped tasks but bosun saw zero new pipeline completions for THIS grind session, or if any new non-markdown commit lacks Bosun pipeline attribution (the Apr 28-29 incident shape — agent direct-committed code instead of going through pipelines), taskgrind logs `pipeline_verify ANOMALY` / `DIRECT_CODE_BYPASS` and auto-files a TASKS.md investigation entry. Best-effort: silent no-op when bosun is unreachable, when the skill doesn't need bosun, or when no baseline was captured.
-- **Bosun grind-session lifecycle** — for the same Bosun-dependent skills, taskgrind registers a `bosun grind` session at preflight, posts heartbeats every `TG_BOSUN_HEARTBEAT_INTERVAL` seconds (default 60s, well under Bosun's 5-minute disconnect timeout) while the controller is running, and calls `bosun grind done --reason completed` on a normal exit / `--reason aborted` on a signal or error exit. Heartbeats keep `lastHeartbeatAt` advancing so multi-minute child sessions don't get marked `disconnected` mid-grind (the 2026-04-30 fleet-grind canary failure shape). Caller-provided sessions (operator already exported `BOSUN_GRIND_SESSION_ID` before launching taskgrind) are heartbeated but **never** deregistered — the caller owns the slot. Heartbeat failures are logged as warnings and don't crash the grind.
-- **One-shot supervisor repair** — `taskgrind --supervise <TG_STATUS_FILE path>` reads another run's status JSON, ignores healthy/progressing phases, and launches one bounded repair session when the watched run is failed or stale. The repair prompt carries the watched status path, log path, repo, stuck reason, normal completion protocol, `TG_NO_PUSH` semantics, and the public-write gate. Use this first slice for targeted unblockers; continuous polling and richer repair states are tracked as follow-up tasks.
-- **Self-copy protection** — copies itself to `$TMPDIR` before running, survives script edits mid-grind
-- **Slot-based per-repo locking** — `TG_MAX_INSTANCES` allows multiple concurrent grinds on the same repo; slot 0 owns between-session git sync, higher slots get conflict-avoidance prompt guidance
-- **Blocked-queue detection** — when every remaining task has `**Blocked by**:` metadata, taskgrind sets the status phase to `blocked_wait`, pauses the marathon timer for 600 s (capped at the remaining deadline) while an external event (CI, merged PR, another agent) can unblock work, extends the deadline by the wait duration so no time budget is lost, re-checks the queue, and only then exits with the `all_tasks_blocked` phase and terminal reason if nothing changed
-- **Caffeinate integration** — prevents system sleep on macOS (`caffeinate`) and Linux (`systemd-inhibit`)
-- **Git sync with stash/rebase** — between-session sync stashes dirty work, auto-detects the repo default branch from `origin/HEAD`, remote HEAD probes, upstream tracking, or local branch fallbacks, then rebases there and cleans merged branches; tests can force the branch with `DVB_DEFAULT_BRANCH`. If stash creation fails, taskgrind logs the original git error and skips `stash pop`; if `stash pop` fails after a successful stash, it leaves the stash intact for manual recovery. When a rebase conflict only touches `TASKS.md`, taskgrind now auto-resolves it by keeping the local queue edit so queue churn does not leave the repo stuck mid-rebase.
-- **Empty-queue sweep** — when `TASKS.md` is empty, launches a sweep session to find work, then waits for external task injection before exiting
-- **Network resilience** — pauses on network loss, extends deadline on recovery
-- **Stall detection** — bails after consecutive zero-ship sessions (configurable via `TG_MAX_ZERO_SHIP`)
-- **Diminishing-returns guard** — tracks shipped counts in a 5-session rolling window; once `session >= 5` and fewer than 2 tasks shipped across the window, logs `diminishing_returns window=5 shipped=N consecutive=N` and prints a low-throughput warning. Two trips in a row cause an automatic exit with `diminishing_returns_exit consecutive=2 reason=default-2x` and the `failed` status phase. A single productive session resets the consecutive counter. Use `TG_STALL_EXIT={never|first|second}` to tune the auto-exit policy: `never` keeps the warning advisory, `first` exits on the first trip with the `early_exit_stall` marker, `second` (the default) exits on the second consecutive trip. The legacy `TG_NO_STALL_EXIT`, `TG_EXIT_ON_STALL`, and `TG_EARLY_EXIT_ON_STALL` vars still translate to the matching policy with a one-shot deprecation notice.
-- **Per-task retry cap** — each `**ID**:` in `TASKS.md` has a per-session attempt counter. A task removed from `TASKS.md` clears its counter (that is how shipping a task resets it). Once a task hits 3 attempts without being removed, taskgrind logs `task_skip_threshold ids=<id>` once and prepends `SKIP these stuck tasks (attempted 3+ times): <id>. Work on other tasks instead.` to every following session prompt until the task ships or is deleted. The 3-attempt threshold is a built-in constant today — not an env var
-- **Fast-failure backoff** — linear backoff with cap when sessions crash quickly
-- **Ship-rate tracking** — logs cumulative effectiveness in `grind_done` summary, including inferred shipped work when a session removes a completed task but concurrent queue churn keeps the raw task count flat
-- **Productive timeout auto-increase** — when a session ships work but hits `TG_MAX_SESSION`, taskgrind logs a `productive_timeout` marker and adds 1800 s (30 min) to the next session's budget, up to a hard cap of 7200 s (2 h). Operators who need a strict time budget should plan around the cap instead of the initial value.
-- **Unique log names** — includes repo basename + PID to prevent collisions
-- **External injection detection** — logs when other processes add tasks mid-run
-- **Graceful shutdown** — SIGINT/SIGTERM waits for running session, pushes commits, ignores duplicate shutdown signals, then exits. See [Interrupting a grind with Ctrl+C](docs/user-stories.md#11-interrupting-a-grind-with-ctrlc) for sample output on happy, timeout, and impatient-operator paths.
-
 ## Security
 
 Taskgrind runs AI backends with **unrestricted permissions** (`--dangerously-skip-permissions` for Claude Code). This is required because sessions need full filesystem and network access to implement tasks autonomously.
@@ -264,6 +328,7 @@ Before deploying, ensure:
 | `TG_MAX_INSTANCES` | `2` | Max concurrent instances per repo; one sync owner plus one conflict-avoiding worker. |
 | `TG_LOG` | auto | Override log file path |
 | `TG_STATUS_FILE` | (disabled) | Write machine-readable runtime status JSON to this path |
+| `TG_USAGE_LOG` | `~/.local/state/taskgrind/usage.jsonl` | Local, content-free usage log: one JSON line per finished grind (counts, seconds, backend, stop reason). `off` or `DO_NOT_TRACK=1` stops it. Never uploaded; see [Proof](#proof) |
 | `TG_NOTIFY` | `1` | Desktop notification on completion |
 | `TG_NO_PUSH` | `0` | Set `1` to commit locally only — `final_sync` logs `final_sync would_push commits=N head=<sha>` instead of pushing, and the session prompt forbids `git push` / `gh pr create` / `gh pr merge`. Equivalent to passing `--no-push`; preserved across `--resume`. |
 | `TG_NO_PR_FALLBACK` | `0` | Set `1` to disable the auto-PR fallback that runs when `final_sync` push to the default branch is rejected by branch protection (GH006 / required-status-check). Default 0: when `gh` is on `PATH`, `TG_NO_PUSH` is not set, and `TG_PUBLIC_WRITE_TOKEN` is set, taskgrind pushes to a unique `taskgrind-ship-<UTC>` branch and runs `gh pr create`, logging `final_sync pr_created url=<url> commits=N branch=...`. With `TG_NO_PR_FALLBACK=1`, taskgrind logs `final_sync push_protected_branch_manual_recovery_needed` and exits with the local commits intact. Equivalent to passing `--no-pr-fallback`. |
@@ -286,9 +351,9 @@ tail -f "${TMPDIR:-/tmp}"/taskgrind-*.log   # watch live progress
 cat "${TMPDIR:-/tmp}"/taskgrind-*.log       # review completed sessions
 ```
 
-**Log file retention.** Each grind writes a primary log to `${TMPDIR:-/tmp}/taskgrind-<date>-<repo>-<pid>.log` plus short-lived sidecars (`taskgrind-exec.*`, `taskgrind-lock-*`, `taskgrind-ses-*`, `taskgrind-att-*`, `taskgrind-gsy-*`, `taskgrind-*.session.out`, `taskgrind-*.git-sync`, `taskgrind-*.task-attempts*`). On startup, taskgrind sweeps every sidecar older than one day from `$TMPDIR` but **explicitly leaves the primary `*.log` files in place** so the [`grind-log-analyze`](.agents/skills/grind-log-analyze/SKILL.md) skill can run post-mortems against them. On macOS the OS rotates `$TMPDIR` periodically; on Linux and inside long-lived CI containers these logs accumulate, so point a `logrotate` rule, a periodic cron sweep, or `systemd-tmpfiles` at `${TMPDIR:-/tmp}/taskgrind-*.log` if you need bounded growth.
+**Log file retention.** Each grind writes a primary log to `${TMPDIR:-/tmp}/taskgrind-<date>-<repo>-<pid>.log` plus short-lived sidecars (`taskgrind-exec.*`, `taskgrind-lock-*`, `taskgrind-ses-*`, `taskgrind-att-*`, `taskgrind-gsy-*`, `taskgrind-*.session.out`, `taskgrind-*.git-sync`, `taskgrind-*.task-attempts*`). On startup, taskgrind sweeps every sidecar older than one day from `$TMPDIR`. It **explicitly leaves the primary `*.log` files in place**, so the [`grind-log-analyze`](.agents/skills/grind-log-analyze/SKILL.md) skill can run post-mortems against them. On macOS the OS rotates `$TMPDIR` periodically. On Linux and inside long-lived CI containers these logs accumulate, so point a `logrotate` rule, a periodic cron sweep, or `systemd-tmpfiles` at `${TMPDIR:-/tmp}/taskgrind-*.log` if you need bounded growth.
 
-Each session logs: start time, remaining minutes, task count, exit code, duration, and shipped count. When a session removes a completed task but concurrent additions, rollover, or non-local queue churn hide that work from the raw before/after task count, taskgrind logs both `productive_zero_ship` and `shipped_inferred` so operators can see why the session still counted as shipped. The `grind_done` summary includes ship rate, remaining tasks, and average session duration.
+Each session logs: start time, remaining minutes, task count, exit code, duration, and shipped count. Sometimes a session removes a completed task, but concurrent additions, rollover, or non-local queue churn hide that work from the raw before/after task count. Then taskgrind logs both `productive_zero_ship` and `shipped_inferred`, so operators can see why the session still counted as shipped. The `grind_done` summary includes ship rate, remaining tasks, and average session duration.
 
 For machine-readable monitoring, set `TG_STATUS_FILE` to a JSON file path:
 
@@ -504,6 +569,7 @@ echo "focus on test coverage" > ~/apps/myrepo/.taskgrind-prompt
 ```
 
 The file is re-read before each session. Combined with `--prompt` if both are set. Delete the file to stop injecting.
+
 Files larger than 10 KB are skipped as a safety guard to avoid accidentally
 injecting generated output or other large blobs, and taskgrind logs a warning
 like `⚠ .taskgrind-prompt too large (12345B > 10240B) — skipping` so operators
@@ -517,7 +583,9 @@ Switch models mid-grind without restarting — useful for switching from a power
 echo "claude-opus-5-5" > ~/apps/myrepo/.taskgrind-model
 ```
 
-The file is re-read before each session. Overrides `--model` and `TG_MODEL` when present. Short aliases such as `opus`, `sonnet`, `haiku`, `codex`, and `gpt` resolve to the current preferred model IDs. Delete the file to revert to the original startup model. Files larger than 1 KB are skipped as a safety guard, and taskgrind logs a warning like `⚠ .taskgrind-model too large (2048B > 1024B) — skipping`.
+The file is re-read before each session. Overrides `--model` and `TG_MODEL` when present. Short aliases such as `opus`, `sonnet`, `haiku`, `codex`, and `gpt` resolve to the current preferred model IDs.
+
+Delete the file to revert to the original startup model. Files larger than 1 KB are skipped as a safety guard, and taskgrind logs a warning like `⚠ .taskgrind-model too large (2048B > 1024B) — skipping`.
 
 Both override files are only applied between sessions. The current in-flight
 session keeps its original prompt and model, and the next session picks up the
@@ -532,7 +600,7 @@ By default, taskgrind allows two concurrent grinds on the same repo. Raise
 TG_MAX_INSTANCES=3 taskgrind ~/apps/myrepo 8
 ```
 
-Each running grind claims the lowest free slot (`0`, `1`, ...). Slot 0 remains the primary instance and owns the between-session git sync. Higher slots skip that sync and get extra prompt guidance to avoid overlapping file edits, which keeps one terminal responsible for fetch/rebase instead of letting multiple sessions fight over the same queue and branch state.
+Each running grind claims the lowest free slot (`0`, `1`, ...). Slot 0 remains the primary instance and owns the between-session git sync. Higher slots skip that sync and get extra prompt guidance to avoid overlapping file edits. So one terminal stays responsible for fetch/rebase, and multiple sessions do not fight over the same queue and branch state.
 
 Operator example for a three-slot run:
 
@@ -571,14 +639,14 @@ Taskgrind exports `TG_INSTANCE_ID=<slot>` into every child process (the AI backe
 - The variable is **taskgrind-set, not user-set** — assigning it on the command line has no effect; taskgrind overwrites it after the slot is claimed.
 - Its value equals the lowest free slot the run claimed (`0`, `1`, `…`). Slot `0` owns the between-session git sync; slots `1+` must skip that sync and prefer non-overlapping work.
 - Skills, hooks, and supervisor scripts can read it to coordinate without re-running `--preflight`. For example, a discovery skill can branch on `[ "${TG_INSTANCE_ID:-0}" -ge 1 ]` to enable extra `git pull --rebase` calls before each commit on higher slots.
-- It is intentionally absent from the `## Environment Variables` table above and from `taskgrind --help` because it is not a knob — surfacing it there would imply users can set it, which would race with the slot-locking logic.
+- It is intentionally absent from the `## Environment Variables` table above and from `taskgrind --help`, because it is not a knob. Surfacing it there would imply users can set it, which would race with the slot-locking logic.
 
 Supported two-stream workflow for one repo:
 
 - Keep `slot 0` on the normal `next-task` lane so it keeps shipping removable work from `TASKS.md`
 - Put `slot 1` on a discovery skill such as `standing-audit-gap-loop`, but back it with the reusable standing-loop pattern instead of a sacrificial repo-local audit task
-- Define that discovery lane task in `TASKS.md` with durable metadata such as `**ID**: discovery-standing-loop` and `**Tags**: standing-loop, audit, queue`; taskgrind treats that as a valid queue-maintenance lane even though the task definition itself is meant to persist
-- Let the discovery lane add normal tasks back into `TASKS.md`; `slot 0` then picks them up and removes only the shipped work items, while the standing-loop definition remains available for the next discovery pass
+- Define that discovery lane task in `TASKS.md` with durable metadata such as `**ID**: discovery-standing-loop` and `**Tags**: standing-loop, audit, queue`. Taskgrind treats that as a valid queue-maintenance lane, even though the task definition itself is meant to persist
+- Let the discovery lane add normal tasks back into `TASKS.md`. `slot 0` then picks them up and removes only the shipped work items. The standing-loop definition remains available for the next discovery pass
 - If you point taskgrind at an audit-only skill without that standing-loop marker, taskgrind refuses audit-only sessions unless `TASKS.md` already contains a supported discovery-lane standing-loop task
 
 Example standing-loop definition:
@@ -622,7 +690,9 @@ rules.
 
 Use `--resume` when the previous run was interrupted by a terminal crash,
 reboot, or similar external interruption. Prefer a fresh `taskgrind` launch
-when you intentionally want a new deadline or different runtime settings. If
+when you intentionally want a new deadline or different runtime settings.
+
+If
 the saved deadline already expired, taskgrind rejects the stale state and tells
 you to start fresh. Resume also requires the original `--backend`, `--model`,
 `--skill`, and baseline `--prompt` / `TG_PROMPT` inputs to match. If you try to

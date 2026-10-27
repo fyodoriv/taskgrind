@@ -7,6 +7,20 @@
 
 ## P1
 
+- [ ] Record preflight outcomes in the local usage log so the README can prove preflight catches setup errors
+  - **ID**: proof-preflight-field
+  - **Tags**: proof, field-data, preflight, readme
+  - **Details**: The README Proof row "Preflight catches setup errors before a long run" says `not measured yet`. `--preflight` exits before the cleanup trap, so it writes no usage line. Append one content-free `{"event":"preflight","ok":…,"failed_checks":N}` line (no repo, path, or message text) through the same `record_usage_event` rules (`TG_USAGE_LOG`, `DO_NOT_TRACK=1`, no file in fake-backend tests). Teach `scripts/proof.sh` to count preflight runs and failures, and fill the row.
+  - **Files**: `bin/taskgrind`, `scripts/proof.sh`, `tests/usage-log.bats`, `tests/proof.bats`, `README.md`
+  - **Acceptance**: a preflight run with one failing check writes one line with `failed_checks` 1 and no path; the Proof row shows a real-use number once preflight lines exist; `make check` passes
+
+- [ ] Mark resumed grinds in the usage log so the README can prove `--resume` recovers runs
+  - **ID**: proof-resume-field
+  - **Tags**: proof, field-data, resume, readme
+  - **Details**: The README Proof row "`--resume` recovers an interrupted grind" says `not measured yet`. Add `"resumed":true|false` to the grind usage line, and teach `scripts/proof.sh` to report resumed grinds and the share that end without the failed phase.
+  - **Files**: `bin/taskgrind`, `scripts/proof.sh`, `tests/usage-log.bats`, `tests/proof.bats`, `README.md`
+  - **Acceptance**: a resumed grind writes `"resumed":true`; the Proof row shows a real-use number once a resumed grind exists; `make check` passes
+
 - [ ] Make supervisor mode continuously poll with bounded repair cooldowns
   - **ID**: supervisor-continuous-polling-cooldowns
   - **Tags**: supervisor, monitoring, cooldowns, status-file
