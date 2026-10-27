@@ -3854,12 +3854,13 @@ record_usage_event() {
   reason=$(printf '%s' "${terminal_reason:-$current_phase}" | tr -cd 'a-z0-9_-')
   backend_code=$(printf '%s' "${backend:-}" | tr -cd 'a-z0-9_-')
   mkdir -p "$(dirname "$file")" 2>/dev/null || return 0
-  printf '{"v":1,"ts":"%s","event":"grind","ok":%s,"reason":"%s","backend":"%s","sessions":%s,"shipped":%s,"zero_ship":%s,"tasks_added":%s,"remaining":%s,"elapsed_s":%s,"sweeps":%s}\n' \
+  printf '{"v":1,"ts":"%s","event":"grind","ok":%s,"reason":"%s","backend":"%s","sessions":%s,"shipped":%s,"zero_ship":%s,"tasks_added":%s,"remaining":%s,"elapsed_s":%s,"sweeps":%s,"resumed":%s}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$ok" "$reason" "$backend_code" \
     "$(_usage_num "${session:-0}")" "$(_usage_num "${tasks_shipped:-0}")" \
     "$(_usage_num "${sessions_zero_ship:-0}")" "$(_usage_num "${tasks_added_total:-0}")" \
     "$(_usage_num "${tasks_remaining_snapshot:-0}")" "$(_usage_num "$elapsed_s")" \
-    "$(_usage_num "${_sweep_count:-0}")" >> "$file" 2>/dev/null || true
+    "$(_usage_num "${_sweep_count:-0}")" \
+    "$([[ "${resume_run:-0}" -eq 1 ]] && echo true || echo false)" >> "$file" 2>/dev/null || true
   # Opt-in telemetry: send at most once a day, in the background, only after
   # the one-line notice. Fake-backend tests skip it unless they name a state file.
   if [[ -z "${DVB_GRIND_CMD:-}" || -n "${TASKGRIND_TELEMETRY_STATE:-}" ]]; then

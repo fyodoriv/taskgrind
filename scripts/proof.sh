@@ -101,7 +101,10 @@ collect() {
           zero_ship_session_pct: m(if $sessions == 0 then null else (($g | sum(.zero_ship)) * 100 / $sessions | floor) end; "%";
             "sessions that shipped nothing, of \($sessions) sessions"; "real use"; "zero_ship_session_pct"),
           preflight_fail_pct: m(if ($pf | length) == 0 then null else (($pf | map(select((.failed_checks // 0) > 0)) | length) * 100 / ($pf | length) | floor) end; "%";
-            "preflight runs that caught at least one failed check, of \($pf | length) runs"; "real use"; "preflight_fail_pct")
+            "preflight runs that caught at least one failed check, of \($pf | length) runs"; "real use"; "preflight_fail_pct"),
+          resumed_ok_pct: ([$g[] | select(.resumed == true)] as $r
+            | m(if ($r | length) == 0 then null else (($r | map(select(.ok == true)) | length) * 100 / ($r | length) | floor) end; "%";
+              "resumed grinds that did not end in the failed phase, of \($r | length) resumed"; "real use"; "resumed_ok_pct"))
         } + (if $dry == "" then {} else {
           dry_run_ms: m(($dry | tonumber); "ms"; "median of 5 `taskgrind --dry-run` starts on a scratch repo";
             $local; "dry_run_ms") } end)
@@ -142,7 +145,7 @@ render() {
     "| Grinds end cleanly, not in a crash | Guards (stall, network, resume) turn failures into clean stops | grinds that did not end in the failed phase | \(res("grinds_ok_pct")) | \(src("grinds_ok_pct")) |",
     "| The stall guard limits wasted sessions | A run that ships nothing should stop early, not burn hours | sessions that shipped nothing | \(res("zero_ship_session_pct")) | \(src("zero_ship_session_pct")) |",
     "| Preflight catches setup errors before a long run | Fail fast: a check before launch is cheaper than a failed hour | preflight runs that caught a failed check, last 30 days | \(res("preflight_fail_pct")) | \(src("preflight_fail_pct")) |",
-    "| `--resume` recovers an interrupted grind | Resume from the last commit keeps the deadline and counters | resumed grinds and their outcome | not measured yet (the usage line does not mark a resume; task `proof-resume-field` in TASKS.md) | not measured yet |",
+    "| `--resume` recovers an interrupted grind | Resume from the last commit keeps the deadline and counters | resumed grinds that did not end in the failed phase, last 30 days | \(res("resumed_ok_pct")) | \(src("resumed_ok_pct")) |",
     "",
     "Field data so far: \($n) machine(s) with grinds. Machines seen, each named by a salted hash: \(if ($f.machines | length) == 0 then "none" else ([$f.machines | to_entries[] | "`\(.key)` (\(.value.grinds_30d) grinds in 30 days, log since \(if .value.first_event == "" then "no event yet" else .value.first_event end), as of \(.value.date))"] | join("; ")) end).",
     "",

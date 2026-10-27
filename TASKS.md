@@ -7,12 +7,6 @@
 
 ## P1
 
-- [ ] Mark resumed grinds in the usage log so the README can prove `--resume` recovers runs
-  - **ID**: proof-resume-field
-  - **Tags**: proof, field-data, resume, readme
-  - **Details**: The README Proof row "`--resume` recovers an interrupted grind" says `not measured yet`. Add `"resumed":true|false` to the grind usage line, and teach `scripts/proof.sh` to report resumed grinds and the share that end without the failed phase.
-  - **Files**: `bin/taskgrind`, `scripts/proof.sh`, `tests/usage-log.bats`, `tests/proof.bats`, `README.md`
-  - **Acceptance**: a resumed grind writes `"resumed":true`; the Proof row shows a real-use number once a resumed grind exists; `make check` passes
 
 - [ ] Make supervisor mode continuously poll with bounded repair cooldowns
   - **ID**: supervisor-continuous-polling-cooldowns

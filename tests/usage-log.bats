@@ -15,9 +15,10 @@ DVB_GRIND="$BATS_TEST_DIRNAME/../bin/taskgrind"
 import json, sys
 row = json.loads(open(sys.argv[1]).read())
 want = {"v", "ts", "event", "ok", "reason", "backend", "sessions", "shipped",
-        "zero_ship", "tasks_added", "remaining", "elapsed_s", "sweeps"}
+        "zero_ship", "tasks_added", "remaining", "elapsed_s", "sweeps", "resumed"}
 assert set(row) == want, sorted(set(row) ^ want)
 assert row["event"] == "grind" and row["ok"] is True
+assert row["resumed"] is False
 assert row["sessions"] >= 1 and row["shipped"] >= 1
 PY
   [ "$status" -eq 0 ]

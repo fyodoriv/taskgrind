@@ -90,3 +90,17 @@ teardown() {
   TG_PROOF_METRICS="$SCRATCH/m.json" run "$PROOF" --render
   [[ "$output" == *"| Preflight catches setup errors before a long run |"*"| 25 % (preflight runs that caught at least one failed check, of 4 runs) |"* ]]
 }
+
+@test "proof: collect reports how resumed grinds ended" {
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  {
+    printf '{"v":1,"ts":"%s","event":"grind","ok":true,"reason":"queue_empty","backend":"codex","sessions":1,"shipped":1,"zero_ship":0,"tasks_added":0,"remaining":0,"elapsed_s":600,"sweeps":0,"resumed":true}\n' "$now"
+    printf '{"v":1,"ts":"%s","event":"grind","ok":false,"reason":"failed","backend":"codex","sessions":1,"shipped":0,"zero_ship":1,"tasks_added":0,"remaining":2,"elapsed_s":600,"sweeps":0,"resumed":true}\n' "$now"
+    printf '{"v":1,"ts":"%s","event":"grind","ok":false,"reason":"failed","backend":"codex","sessions":1,"shipped":0,"zero_ship":1,"tasks_added":0,"remaining":2,"elapsed_s":600,"sweeps":0,"resumed":false}\n' "$now"
+  } >"$SCRATCH/usage.jsonl"
+  XDG_STATE_HOME="$SCRATCH/state" TG_USAGE_LOG="$SCRATCH/usage.jsonl" run "$PROOF" --collect "$SCRATCH/m.json"
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.metrics.resumed_ok_pct.value' "$SCRATCH/m.json")" = "50" ]
+  TG_PROOF_METRICS="$SCRATCH/m.json" run "$PROOF" --render
+  [[ "$output" == *"| 50 % (resumed grinds that did not end in the failed phase, of 2 resumed) |"* ]]
+}
