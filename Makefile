@@ -32,9 +32,10 @@ help:
 
 lint:
 	@echo "═══ Shellcheck ═══"
+	@echo "shellcheck version: $$(shellcheck --version | sed -n 's/^version: //p')"
 	@cd bin && shellcheck -x taskgrind
 	@shellcheck lib/constants.sh lib/fullpower.sh lib/watchdog.sh
-	@shellcheck install.sh scripts/proof.sh bin/taskgrind-telemetry
+	@shellcheck install.sh scripts/proof.sh bin/taskgrind-telemetry scripts/install-shellcheck.sh
 	@echo "✓ All scripts pass shellcheck"
 
 test:

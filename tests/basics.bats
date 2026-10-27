@@ -1044,3 +1044,18 @@ PY
   [ "$status" -eq 0 ]
   [[ "$output" == *"$TEST_REPO"* ]]
 }
+
+@test "CI pins one shellcheck version and make lint prints it" {
+  local workflow="$BATS_TEST_DIRNAME/../.github/workflows/check.yml"
+  local installer="$BATS_TEST_DIRNAME/../scripts/install-shellcheck.sh"
+  [ -x "$installer" ]
+  run grep -nE '^SHELLCHECK_VERSION="\$\{SHELLCHECK_VERSION:-v[0-9]+\.[0-9]+\.[0-9]+\}"' "$installer"
+  [ "$status" -eq 0 ]
+  # The lint job and both test runners use the pinned installer.
+  [ "$(grep -cF 'scripts/install-shellcheck.sh' "$workflow")" -ge 2 ]
+  run grep -nE 'apt-get install -y -qq shellcheck$' "$workflow"
+  [ "$status" -ne 0 ]
+  run make -s -C "$BATS_TEST_DIRNAME/.." lint
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"shellcheck version: "* ]]
+}

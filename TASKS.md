@@ -932,11 +932,3 @@
     - Repo-local skills are documented as intentionally unique to Taskgrind or
       moved to a canonical tracked skill source wired through `Agentfile.yaml`
     - `npx -y @tasks-md/lint TASKS.md` and `make check` pass
-
-- [ ] Pin one shellcheck version for local and CI lint so a new SC rule cannot silently turn `main` red
-  - **ID**: pin-shellcheck-version-ci
-  - **Tags**: ci, lint, shellcheck, devex
-  - **Source**: 2026-10-03 CI baseline fix. The `lint` job installs shellcheck from Ubuntu apt, which is older than the Homebrew shellcheck 0.11.0 on macOS. The older version flags SC2015 on `A && B || true`, so two such lines passed `make lint` locally and failed CI on every push.
-  - **Details**: Install one fixed shellcheck release the same way in every CI job (for example the upstream release binary for a pinned tag). Make `make lint` print the shellcheck version it ran, so a local/CI mismatch shows up in the first lint line.
-  - **Files**: `.github/workflows/check.yml`, `Makefile`, `AGENTS.md` (Development section, if the install path changes)
-  - **Acceptance**: every CI job logs the same shellcheck version; `make lint` prints that version; `make check` passes
