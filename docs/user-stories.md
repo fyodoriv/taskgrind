@@ -310,7 +310,7 @@ Preflight checks for: /Users/you/apps/myproject
 
   ✓ Backend binary (claude-code): /usr/local/bin/claude
   ✓ Network connectivity
-  ✓ Git state clean
+  ✓ Git operation state safe
   ✓ Git remote reachable
   ✓ Disk space: 42GB free
   ✓ TASKS.md found (12 open tasks)

@@ -437,7 +437,7 @@ EOF
   grep -q 'Model accepted by' "$DVB_GRIND"
   grep -q 'Skill visible to' "$DVB_GRIND"
   grep -q 'Network connectivity' "$DVB_GRIND"
-  grep -q 'Git state clean' "$DVB_GRIND"
+  grep -q 'Git operation state safe' "$DVB_GRIND"
   grep -q 'Git remote reachable' "$DVB_GRIND"
   grep -q 'Disk space' "$DVB_GRIND"
   grep -q 'TASKS.md' "$DVB_GRIND"
@@ -666,4 +666,57 @@ SCRIPT
 
   skill="bosun"; run _skill_needs_bosun
   [ "$status" -eq 0 ]
+}
+
+# ── Dirty working tree vs git operation state ────────────────────────
+
+_preflight_commit_all() {
+  git -C "$TEST_REPO" add -A
+  git -C "$TEST_REPO" commit -q -m "fixture"
+}
+
+@test "preflight: clean repo reports git operation state safe and no dirty-tree warning" {
+  _preflight_git_init
+  _preflight_commit_all
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"✓ Git operation state safe"* ]]
+  [[ "$output" != *"Git state clean"* ]]
+  [[ "$output" != *"uncommitted change"* ]]
+}
+
+@test "preflight: modified tracked files warn with the dirty file count" {
+  _preflight_git_init
+  _preflight_commit_all
+  echo "edit" >> "$TEST_REPO/TASKS.md"
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"✓ Git operation state safe"* ]]
+  [[ "$output" == *"⚠ Working tree has 1 uncommitted change(s)"* ]]
+  [[ "$output" == *"git status --short"* ]]
+}
+
+@test "preflight: untracked files warn the same way" {
+  _preflight_git_init
+  _preflight_commit_all
+  echo "a" > "$TEST_REPO/new-a.txt"
+  echo "b" > "$TEST_REPO/new-b.txt"
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"⚠ Working tree has 2 uncommitted change(s)"* ]]
+}
+
+@test "preflight: workspace targets get the same dirty-tree warning" {
+  _preflight_git_init
+  _preflight_commit_all
+  local target="$TEST_DIR/target"
+  mkdir -p "$target"
+  git -C "$target" init -q -b main
+  git -C "$target" config user.email "test@test.com"
+  git -C "$target" config user.name "Test"
+  git -C "$target" commit --allow-empty -q -m init
+  echo "x" > "$target/dirty.txt"
+  run "$DVB_GRIND" --preflight --target-repo "$target" "$TEST_REPO"
+  [[ "$output" == *"Target repo preflight: $target"* ]]
+  [[ "$output" == *"⚠ Working tree has 1 uncommitted change(s)"* ]]
 }

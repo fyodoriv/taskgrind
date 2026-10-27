@@ -322,14 +322,6 @@
   - **Files**: `bin/taskgrind`, `tests/preflight.bats`, `tests/pipeline-rate-verify.bats`
   - **Acceptance**: `taskgrind --preflight --skill fleet-grind <repo>` still prints `Bosun grind session active (<id>)`; immediately after exit, `bosun grind status` or `GET /api/v1/grind-sessions?projectId=<repo>` shows that session as `completed`, not `active`; if `BOSUN_GRIND_SESSION_ID` was already set by the caller, preflight reuses it and does not deregister it; failed preflight paths also deregister any session created by that same preflight process; regression tests cover success, failure, and caller-provided-session cases; `make check` passes
 
-- [ ] Make preflight distinguish git operation safety from a dirty working tree
-  - **ID**: preflight-distinguishes-dirty-working-tree
-  - **Tags**: preflight, git, diagnostics, operator-trust
-  - **Source**: 2026-04-30 Bosun canary. `taskgrind --preflight --skill fleet-grind ~/apps/bosun` printed `✓ Git state clean` while `git status --short` still showed modified tracked files: `.idea/modules.xml` and `.idea/vcs.xml`.
-  - **Details**: The current preflight check only detects dangerous git states such as in-progress rebase, in-progress merge, and detached `HEAD`; it does not inspect `git status --porcelain`. The phrase `Git state clean` is therefore misleading: operators read it as "no dirty files," but Taskgrind means "not mid-operation." Rename the existing pass message to something like `Git operation state safe`, and add a separate dirty-tree check that warns when tracked or untracked changes exist. The warning should not block by default because long-lived repos often have local Integrated Development Environment metadata, but it must make the risk visible before Taskgrind's between-session sync can stash/pop local work.
-  - **Files**: `bin/taskgrind`, `tests/preflight.bats`, `tests/git-sync.bats`, `README.md`, `man/taskgrind.1`
-  - **Acceptance**: a clean repo reports `Git operation state safe` and no dirty-tree warning; a repo with modified tracked files reports a warning that includes the dirty file count and a tip to run `git status --short`; a repo with untracked files reports the same warning; rebase/merge/detached `HEAD` behavior remains fail/warn as today; workspace target preflight uses the same wording and dirty-tree warning per target; docs no longer imply that preflight's git check means the working tree has no local changes; `make check` passes
-
 - [ ] Port dotfiles' affected-test runner pattern so `make test` stops running the full suite for docs/test-only edits
   - **ID**: affected-bats-runner-for-taskgrind
   - **Tags**: tests, perf, dx, makefile, dotfiles-precedent
