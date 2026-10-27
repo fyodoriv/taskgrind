@@ -57,9 +57,12 @@
 #        TG_PROMPT      — extra focus prompt prepended to every session
 #        TG_LOG         — override log file path
 #        TG_STATUS_FILE — write machine-readable runtime status JSON to this path
+#        TASKGRIND_POSTHOG_KEY — opt-in telemetry key (else Keychain service
+#                         taskgrind, account posthog_key); see `taskgrind telemetry`
 #        TG_USAGE_LOG   — local usage log: one content-free JSON line per grind
 #                         (default: ~/.local/state/taskgrind/usage.jsonl; set
-#                         "off" or DO_NOT_TRACK=1 to stop it; never uploaded)
+#                         "off" or DO_NOT_TRACK=1 to stop it; sent only by
+#                         opt-in `taskgrind telemetry` once a key is set)
 #        TG_NOTIFY      — desktop notification on completion (default: 1, set 0 to disable)
 #        TG_MAX_SESSION — max seconds per session before timeout (default: 5400, was
 #                        3600 before 2026-04-29). Bumped after a pre-commit hook
@@ -306,6 +309,11 @@ _fp_backend=""
 _fp_skill=""
 _fp_focus=""
 _fp_no_push=""
+# `taskgrind telemetry ...`: opt-in usage counts (bin/taskgrind-telemetry).
+if [[ "${1:-}" == "telemetry" ]]; then
+  shift
+  exec bash "$TASKGRIND_DIR/bin/taskgrind-telemetry" "$@"
+fi
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --help|-h) sed -n '/^#!/d; /^$/q; /^[^#]/q; /^# shellcheck/d; s/^# \{0,1\}//p' "$0"; exit 0 ;;
@@ -3803,8 +3811,8 @@ handle_exit_trap() {
 
 # Field recording: one content-free JSON line per finished grind, on this
 # machine only. It holds counts, seconds, the backend name, and the stop
-# reason code; never a repo name, path, prompt, or task text. Nothing reads
-# it except `scripts/proof.sh`, and nothing uploads it.
+# reason code; never a repo name, path, prompt, or task text. `scripts/proof.sh`
+# reads it; only the opt-in bin/taskgrind-telemetry can send it (needs a key).
 _usage_num() { local v="${1//[^0-9]/}"; printf '%s' "${v:-0}"; }
 record_usage_event() {
   local elapsed_s="$1" file ok=true reason backend_code
@@ -3822,6 +3830,12 @@ record_usage_event() {
     "$(_usage_num "${sessions_zero_ship:-0}")" "$(_usage_num "${tasks_added_total:-0}")" \
     "$(_usage_num "${tasks_remaining_snapshot:-0}")" "$(_usage_num "$elapsed_s")" \
     "$(_usage_num "${_sweep_count:-0}")" >> "$file" 2>/dev/null || true
+  # Opt-in telemetry: send at most once a day, in the background, only after
+  # the one-line notice. Fake-backend tests skip it unless they name a state file.
+  if [[ -z "${DVB_GRIND_CMD:-}" || -n "${TASKGRIND_TELEMETRY_STATE:-}" ]]; then
+    (DVB_USAGE_LOG="$file" bash "$TASKGRIND_DIR/bin/taskgrind-telemetry" daily >/dev/null 2>&1 &)
+    DVB_USAGE_LOG="$file" bash "$TASKGRIND_DIR/bin/taskgrind-telemetry" notice 2>/dev/null || true
+  fi
 }
 
 # Clean up on exit — always shows duration, even on Ctrl+C

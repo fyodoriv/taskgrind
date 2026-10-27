@@ -214,4 +214,14 @@ The README Proof section must show field outcomes from real grinds, not test num
 So `cleanup()` calls `record_usage_event`, which appends one JSON line per finished grind to `TG_USAGE_LOG` (default `~/.local/state/taskgrind/usage.jsonl`).
 The line holds counts, seconds, the backend name, and the stop reason code. It never holds a repo name, path, prompt, or task text.
 `scripts/proof.sh` aggregates the log into `docs/proof/metrics.json` under a salted machine label and rewrites the README section.
-Nothing uploads the log. `TG_USAGE_LOG=off` or `DO_NOT_TRACK=1` stops it, and fake-backend test runs write it only when a test names the file.
+Only the opt-in `bin/taskgrind-telemetry` can send the log (see "Why opt-in telemetry" below). `TG_USAGE_LOG=off` or `DO_NOT_TRACK=1` stops it, and fake-backend test runs write it only when a test names the file.
+
+## Why opt-in telemetry
+
+A second machine's grinds can only reach the Proof section if their counts travel.
+`bin/taskgrind-telemetry` is the one adapter that sends the usage log to PostHog EU (`https://eu.i.posthog.com/batch/`), so a move to self-hosting changes one file.
+It sends nothing until the owner stores a key (`TASKGRIND_POSTHOG_KEY`, or the Keychain item service `taskgrind`, account `posthog_key`); the key is never printed or logged.
+Only allowlisted fields leave: the event name, time, `ok`, the `reason` and `backend` codes, and the number fields, under a random install id, with `$process_person_profile: false` and `$geoip_disable: true`.
+A finished grind calls `daily`: at most one batched send a day, and only after the one-line notice was shown. A failed send never fails a grind; the cursor moves only after a send works.
+`taskgrind telemetry off` or `DO_NOT_TRACK=1` stops it; `taskgrind telemetry send --dry-run` prints the exact body with the key hidden.
+State (install id, cursor, on/off, last send day) lives in `~/.local/state/taskgrind/telemetry.json`, mode 600.

@@ -35,6 +35,7 @@ The [user stories](docs/user-stories.md) show each one with sample output.
 
 ## Features
 
+- **Opt-in telemetry** — `taskgrind telemetry status|on|off|send --dry-run`; sends anonymous usage counts to PostHog EU only after you store a key
 - **Multi-backend support** — works with Claude Code and Codex via `--backend`
 - **Model selection** — `--model claude-sonnet-5` or `TG_MODEL=claude-sonnet-5` to use any model the backend supports; quote multi-word model names such as `--model "Claude Sonnet 5"`; short aliases `opus`, `sonnet`, `haiku`, `codex`, and `gpt` resolve to the current preferred model IDs
 - **Live model switching** — create/edit `.taskgrind-model` in the repo while running; changes take effect at the next session, including short alias resolution. Delete the file to revert to the startup model. Files larger than 1 KB are ignored with a warning.
@@ -68,7 +69,7 @@ Every number below comes from `docs/proof/metrics.json`. `scripts/proof.sh` writ
 Headline rows are field outcomes from real grinds, never test numbers.
 Each finished grind appends one content-free line to a local usage log (`TG_USAGE_LOG`): counts, seconds, the backend, and the stop reason.
 
-Nothing is uploaded. Each machine aggregates its own log.
+Each machine aggregates its own log here. Opt-in telemetry (`taskgrind telemetry`, off until the owner sets a key) can send the same content-free counts to PostHog EU; this section does not read them yet.
 
 | Claim | Theory | Metric | Result | Source |
 |---|---|---|---|---|
@@ -328,7 +329,7 @@ Before deploying, ensure:
 | `TG_MAX_INSTANCES` | `2` | Max concurrent instances per repo; one sync owner plus one conflict-avoiding worker. |
 | `TG_LOG` | auto | Override log file path |
 | `TG_STATUS_FILE` | (disabled) | Write machine-readable runtime status JSON to this path |
-| `TG_USAGE_LOG` | `~/.local/state/taskgrind/usage.jsonl` | Local, content-free usage log: one JSON line per finished grind (counts, seconds, backend, stop reason). `off` or `DO_NOT_TRACK=1` stops it. Never uploaded; see [Proof](#proof) |
+| `TG_USAGE_LOG` | `~/.local/state/taskgrind/usage.jsonl` | Local, content-free usage log: one JSON line per finished grind (counts, seconds, backend, stop reason). `off` or `DO_NOT_TRACK=1` stops it. Sent only by opt-in telemetry; see [Proof](#proof) |
 | `TG_NOTIFY` | `1` | Desktop notification on completion |
 | `TG_NO_PUSH` | `0` | Set `1` to commit locally only — `final_sync` logs `final_sync would_push commits=N head=<sha>` instead of pushing, and the session prompt forbids `git push` / `gh pr create` / `gh pr merge`. Equivalent to passing `--no-push`; preserved across `--resume`. |
 | `TG_NO_PR_FALLBACK` | `0` | Set `1` to disable the auto-PR fallback that runs when `final_sync` push to the default branch is rejected by branch protection (GH006 / required-status-check). Default 0: when `gh` is on `PATH`, `TG_NO_PUSH` is not set, and `TG_PUBLIC_WRITE_TOKEN` is set, taskgrind pushes to a unique `taskgrind-ship-<UTC>` branch and runs `gh pr create`, logging `final_sync pr_created url=<url> commits=N branch=...`. With `TG_NO_PR_FALLBACK=1`, taskgrind logs `final_sync push_protected_branch_manual_recovery_needed` and exits with the local commits intact. Equivalent to passing `--no-pr-fallback`. |
@@ -342,6 +343,7 @@ Before deploying, ensure:
 | `TG_BOSUN_HEARTBEAT_INTERVAL` | `60` | Seconds between `bosun grind heartbeat` posts during a Bosun-dependent grind. Default 60s gives 5x headroom under bosun's 5-min disconnect timeout. Lower in tests to observe the loop; raise on bandwidth-constrained networks. |
 | `TG_BOSUN_410_GRACE` | `30` | Seconds to wait after a Bosun 410 `EXIT_NOW` response before SIGTERMing the active session. Shorter than `TG_SHUTDOWN_GRACE` because Bosun has already disowned the session; the backend only needs time to flush and commit. Emits `bosun_heartbeat_410`, `graceful_shutdown trigger=bosun-410-exit-now`, and `grind_done terminal_reason=bosun-410-exit-now` markers. No new session spawns after the 410. |
 | `TG_STASH_WARN_THRESHOLD` | `5` | Preflight warns when `git stash list` shows more than this many entries. Helps catch repos where prior crashed runs left WIP behind (the 2026-05-02 bosun repo had 9+ stale stashes from failed mid-rebase sessions). The warning prints the count, the oldest stash's timestamp, and a `git stash list` command for inspection. Set to `0` to disable. Warning only — never blocks launch. |
+| `TASKGRIND_POSTHOG_KEY` | unset (then the Keychain item `taskgrind` / `posthog_key`) | Opt-in telemetry key. With a key, `taskgrind telemetry` sends allowlisted usage counts to PostHog EU at most once a day. `taskgrind telemetry off` or `DO_NOT_TRACK=1` stops it; `taskgrind telemetry send --dry-run` shows the exact body ([details](docs/architecture.md#why-opt-in-telemetry)) |
 
 ## Monitoring
 

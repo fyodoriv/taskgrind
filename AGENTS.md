@@ -46,7 +46,7 @@ make audit      # run the local repo audit workflow (TODO scan + shellcheck + ta
 | Add or change a test | `tests/<subsystem>.bats`, helpers in `tests/test_helper.bash` | none |
 | Change a repo-local skill | `.agents/skills/<name>/SKILL.md` | README pointers |
 | Change CI | `.github/workflows/check.yml`, `Makefile` | this file's `## Commands` |
-| Change the README Proof section or the usage log | `scripts/proof.sh` (writes `docs/proof/metrics.json` and the README section), `record_usage_event` in `bin/taskgrind` | `tests/proof.bats`, `tests/usage-log.bats`; run `scripts/proof.sh` |
+| Change the README Proof section or the usage log | `scripts/proof.sh` (writes `docs/proof/metrics.json` and the README section), `record_usage_event` in `bin/taskgrind`; opt-in sending in `bin/taskgrind-telemetry` | `tests/proof.bats`, `tests/usage-log.bats`; run `scripts/proof.sh` |
 | Add a usage pattern | [`docs/user-stories.md`](docs/user-stories.md) | none |
 | Add a doc | `docs/<name>.md` | a row in [`docs/README.md`](docs/README.md) (test-enforced) |
 
