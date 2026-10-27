@@ -1044,6 +1044,14 @@ Pass one repo path, or use workspace mode:
 .IR control-repo .
 This is a warning only.
 .TP
+.B pre_session_recovery rebase_aborted or merge_aborted
+Taskgrind found the repo mid-rebase or mid-merge and aborted it before the next
+session. The same log line carries
+.B paths=
+with the conflicted files (at most 10, then
+.BR "... (+N more)" );
+a bare marker means git reported no conflicted paths.
+.TP
 .B TASKS.md is not a regular file
 If preflight reports that
 .I TASKS.md

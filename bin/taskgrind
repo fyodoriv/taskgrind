@@ -4513,8 +4513,12 @@ format_conflict_paths_for_log() {
   local paths="$1"
   local joined=""
   local path
+  local count=0
+  # Cap the list so a wide conflict does not flood the log line.
   while IFS= read -r path; do
     [[ -n "$path" ]] || continue
+    count=$((count + 1))
+    [[ $count -le 10 ]] || continue
     if [[ -n "$joined" ]]; then
       joined="${joined},${path}"
     else
@@ -4524,7 +4528,25 @@ format_conflict_paths_for_log() {
 $paths
 EOF
 
+  if [[ $count -gt 10 ]]; then
+    joined="${joined} ... (+$((count - 10)) more)"
+  fi
   printf '%s\n' "${joined:-unknown}"
+}
+
+# Abort an in-progress merge, logging the conflicted paths first: the
+# abort clears the index, so this is the last moment they are visible.
+emit_merge_abort_logs() {
+  local repo="$1"
+  local scope="$2"
+  local conflict_paths
+  conflict_paths="$(git -C "$repo" diff --name-only --diff-filter=U 2>/dev/null || true)"
+  git -C "$repo" merge --abort 2>/dev/null || true
+  if [[ -n "$conflict_paths" ]]; then
+    log_write "[$(date '+%H:%M')] ${scope} merge_aborted paths=$(format_conflict_paths_for_log "$conflict_paths")"
+  else
+    log_write "[$(date '+%H:%M')] ${scope} merge_aborted"
+  fi
 }
 
 emit_rebase_conflict_logs() {
@@ -4728,8 +4750,7 @@ while [[ $(date +%s) -lt $deadline ]]; do
       git -C "$repo" rebase --abort 2>/dev/null || true
     fi
     if [[ -n "$_git_dir" && -f "$_git_dir/MERGE_HEAD" ]]; then
-      git -C "$repo" merge --abort 2>/dev/null || true
-      log_write "[$(date '+%H:%M')] pre_session_recovery merge_aborted"
+      emit_merge_abort_logs "$repo" "pre_session_recovery"
     fi
   fi
 

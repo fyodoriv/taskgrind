@@ -1307,6 +1307,31 @@ _run_emit_rebase_conflict_logs() {
   [[ "$output" != *"rebase_aborted class="* ]]
 }
 
+@test "format_conflict_paths_for_log: caps the list at 10 paths with a +N more suffix" {
+  local fns paths
+  fns=$(awk '/^format_conflict_paths_for_log\(\) \{/,/^}$/' "$BATS_TEST_DIRNAME/../bin/taskgrind")
+  paths=$(printf 'f%s.txt\n' 1 2 3 4 5 6 7 8 9 10 11 12)
+  run bash -c "$fns"$'\n''format_conflict_paths_for_log "$1"' _ "$paths"
+  [ "$status" -eq 0 ]
+  [ "$output" = "f1.txt,f2.txt,f3.txt,f4.txt,f5.txt,f6.txt,f7.txt,f8.txt,f9.txt,f10.txt ... (+2 more)" ]
+}
+
+@test "emit_merge_abort_logs: names the conflicted paths before the merge is aborted" {
+  local repo="$TEST_DIR/merge-conflict"
+  _setup_rebase_conflict "$repo" "README.md"
+  git -C "$repo" rebase --abort >/dev/null 2>&1 || true
+  git -C "$repo" checkout -q main
+  git -C "$repo" merge feature >/dev/null 2>&1 || true
+  [ -f "$repo/.git/MERGE_HEAD" ]
+  local fns stub
+  fns=$(_extract_emit_rebase_conflict_logs_with_deps; printf '\n'; awk '/^emit_merge_abort_logs\(\) \{/,/^}$/' "$BATS_TEST_DIRNAME/../bin/taskgrind")
+  stub=$(_emit_rebase_conflict_stub_script)
+  run bash -c "$stub"$'\n'"$fns"$'\n''emit_merge_abort_logs "$1" pre_session_recovery' _ "$repo"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"pre_session_recovery merge_aborted paths=README.md"* ]]
+  [ ! -f "$repo/.git/MERGE_HEAD" ]
+}
+
 # ── final_sync push: protected-branch (GH006) recovery via PR fallback ─
 # The remote rejects a direct push to main with branch protection
 # (`GH006: Protected branch update failed`). Detection is regex-based
