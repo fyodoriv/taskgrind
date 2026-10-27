@@ -207,3 +207,11 @@ The parent's existing `SIGTERM → graceful_shutdown` trap picks up from there. 
 The supervisor/fixer surface deliberately starts with one flag on the existing status-file contract: `taskgrind --supervise <TG_STATUS_FILE path>`. A watched run already writes the repo, phase, session summary, and now its log path into that JSON file, so the supervisor does not need a separate daemon protocol. On each invocation it classifies the watched status as healthy/progressing, terminal-clean, failed, missing, or stale. Healthy/progressing states log `supervisor_observation` and exit without launching another backend; failed or stale states log `supervisor_repair_start`, run one bounded repair session in the watched repo, then log `supervisor_repair_end`.
 
 Keeping the first slice one-shot avoids repair storms while the failure taxonomy is still small. It also preserves the same safety model as normal sessions: the repair prompt carries the watched status path, watched log path, detected reason, normal completion protocol, public-write gate, and `TG_NO_PUSH` semantics. The supervisor does not kill the watched process, delete status/lock files, or rewrite history; any repo change must come from the repair session committing through the normal workflow. Continuous polling, cooldowns, stale-lock handling, and concrete preflight/git/backend repair heuristics can layer on top of these stable observation and repair markers without changing the public entry point.
+
+## Why a local, content-free usage log
+
+The README Proof section must show field outcomes from real grinds, not test numbers.
+So `cleanup()` calls `record_usage_event`, which appends one JSON line per finished grind to `TG_USAGE_LOG` (default `~/.local/state/taskgrind/usage.jsonl`).
+The line holds counts, seconds, the backend name, and the stop reason code. It never holds a repo name, path, prompt, or task text.
+`scripts/proof.sh` aggregates the log into `docs/proof/metrics.json` under a salted machine label and rewrites the README section.
+Nothing uploads the log. `TG_USAGE_LOG=off` or `DO_NOT_TRACK=1` stops it, and fake-backend test runs write it only when a test names the file.

@@ -57,6 +57,9 @@
 #        TG_PROMPT      — extra focus prompt prepended to every session
 #        TG_LOG         — override log file path
 #        TG_STATUS_FILE — write machine-readable runtime status JSON to this path
+#        TG_USAGE_LOG   — local usage log: one content-free JSON line per grind
+#                         (default: ~/.local/state/taskgrind/usage.jsonl; set
+#                         "off" or DO_NOT_TRACK=1 to stop it; never uploaded)
 #        TG_NOTIFY      — desktop notification on completion (default: 1, set 0 to disable)
 #        TG_MAX_SESSION — max seconds per session before timeout (default: 5400, was
 #                        3600 before 2026-04-29). Bumped after a pre-commit hook
@@ -246,7 +249,7 @@ for _tg_var in BACKEND BACKOFF_BASE BACKOFF_MAX COOL \
                ROTATE_BACKENDS SELF_INVESTIGATE_ZERO_SHIP_STREAK SESSION_GRACE \
                SHUTDOWN_GRACE SKILL STALL_EXIT STASH_WARN_THRESHOLD STATUS_FILE \
                SWEEP_MAX SYNC_INTERVAL \
-               TARGET_REPOS TRUSTED_REPO WATCHDOG_KILL_GRACE; do
+               TARGET_REPOS TRUSTED_REPO USAGE_LOG WATCHDOG_KILL_GRACE; do
   _tg_ref="TG_${_tg_var}"
   if [[ -n "${!_tg_ref:-}" ]]; then
     export "DVB_${_tg_var}"="${!_tg_ref}"
@@ -3798,6 +3801,29 @@ handle_exit_trap() {
   exit "$exit_status"
 }
 
+# Field recording: one content-free JSON line per finished grind, on this
+# machine only. It holds counts, seconds, the backend name, and the stop
+# reason code; never a repo name, path, prompt, or task text. Nothing reads
+# it except `scripts/proof.sh`, and nothing uploads it.
+_usage_num() { local v="${1//[^0-9]/}"; printf '%s' "${v:-0}"; }
+record_usage_event() {
+  local elapsed_s="$1" file ok=true reason backend_code
+  [[ "${DO_NOT_TRACK:-}" == "1" || "${DVB_USAGE_LOG:-}" == "off" ]] && return 0
+  # Test runs use a fake backend; they record only when a test names the file.
+  [[ -n "${DVB_GRIND_CMD:-}" && -z "${DVB_USAGE_LOG:-}" ]] && return 0
+  file="${DVB_USAGE_LOG:-${XDG_STATE_HOME:-$HOME/.local/state}/taskgrind/usage.jsonl}"
+  [[ "$current_phase" == "failed" ]] && ok=false
+  reason=$(printf '%s' "${terminal_reason:-$current_phase}" | tr -cd 'a-z0-9_-')
+  backend_code=$(printf '%s' "${backend:-}" | tr -cd 'a-z0-9_-')
+  mkdir -p "$(dirname "$file")" 2>/dev/null || return 0
+  printf '{"v":1,"ts":"%s","event":"grind","ok":%s,"reason":"%s","backend":"%s","sessions":%s,"shipped":%s,"zero_ship":%s,"tasks_added":%s,"remaining":%s,"elapsed_s":%s,"sweeps":%s}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$ok" "$reason" "$backend_code" \
+    "$(_usage_num "${session:-0}")" "$(_usage_num "${tasks_shipped:-0}")" \
+    "$(_usage_num "${sessions_zero_ship:-0}")" "$(_usage_num "${tasks_added_total:-0}")" \
+    "$(_usage_num "${tasks_remaining_snapshot:-0}")" "$(_usage_num "$elapsed_s")" \
+    "$(_usage_num "${_sweep_count:-0}")" >> "$file" 2>/dev/null || true
+}
+
 # Clean up on exit — always shows duration, even on Ctrl+C
 _dvb_cleaned=0
 cleanup() {
@@ -3877,6 +3903,7 @@ cleanup() {
     write_status_file
     echo "  ✗ Pipeline-rate verification failed — Bosun-dependent work shipped without a pipeline delta." >&2
   fi
+  record_usage_event "$elapsed"
   # Desktop notification — on by default, DVB_NOTIFY=0 to disable.
   # macOS: osascript, Linux: notify-send.
   # Skip in test mode (`DVB_GRIND_CMD` set): each bats invocation reaches

@@ -22,6 +22,7 @@ Run every command from the repo root.
 | One test, no cache | `bats -f '<test name>' tests/<file>.bats` |
 | Full suite without the cache | `make test-force` (several minutes; run it in the background) |
 | Shellcheck only | `make lint` |
+| Refresh the README Proof section (field data from the local usage log) | `scripts/proof.sh` |
 | Repo audit (TODO scan, shellcheck, `tasks-lint` on TASKS.md, docs review queue) | `make audit` |
 | Dry run of a grind | `bin/taskgrind --dry-run 1 <repo>` |
 | Install locally | `make install` (symlink to `/usr/local/bin` + man page); `make uninstall` |
@@ -45,6 +46,7 @@ make audit      # run the local repo audit workflow (TODO scan + shellcheck + ta
 | Add or change a test | `tests/<subsystem>.bats`, helpers in `tests/test_helper.bash` | none |
 | Change a repo-local skill | `.agents/skills/<name>/SKILL.md` | README pointers |
 | Change CI | `.github/workflows/check.yml`, `Makefile` | this file's `## Commands` |
+| Change the README Proof section or the usage log | `scripts/proof.sh` (writes `docs/proof/metrics.json` and the README section), `record_usage_event` in `bin/taskgrind` | `tests/proof.bats`, `tests/usage-log.bats`; run `scripts/proof.sh` |
 | Add a usage pattern | [`docs/user-stories.md`](docs/user-stories.md) | none |
 | Add a doc | `docs/<name>.md` | a row in [`docs/README.md`](docs/README.md) (test-enforced) |
 
