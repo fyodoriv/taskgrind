@@ -77,6 +77,8 @@ audit:
 		echo "  npx --yes @tasks-md/lint $(TASKS_MD)   # one-off (needs npm/Node)" >&2; \
 		exit 1; \
 	fi
+	@echo "═══ Audit: repo-local skills ═══"
+	@python3 scripts/validate-skills.py .agents/skills
 	@echo "═══ Audit: docs review queue ═══"
 	@printf '%s\n' README.md CONTRIBUTING.md SECURITY.md AGENTS.md Agentfile.yaml docs/architecture.md docs/resume-state.md docs/user-stories.md man/taskgrind.1 .agents/skills/*/SKILL.md
 
