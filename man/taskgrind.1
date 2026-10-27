@@ -261,7 +261,14 @@ Write machine\-readable runtime status JSON to this path.
 Local usage log: one content\-free JSON line per finished grind (counts,
 seconds, backend, stop reason; never a repo, path, or prompt). Default:
 ~/.local/state/taskgrind/usage.jsonl. Set to off, or set DO_NOT_TRACK=1, to
-stop it. Nothing is uploaded.
+stop it. Only opt\-in telemetry sends it (see TASKGRIND_POSTHOG_KEY).
+.TP
+.B TASKGRIND_POSTHOG_KEY
+Opt\-in telemetry key (else the macOS Keychain item service taskgrind,
+account posthog_key). With a key, `taskgrind telemetry` sends allowlisted
+usage counts to PostHog EU at most once a day. Stop it with
+`taskgrind telemetry off` or DO_NOT_TRACK=1; `taskgrind telemetry send
+\-\-dry\-run` shows the exact body.
 .TP
 .B TG_NOTIFY
 Desktop notification on completion (default: 1, 0 to disable).

@@ -34,7 +34,7 @@ lint:
 	@echo "═══ Shellcheck ═══"
 	@cd bin && shellcheck -x taskgrind
 	@shellcheck lib/constants.sh lib/fullpower.sh lib/watchdog.sh
-	@shellcheck install.sh scripts/proof.sh
+	@shellcheck install.sh scripts/proof.sh bin/taskgrind-telemetry
 	@echo "✓ All scripts pass shellcheck"
 
 test:

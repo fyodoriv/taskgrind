@@ -10,7 +10,7 @@
 #
 # Field data is the local, content-free usage log that each finished grind
 # writes (TG_USAGE_LOG, default ~/.local/state/taskgrind/usage.jsonl): counts,
-# seconds, the backend name, and the stop reason code. Nothing is uploaded.
+# seconds, the backend name, and the stop reason code. This script uploads nothing.
 # The machine label is a salted hash; the salt stays in
 # ${XDG_STATE_HOME:-~/.local/state}/taskgrind/proof-salt.
 
@@ -129,7 +129,7 @@ render() {
     "Headline rows are field outcomes from real grinds, never test numbers.",
     "Each finished grind appends one content-free line to a local usage log (`TG_USAGE_LOG`): counts, seconds, the backend, and the stop reason.",
     "",
-    "Nothing is uploaded. Each machine aggregates its own log.",
+    "Each machine aggregates its own log here. Opt-in telemetry (`taskgrind telemetry`, off until the owner sets a key) can send the same content-free counts to PostHog EU; this section does not read them yet.",
     "",
     "| Claim | Theory | Metric | Result | Source |",
     "|---|---|---|---|---|",
