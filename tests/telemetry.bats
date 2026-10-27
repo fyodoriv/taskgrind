@@ -99,7 +99,7 @@ SH
 
 @test "the state file is private" {
   bash "$TEL" status >/dev/null
-  [ "$(stat -f %Lp "$TASKGRIND_TELEMETRY_STATE" 2>/dev/null || stat -c %a "$TASKGRIND_TELEMETRY_STATE")" = "600" ]
+  [ "$(stat -c %a "$TASKGRIND_TELEMETRY_STATE" 2>/dev/null || stat -f %Lp "$TASKGRIND_TELEMETRY_STATE")" = "600" ]
 }
 
 @test "taskgrind telemetry dispatches to the adapter" {
