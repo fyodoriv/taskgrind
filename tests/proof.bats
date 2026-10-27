@@ -72,3 +72,21 @@ teardown() {
   [[ "$output" == *"| tasks shipped, last 30 days | not measured yet (field recording on since 2026-10-27)"* ]]
   [[ "$output" == *'```mermaid'* ]]
 }
+
+@test "proof: collect counts preflight runs that caught a failed check" {
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  {
+    printf '{"v":1,"ts":"%s","event":"grind","ok":true,"reason":"queue_empty","backend":"codex","sessions":1,"shipped":1,"zero_ship":0,"tasks_added":0,"remaining":0,"elapsed_s":600,"sweeps":0}\n' "$now"
+    printf '{"v":1,"ts":"%s","event":"preflight","ok":false,"failed_checks":2}\n' "$now"
+    printf '{"v":1,"ts":"%s","event":"preflight","ok":true,"failed_checks":0}\n' "$now"
+    printf '{"v":1,"ts":"%s","event":"preflight","ok":true,"failed_checks":0}\n' "$now"
+    printf '{"v":1,"ts":"%s","event":"preflight","ok":true,"failed_checks":0}\n' "$now"
+  } >"$SCRATCH/usage.jsonl"
+  XDG_STATE_HOME="$SCRATCH/state" TG_USAGE_LOG="$SCRATCH/usage.jsonl" run "$PROOF" --collect "$SCRATCH/m.json"
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.metrics.preflight_fail_pct.value' "$SCRATCH/m.json")" = "25" ]
+  # Preflight lines never count as grinds.
+  [ "$(jq -r '.metrics.grinds_30d.value' "$SCRATCH/m.json")" = "1" ]
+  TG_PROOF_METRICS="$SCRATCH/m.json" run "$PROOF" --render
+  [[ "$output" == *"| Preflight catches setup errors before a long run |"*"| 25 % (preflight runs that caught at least one failed check, of 4 runs) |"* ]]
+}

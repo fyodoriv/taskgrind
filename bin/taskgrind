@@ -2624,6 +2624,19 @@ preflight_check_target() {
   fi
 }
 
+# Field recording for --preflight: one content-free line (ok flag and failed
+# check count only), under the same rules as record_usage_event below.
+record_preflight_event() {
+  local failed="${1//[^0-9]/}" file ok=true
+  [[ "${DO_NOT_TRACK:-}" == "1" || "${DVB_USAGE_LOG:-}" == "off" ]] && return 0
+  [[ -n "${DVB_GRIND_CMD:-}" && -z "${DVB_USAGE_LOG:-}" ]] && return 0
+  file="${DVB_USAGE_LOG:-${XDG_STATE_HOME:-$HOME/.local/state}/taskgrind/usage.jsonl}"
+  [[ "${failed:-0}" -gt 0 ]] && ok=false
+  mkdir -p "$(dirname "$file")" 2>/dev/null || return 0
+  printf '{"v":1,"ts":"%s","event":"preflight","ok":%s,"failed_checks":%s}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$ok" "${failed:-0}" >> "$file" 2>/dev/null || true
+}
+
 # --preflight: run health checks and exit without launching
 if [[ "$preflight_only" -eq 1 ]]; then
   echo "taskgrind --preflight"
@@ -2651,8 +2664,10 @@ if [[ "$preflight_only" -eq 1 ]]; then
   done
   echo "  slots:    $_active_slots/$max_instances active"
   echo ""
-  preflight_check
-  _pf_status=$?
+  # set -e would exit on a failed check before the line is recorded.
+  _pf_status=0
+  preflight_check || _pf_status=$?
+  _pf_failed_total=$_pf_fail
   # Workspace mode: re-run the standard preflight checks against each target
   # repo so missing remotes, mid-rebase trees, or absent paths show up
   # before the deadline starts. The control-repo result still drives the
@@ -2665,8 +2680,9 @@ if [[ "$preflight_only" -eq 1 ]]; then
       _saved_repo="$repo"
       repo="$_tg"
       _pf_pass=0; _pf_warn=0; _pf_fail=0
-      preflight_check_target
-      _tg_status=$?
+      _tg_status=0
+      preflight_check_target || _tg_status=$?
+      _pf_failed_total=$(( _pf_failed_total + _pf_fail ))
       repo="$_saved_repo"
       if [[ "$_tg_status" -ne 0 ]]; then
         _pf_status=1
@@ -2674,6 +2690,7 @@ if [[ "$preflight_only" -eq 1 ]]; then
     done
     unset _tg _saved_repo _tg_status
   fi
+  record_preflight_event "$_pf_failed_total"
   exit "$_pf_status"
 fi
 
