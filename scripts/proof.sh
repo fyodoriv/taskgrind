@@ -135,7 +135,7 @@ render() {
     "|---|---|---|---|---|",
     "| It works through `TASKS.md` unattended | Small batches that each end in a commit keep work flowing (Forsgren, Humble, Kim 2018, *Accelerate*) | tasks shipped, last 30 days | \(res("tasks_shipped_30d")) | \(src("tasks_shipped_30d")) |",
     "| It runs for hours without a person | A deadline plus guards replaces a person who restarts each session | grinds and their wall hours, last 30 days | \(if $f.metrics.grinds_30d == null then $none else "\(res("grinds_30d")); \(res("unattended_hours_30d"))" end) | \(src("unattended_hours_30d")) |",
-    "| Sessions ship at a steady rate | Throughput is the outcome a work queue promises; it is the rate term in Little's law (Little 1961) | tasks shipped per grind hour | \(res("tasks_per_hour")) | \(src("tasks_per_hour")) |",
+    "| Sessions ship at a steady rate | Throughput is the outcome a work queue promises; it is the rate term in the Little law (Little 1961) | tasks shipped per grind hour | \(res("tasks_per_hour")) | \(src("tasks_per_hour")) |",
     "| Grinds end cleanly, not in a crash | Guards (stall, network, resume) turn failures into clean stops | grinds that did not end in the failed phase | \(res("grinds_ok_pct")) | \(src("grinds_ok_pct")) |",
     "| The stall guard limits wasted sessions | A run that ships nothing should stop early, not burn hours | sessions that shipped nothing | \(res("zero_ship_session_pct")) | \(src("zero_ship_session_pct")) |",
     "| Preflight catches setup errors before a long run | Fail fast: a check before launch is cheaper than a failed hour | preflight failures that a real grind would have hit | not measured yet (preflight writes no usage line; task `proof-preflight-field` in TASKS.md) | not measured yet |",
