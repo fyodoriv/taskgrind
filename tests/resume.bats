@@ -295,3 +295,41 @@ SCRIPT
   [ "$status" -eq 1 ]
   [[ "$output" == *"saved state is incompatible: prompt override does not match saved state"* ]]
 }
+
+@test "--resume marks the grind usage line as resumed" {
+  local state_file="$TEST_DIR/resume-state"
+  local counter_file="$TEST_DIR/resume-counter"
+  local resumable_backend="$TEST_DIR/resumable-backend"
+  echo "0" > "$counter_file"
+  create_fake_backend "$resumable_backend" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "${DVB_GRIND_INVOKE_LOG}"
+count=\$(cat "$counter_file")
+count=\$((count + 1))
+echo "\$count" > "$counter_file"
+if [[ "\$count" -eq 1 ]]; then
+  sleep 5
+else
+  cat > "$TEST_REPO/TASKS.md" <<'TASKS'
+# Tasks
+## P0
+TASKS
+fi
+SCRIPT
+  export DVB_GRIND_CMD="$resumable_backend"
+  export DVB_STATE_FILE="$state_file"
+  export DVB_DEADLINE_OFFSET=30
+  export DVB_USAGE_LOG="$TEST_DIR/usage.jsonl"
+
+  "$DVB_GRIND" 1 "$TEST_REPO" >"$TEST_DIR/stdout.log" 2>"$TEST_DIR/stderr.log" &
+  local grind_pid=$!
+  wait_for_resume_session "$state_file" 1
+  kill -9 "$grind_pid"
+  wait "$grind_pid" 2>/dev/null || true
+
+  run "$DVB_GRIND" --resume "$TEST_REPO"
+
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$DVB_USAGE_LOG" | tr -d ' ')" -eq 1 ]
+  grep -q '"resumed":true' "$DVB_USAGE_LOG"
+}
