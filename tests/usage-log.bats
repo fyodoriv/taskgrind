@@ -51,3 +51,29 @@ PY
   run_tiny_workload
   [ ! -e "$HOME/.local/state/taskgrind/usage.jsonl" ]
 }
+
+@test "usage log: preflight appends one content-free line with the failed check count" {
+  export DVB_USAGE_LOG="$TEST_DIR/usage.jsonl"
+  # A missing backend binary fails the backend check.
+  export DVB_GRIND_CMD="$TEST_DIR/no-such-backend"
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [ "$status" -eq 1 ]
+  fails=$(printf '%s\n' "$output" | sed -n 's/.*Results: .* \([0-9][0-9]*\) failed.*/\1/p')
+  [ "$(wc -l < "$DVB_USAGE_LOG" | tr -d ' ')" -eq 1 ]
+  run python3 - "$DVB_USAGE_LOG" "$fails" <<'PY'
+import json, sys
+row = json.loads(open(sys.argv[1]).read())
+assert set(row) == {"v", "ts", "event", "ok", "failed_checks"}, sorted(row)
+assert row["event"] == "preflight" and row["ok"] is False
+assert row["failed_checks"] == int(sys.argv[2]) and row["failed_checks"] >= 1
+PY
+  [ "$status" -eq 0 ]
+  run cat "$DVB_USAGE_LOG"
+  [[ "$output" != *"/"* ]]
+}
+
+@test "usage log: fake-backend preflight writes no default log" {
+  unset DVB_USAGE_LOG TG_USAGE_LOG
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [ ! -e "$HOME/.local/state/taskgrind/usage.jsonl" ]
+}

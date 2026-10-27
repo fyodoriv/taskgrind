@@ -78,7 +78,7 @@ Each machine aggregates its own log here. Opt-in telemetry (`taskgrind telemetry
 | Sessions ship at a steady rate | Throughput is the outcome a work queue promises; it is the rate term in the Little law (Little 1961) | tasks shipped per grind hour | not measured yet (field recording on since 2026-10-27) | not measured yet |
 | Grinds end cleanly, not in a crash | Guards (stall, network, resume) turn failures into clean stops | grinds that did not end in the failed phase | not measured yet (field recording on since 2026-10-27) | not measured yet |
 | The stall guard limits wasted sessions | A run that ships nothing should stop early, not burn hours | sessions that shipped nothing | not measured yet (field recording on since 2026-10-27) | not measured yet |
-| Preflight catches setup errors before a long run | Fail fast: a check before launch is cheaper than a failed hour | preflight failures that a real grind would have hit | not measured yet (preflight writes no usage line; task `proof-preflight-field` in TASKS.md) | not measured yet |
+| Preflight catches setup errors before a long run | Fail fast: a check before launch is cheaper than a failed hour | preflight runs that caught a failed check, last 30 days | not measured yet (field recording on since 2026-10-27) | not measured yet |
 | `--resume` recovers an interrupted grind | Resume from the last commit keeps the deadline and counters | resumed grinds and their outcome | not measured yet (the usage line does not mark a resume; task `proof-resume-field` in TASKS.md) | not measured yet |
 
 Field data so far: 0 machine(s) with grinds. Machines seen, each named by a salted hash: `m-d697d4fe80` (0 grinds in 30 days, log since no event yet, as of 2026-10-27).

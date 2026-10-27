@@ -78,8 +78,9 @@ collect() {
       { value: $v, unit: $unit, date: $today, kind: $kind, command: $cmd, detail: $detail,
         history: ((($prev.metrics[$name].history // []) | map(select(.date != $today))) + [{date: $today, value: $v}]) };
     def sum(f): map(f) | add // 0;
-    map(select(type == "object" and .event == "grind" and (.ts | type) == "string")) | sort_by(.ts) as $all
-    | (now - 30 * 86400 | todate) as $cut
+    (now - 30 * 86400 | todate) as $cut
+    | [.[] | select(type == "object" and .event == "preflight" and (.ts | type) == "string" and .ts >= $cut)] as $pf
+    | map(select(type == "object" and .event == "grind" and (.ts | type) == "string")) | sort_by(.ts) as $all
     | [$all[] | select(.ts >= $cut)] as $g
     | ($g | length) as $n
     | ($g | sum(.sessions)) as $sessions
@@ -98,7 +99,9 @@ collect() {
           grinds_ok_pct: m(if $n == 0 then null else (($g | map(select(.ok == true)) | length) * 100 / $n | floor) end; "%";
             "grinds that did not end in the failed phase, \($n) grinds"; "real use"; "grinds_ok_pct"),
           zero_ship_session_pct: m(if $sessions == 0 then null else (($g | sum(.zero_ship)) * 100 / $sessions | floor) end; "%";
-            "sessions that shipped nothing, of \($sessions) sessions"; "real use"; "zero_ship_session_pct")
+            "sessions that shipped nothing, of \($sessions) sessions"; "real use"; "zero_ship_session_pct"),
+          preflight_fail_pct: m(if ($pf | length) == 0 then null else (($pf | map(select((.failed_checks // 0) > 0)) | length) * 100 / ($pf | length) | floor) end; "%";
+            "preflight runs that caught at least one failed check, of \($pf | length) runs"; "real use"; "preflight_fail_pct")
         } + (if $dry == "" then {} else {
           dry_run_ms: m(($dry | tonumber); "ms"; "median of 5 `taskgrind --dry-run` starts on a scratch repo";
             $local; "dry_run_ms") } end)
@@ -138,7 +141,7 @@ render() {
     "| Sessions ship at a steady rate | Throughput is the outcome a work queue promises; it is the rate term in the Little law (Little 1961) | tasks shipped per grind hour | \(res("tasks_per_hour")) | \(src("tasks_per_hour")) |",
     "| Grinds end cleanly, not in a crash | Guards (stall, network, resume) turn failures into clean stops | grinds that did not end in the failed phase | \(res("grinds_ok_pct")) | \(src("grinds_ok_pct")) |",
     "| The stall guard limits wasted sessions | A run that ships nothing should stop early, not burn hours | sessions that shipped nothing | \(res("zero_ship_session_pct")) | \(src("zero_ship_session_pct")) |",
-    "| Preflight catches setup errors before a long run | Fail fast: a check before launch is cheaper than a failed hour | preflight failures that a real grind would have hit | not measured yet (preflight writes no usage line; task `proof-preflight-field` in TASKS.md) | not measured yet |",
+    "| Preflight catches setup errors before a long run | Fail fast: a check before launch is cheaper than a failed hour | preflight runs that caught a failed check, last 30 days | \(res("preflight_fail_pct")) | \(src("preflight_fail_pct")) |",
     "| `--resume` recovers an interrupted grind | Resume from the last commit keeps the deadline and counters | resumed grinds and their outcome | not measured yet (the usage line does not mark a resume; task `proof-resume-field` in TASKS.md) | not measured yet |",
     "",
     "Field data so far: \($n) machine(s) with grinds. Machines seen, each named by a salted hash: \(if ($f.machines | length) == 0 then "none" else ([$f.machines | to_entries[] | "`\(.key)` (\(.value.grinds_30d) grinds in 30 days, log since \(if .value.first_event == "" then "no event yet" else .value.first_event end), as of \(.value.date))"] | join("; ")) end).",
