@@ -2338,6 +2338,17 @@ slot_lock_active() {
   kill -0 "$lock_pid" 2>/dev/null
 }
 
+# Dirty-tree check: a warning, never a block. Long-lived repos often carry
+# local editor metadata, but between-session sync can stash and pop local
+# work, so the operator should see the risk before launch.
+_preflight_dirty_tree_check() {
+  local dirty
+  dirty=$(git -C "$1" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "${dirty:-0}" -gt 0 ]]; then
+    preflight_warn "Working tree has ${dirty} uncommitted change(s) — between-session sync may stash them; run 'git status --short' in $1"
+  fi
+}
+
 preflight_check() {
   echo "Preflight checks for: $repo"
   echo ""
@@ -2405,7 +2416,7 @@ preflight_check() {
     dvb_spinner_stop; preflight_fail "Network unreachable"
   fi
 
-  # 5. Git state clean — not mid-rebase, not detached HEAD, not mid-merge
+  # 5. Git operation state safe — not mid-rebase, not detached HEAD, not mid-merge
   local git_dir
   git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)" || git_dir=""
   if [[ -z "$git_dir" ]]; then
@@ -2425,8 +2436,9 @@ preflight_check() {
       git_clean=0
     fi
     if [[ $git_clean -eq 1 ]]; then
-      preflight_pass "Git state clean"
+      preflight_pass "Git operation state safe"
     fi
+    _preflight_dirty_tree_check "$repo"
     # Stale-stash hygiene check — repos where prior crashed runs left WIP
     # in `git stash` build up over time. The threshold is generous (5 by
     # default) so a single in-flight stash from the operator never trips
@@ -2560,7 +2572,7 @@ preflight_check() {
 preflight_check_target() {
   # Caller resets the per-target counters before invoking.
 
-  # Git state clean — not mid-rebase, not detached HEAD, not mid-merge
+  # Git operation state safe — not mid-rebase, not detached HEAD, not mid-merge
   local git_dir
   git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)" || git_dir=""
   if [[ -z "$git_dir" ]]; then
@@ -2580,8 +2592,9 @@ preflight_check_target() {
       git_clean=0
     fi
     if [[ $git_clean -eq 1 ]]; then
-      preflight_pass "Git state clean"
+      preflight_pass "Git operation state safe"
     fi
+    _preflight_dirty_tree_check "$repo"
   fi
 
   # Git remote reachable

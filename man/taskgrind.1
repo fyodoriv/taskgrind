@@ -82,7 +82,8 @@ Not compatible with
 Print configuration and exit without running sessions.
 .TP
 .BR \-\-preflight
-Run health checks and exit.
+Run health checks and exit. "Git operation state safe" means no rebase, merge,
+or detached HEAD; uncommitted or untracked files get a separate warning.
 .TP
 .BR \-\-resume
 Resume an interrupted grind from the saved state in the target repo.
