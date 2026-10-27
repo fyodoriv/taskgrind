@@ -3072,6 +3072,7 @@ write_status_file() {
   "skill": "$(json_escape "$skill")",
   "model": "$(json_escape "$model")",
   "session": $session,
+  "loop_iterations": $session,
   "remaining_minutes": $remaining_minutes,
   "current_phase": "$(json_escape "$current_phase")",
   "terminal_reason": $terminal_reason_json,
@@ -3954,7 +3955,7 @@ cleanup() {
   echo "  Log: $log_file"
   echo "──────────────────────────────────────────"
   local _done_line
-  _done_line="[pid=$$] [$(date '+%H:%M')] grind_done sessions=$session shipped=$tasks_shipped remaining=$tasks_remaining_snapshot ship_rate=$ship_rate avg_session=$avg_session elapsed=${elapsed}s duration=$duration rate=${rate}/h sessions_zero_ship=$sessions_zero_ship tasks_starting=$tasks_starting tasks_added=$tasks_added_total sweeps=$_sweep_count sweep_seconds=$_sweep_seconds"
+  _done_line="[pid=$$] [$(date '+%H:%M')] grind_done sessions=$(( session - _sweep_count )) shipped=$tasks_shipped remaining=$tasks_remaining_snapshot ship_rate=$ship_rate avg_session=$avg_session elapsed=${elapsed}s duration=$duration rate=${rate}/h sessions_zero_ship=$sessions_zero_ship tasks_starting=$tasks_starting tasks_added=$tasks_added_total sweeps=$_sweep_count sweep_seconds=$_sweep_seconds loop_iterations=$session"
   if [[ -n "${terminal_reason:-}" ]]; then
     _done_line+=" terminal_reason=$terminal_reason"
   fi

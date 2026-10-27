@@ -1080,6 +1080,37 @@ TASKS
   grep -qE 'grind_done .* sweep_seconds=[0-9]+' "$TEST_LOG"
 }
 
+@test "grind_done sessions excludes sweep-only iterations" {
+  # Empty queue, the sweep finds nothing: no real session ran.
+  printf '# Tasks\n## P0\n' > "$TEST_REPO/TASKS.md"
+  export DVB_DEADLINE_OFFSET=8
+  export TG_NO_STALL_EXIT=1
+  export DVB_STATUS_FILE="$TEST_DIR/status.json"
+  run "$DVB_GRIND" 1 "$TEST_REPO"
+  [ "$status" -eq 0 ]
+  local line sweeps iterations
+  line=$(grep 'grind_done ' "$TEST_LOG")
+  [[ "$line" == *"grind_done sessions=0 "* ]]
+  sweeps=$(printf '%s' "$line" | sed -E 's/.* sweeps=([0-9]+).*/\1/')
+  iterations=$(printf '%s' "$line" | sed -E 's/.* loop_iterations=([0-9]+).*/\1/')
+  [ "$sweeps" -ge 1 ]
+  [ "$iterations" -eq "$sweeps" ]
+  grep -q "\"loop_iterations\": $iterations" "$DVB_STATUS_FILE"
+}
+
+@test "grind_done sessions plus sweeps equals loop_iterations on a real run" {
+  export TG_NO_STALL_EXIT=1
+  run_tiny_workload
+  [ "$status" -eq 0 ]
+  local line s w i
+  line=$(grep 'grind_done ' "$TEST_LOG")
+  s=$(printf '%s' "$line" | sed -E 's/.*grind_done sessions=([0-9]+).*/\1/')
+  w=$(printf '%s' "$line" | sed -E 's/.* sweeps=([0-9]+).*/\1/')
+  i=$(printf '%s' "$line" | sed -E 's/.* loop_iterations=([0-9]+).*/\1/')
+  [ "$s" -ge 1 ]
+  [ $((s + w)) -eq "$i" ]
+}
+
 @test "sweep_seconds accumulator stays consistent with sweep_done elapsed sum" {
   # Trigger a sweep and assert that the grind_done `sweep_seconds`
   # field equals the sum of the `elapsed=Ns` fields on every
