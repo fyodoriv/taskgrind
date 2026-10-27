@@ -720,3 +720,48 @@ _preflight_commit_all() {
   [[ "$output" == *"Target repo preflight: $target"* ]]
   [[ "$output" == *"⚠ Working tree has 1 uncommitted change(s)"* ]]
 }
+
+# ── Parent-of-repos directory ────────────────────────────────────────
+
+_make_child_repos() {
+  local parent="$1"; shift
+  local name
+  for name in "$@"; do
+    mkdir -p "$parent/$name"
+    git -C "$parent/$name" init -q -b main
+  done
+}
+
+@test "preflight: a parent of several repos warns and lists them" {
+  local parent="$TEST_DIR/apps"
+  _make_child_repos "$parent" alpha beta gamma delta epsilon
+  run "$DVB_GRIND" --preflight "$parent"
+  [[ "$output" == *"looks like a parent of 5 git repos"* ]]
+  [[ "$output" == *"--target-repo"* ]]
+  [[ "$output" == *"$parent/alpha"* ]]
+  [[ "$output" == *"$parent/gamma"* ]]
+  [[ "$output" == *"$parent/epsilon"* ]]
+}
+
+@test "preflight: a single repo does not get the parent-of-repos warning" {
+  _preflight_git_init
+  run "$DVB_GRIND" --preflight "$TEST_REPO"
+  [[ "$output" != *"looks like a parent of"* ]]
+}
+
+@test "preflight: workspace mode skips the warning for the control repo" {
+  local parent="$TEST_DIR/apps"
+  _make_child_repos "$parent" alpha beta gamma
+  _preflight_git_init
+  run "$DVB_GRIND" --preflight --target-repo "$parent/alpha" "$parent"
+  [[ "$output" != *"looks like a parent of"* ]]
+}
+
+@test "preflight: a workspace target that is a parent of repos warns" {
+  local parent="$TEST_DIR/apps"
+  _make_child_repos "$parent" alpha beta gamma
+  _preflight_git_init
+  run "$DVB_GRIND" --preflight --target-repo "$parent" "$TEST_REPO"
+  [[ "$output" == *"Target repo preflight: $parent"* ]]
+  [[ "$output" == *"looks like a parent of 3 git repos"* ]]
+}

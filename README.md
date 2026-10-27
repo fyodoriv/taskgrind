@@ -27,7 +27,7 @@ Contributors and coding agents: read [`AGENTS.md`](AGENTS.md) first.
 - **Resume after a reboot**: `taskgrind --resume` continues from the last clean commit.
 - **Steer a running grind**: edit `.taskgrind-prompt` or `.taskgrind-model` in the repo.
 - **Several grinds on one repo**: `TG_MAX_INSTANCES` gives each its own slot.
-- **One queue, several repos**: `--target-repo` opens a workspace across linked repos.
+- **One queue, several repos**: `--target-repo` opens a workspace across linked repos. Preflight warns when you pass a folder of repos (such as `~/apps`) instead.
 - **Work for review only**: `--no-push` commits locally and never pushes.
 - **A plain-language brief**: `--from-prompt` turns one sentence into the run config.
 

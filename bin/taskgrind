@@ -1527,6 +1527,25 @@ _preflight_check_remote_reachable() {
   fi
 }
 
+# A directory holding several sibling git checkouts is almost always a
+# mistake: the operator meant one repo under it, or workspace mode. Counts
+# child repos only (one level down), so a repo's own .git never counts.
+# Warn, never fail: the operator may have a reason we do not know.
+_preflight_check_parent_of_repos() {
+  local check_repo="$1" children count
+  children=$(find "$check_repo" -mindepth 2 -maxdepth 2 -name .git 2>/dev/null | sed 's|/\.git$||' | sort)
+  count=$(printf '%s' "$children" | grep -c . 2>/dev/null) || true
+  [[ "${count:-0}" -ge 3 ]] || return 0
+  local list
+  if [[ "$count" -le 8 ]]; then
+    list=$(printf '%s' "$children" | tr '\n' ' ')
+    list="Found: ${list% }."
+  else
+    list="List them with: ls -d $check_repo/*/.git | sed 's|/.git\$||'"
+  fi
+  preflight_warn "$check_repo looks like a parent of $count git repos. To grind one repo, pass its path. For several, use workspace mode: taskgrind --target-repo <repo1> --target-repo <repo2> <control-repo> (or --from-prompt). $list"
+}
+
 _preflight_check_tasks_md() {
   local check_repo="$1" mode="${2:-control}"
   local tasks_path="$check_repo/TASKS.md"
@@ -2483,6 +2502,9 @@ preflight_check() {
 
   # 8. TASKS.md exists — signal for work discovery
   _preflight_check_tasks_md "$repo" "control"
+  if [[ "${#target_repos[@]}" -eq 0 ]]; then
+    _preflight_check_parent_of_repos "$repo"
+  fi
 
   # 9. network-watchdog available — network resilience during marathon
   if command -v network-watchdog >/dev/null 2>&1; then
@@ -2620,6 +2642,7 @@ preflight_check_target() {
   # Target repos do not need their own queue, but a TASKS.md directory/special
   # file still means the operator likely passed a parent path by mistake.
   _preflight_check_tasks_md "$repo" "target"
+  _preflight_check_parent_of_repos "$repo"
 
   # Summary
   echo ""

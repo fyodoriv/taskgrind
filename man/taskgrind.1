@@ -1033,6 +1033,17 @@ unblock
 .I TASKS.md
 instead of restarting immediately.
 .TP
+.B Preflight says the repo looks like a parent of N git repos
+The path holds three or more sibling git checkouts, such as
+.IR ~/apps .
+Pass one repo path, or use workspace mode:
+.B taskgrind \-\-target\-repo
+.I repo1
+.B \-\-target\-repo
+.I repo2
+.IR control-repo .
+This is a warning only.
+.TP
 .B TASKS.md is not a regular file
 If preflight reports that
 .I TASKS.md
