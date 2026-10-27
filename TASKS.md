@@ -161,6 +161,7 @@
 
 - [ ] Document the `BOSUN_HOOK_RECENCY_SECONDS=0` operator escape hatch in `--help` and README
   - **ID**: document-bosun-hook-recency-escape-hatch
+  - **Blocked**: documents an external Bosun hook contract that cannot be verified from this repo; owner must confirm the Bosun pre-commit hook is still in use before taskgrind docs advertise it (2026-10-27 triage).
   - **Tags**: docs, bosun-integration, operator-ux
   - **Source**: 2026-05-02 — operator (running session bosun PR #1580) needed to commit a fix in the same shell where a grind had just ended. The pre-commit hook was correctly blocking based on a 10-minute recency window. The escape hatch `BOSUN_HOOK_RECENCY_SECONDS=0` is documented in the bosun hook source and was used to land PR #1580 itself, but it's not in any taskgrind user-facing docs — operators have to know to look at the hook source.
   - **Details**: Add a "Operator escape hatches" section to `taskgrind --help` (after env vars) and to README.md. Include:
@@ -294,6 +295,7 @@
 
 - [ ] Register every taskgrind with Bosun when Bosun is available
   - **ID**: bosun-autonomy-ops-always-register-local-grinds
+  - **Blocked**: needs a live local Bosun server and its grind-session API to build and verify the registration payload; no Bosun instance is available to an agent run (2026-10-27 triage).
   - **Tags**: bosun, integration, observability, status-file, logs
   - **Source**: 2026-05-01 Bosun/taskgrind integration brainstorming. Chosen discovery policy: self-registration is required for correctness; process scanning is only an optional Bosun fallback.
   - **Details**: Today Taskgrind ensures a Bosun grind session mainly for Bosun-dependent skills such as `fleet-grind`. For the Autonomy Ops fleet board, every taskgrind should opportunistically self-register when a local Bosun server is reachable, without making Bosun a hard dependency for normal runs. Registration should include the control repo path, target repo paths, PID, hostname, backend, skill, model, deadline, slot, log path, status path, and a restart/resume launch summary. If Bosun is unreachable, Taskgrind logs a clear `bosun_register skipped` marker and continues normally. Keep this `/bin/bash` 3.2 compatible.
@@ -302,6 +304,7 @@
 
 - [ ] Add a Bosun-compatible halt/resume control contract for supervised grinds
   - **ID**: bosun-autonomy-ops-halt-resume-contract
+  - **Blocked**: Bosun is the consumer of this contract; its classifier and resume policy must be defined on the Bosun side first, and the owner must confirm Bosun is still the target supervisor (2026-10-27 triage).
   - **Tags**: bosun, supervisor, resume, signals, status-file
   - **Source**: 2026-05-01 Bosun/taskgrind integration brainstorming. The Tech Lead must halt conflicting grinds, fix the affected repo, then prefer `taskgrind --resume` with fallback to stored launch spec.
   - **Details**: Harden Taskgrind's externally supervised shutdown/resume path so Bosun can stop a conflicting run safely and restart it after a fix. Taskgrind already handles SIGTERM and resume state; this task makes that contract explicit and machine-readable. On graceful external termination, write a status phase/reason that tells Bosun whether resume is expected to work. Ensure the resume state preserves enough of backend, skill, model, prompt, no-push, target repos, deadline, and counters for Bosun's hybrid resume policy. Add stable log markers for `external_halt_requested`, `external_halt_ready_for_resume`, `resume_accepted`, and `resume_rejected`.
@@ -310,6 +313,7 @@
 
 - [ ] Enrich Taskgrind status snapshots with Tech Lead detector signals
   - **ID**: bosun-autonomy-ops-detector-status-fields
+  - **Blocked**: the field set is dictated by Bosun's Tech Lead detector, which lives outside this repo; owner decision needed on whether Bosun integration is still planned (2026-10-27 triage).
   - **Tags**: bosun, status-file, observability, detectors, tech-lead
   - **Source**: 2026-05-01 Bosun/taskgrind integration brainstorming. Bosun should use deterministic status/log signals before launching a bounded Tech Lead fixer turn.
   - **Details**: Extend `TG_STATUS_FILE` output with fields that let Bosun detect productivity and stuck patterns without scraping full logs: `zero_ship_streak`, recent shipped-window counts, `last_progress_at`, `last_phase_change_at`, `last_error_summary`, `blocked_task_count`, `open_task_count`, `skip_task_ids`, `pipeline_verify_status`, and whether the current session is a sweep/audit lane. Keep the existing fields backward-compatible. The goal is not to make Taskgrind decide what Tech Lead should do; it should expose reliable facts so Bosun's detector can make that decision.
@@ -318,6 +322,7 @@
 
 - [ ] Deregister Bosun grind sessions created by `taskgrind --preflight`
   - **ID**: preflight-deregisters-bosun-grind-session
+  - **Blocked**: acceptance requires `bosun grind status` / the Bosun grind-sessions API on a running Bosun server; not available to an agent run (2026-10-27 triage).
   - **Tags**: bosun, preflight, slots, cleanup, regression
   - **Source**: 2026-04-30 Bosun pipeline-only canary. Running `taskgrind --preflight --skill fleet-grind ~/apps/bosun` passed and registered Bosun grind session `62dc95e0-d855-40fe-8743-aa3472cccd20`, but the process exited without deregistering it. The follow-up canary then registered `c9989603-de4e-4b64-b9fd-af872e5d7c36` in slot 1 because slot 0 was still occupied by the stale preflight session.
   - **Details**: `--preflight` should verify that Bosun session registration works without consuming a long-lived grind slot. Today `_ensure_bosun_grind_session` creates a real session during preflight, but the preflight-only exit path does not call `bosun grind done` / the deregistration API. Fix the lifecycle so sessions created only for preflight are always completed on successful or failed preflight exit. Do not deregister a session the operator explicitly exported before invoking preflight; only clean up the session that this process created.
@@ -860,6 +865,7 @@
 
 - [ ] Investigate why `productive_zero_ship` fires on ~30% of sessions on actively-grinded repos like `agentbrew`
   - **ID**: investigate-productive-zero-ship-rate
+  - **Blocked**: research-only task that needs days of real grind logs from the owner's machine (multi-agent agentbrew runs); not reproducible in a sandboxed agent run (2026-10-27 triage).
   - **Tags**: signals, observability, multi-agent, telemetry, research-only
   - **Source**: 24h `agentbrew` grind log `taskgrind-2026-04-26-1156-agentbrew-41789.log` — `productive_zero_ship` fired on **8 of 27 sessions** (sessions 7, 11, 13, 14, 17, 18, 19, 21, 24, 25, 26 = 30%+ rate), with the recovery `shipped_inferred` correcting the count 6 of those times. The signal is doing its job (the `shipped_inferred=1` counter-corrections are individually right per the log details), but firing on ~1 in 3 sessions is high enough to be a smell about either signal sensitivity or genuine queue churn from concurrent multi-agent activity.
   - **Details**: The `productive_zero_ship` check fires when a session committed code (≥1 git commit) but the TASKS.md task count didn't drop — meaning the queue-delta accounting says 0 shipped despite obvious productivity. Three sub-reasons exist today:
