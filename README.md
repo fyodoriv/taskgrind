@@ -1,5 +1,7 @@
 # taskgrind
 
+> **Archived on 2026-11-18.** Use Claude Code `/loop` or `/goal` with the `grind` skill from [agentbrew](https://github.com/fyodoriv/agentbrew/tree/main/skill-plugins/workflow/grind) instead. Its run guards (preflight, stuck-task cap, all-blocked wait, stall stop) live in [`references/run-guards.md`](https://github.com/fyodoriv/agentbrew/blob/main/skill-plugins/workflow/grind/references/run-guards.md). What moved where: [absorb map](https://github.com/fyodoriv/agentbrew/blob/main/docs/plans/absorb-taskgrind.md).
+
 taskgrind runs fresh AI coding sessions (Claude Code or Codex) one after another on a repo's `TASKS.md` queue, for hours, with no person watching. It stops at a deadline, an empty queue, or a stall, and each session commits its own work, so a crash loses little.
 
 In the repo taskgrind should work on, tell Claude Code (or Codex):
